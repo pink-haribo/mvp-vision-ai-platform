@@ -1,0 +1,15 @@
+# Deep Learning
+torch==2.1.0
+torchvision==0.16.0
+timm==0.9.12
+
+# Data Processing
+numpy==1.26.0
+pillow==10.1.0
+
+# Utils
+tqdm==4.66.0
+pyyaml==6.0.1
+
+# Logging
+tensorboard==2.15.1
