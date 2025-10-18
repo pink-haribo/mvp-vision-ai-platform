@@ -78,3 +78,16 @@ class TrainingStatusResponse(BaseModel):
 
     job: TrainingJobResponse
     latest_metrics: list[TrainingMetricResponse]
+
+
+class TrainingLogResponse(BaseModel):
+    """Schema for training log response."""
+
+    id: int
+    job_id: int
+    log_type: str
+    content: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

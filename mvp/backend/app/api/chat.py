@@ -1,6 +1,7 @@
 """Chat API endpoints."""
 
 import logging
+import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session as DBSession
 
@@ -8,12 +9,51 @@ from app.db.database import get_db
 from app.db.models import Session as SessionModel, Message as MessageModel
 from app.schemas import chat
 from app.utils.llm import intent_parser
+from app.services.dataset_analyzer import dataset_analyzer
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _extract_dataset_path(message: str, context: str = "") -> str:
+    """
+    Extract dataset path from user message or context.
+
+    Looks for patterns like:
+    - ./data/datasets/sample
+    - /absolute/path/to/dataset
+    - data/folder
+    - "path in quotes"
+    """
+    combined_text = f"{context}\n{message}"
+
+    # Pattern 1: Paths starting with ./ or / (ASCII only, stop at non-path characters)
+    pattern1 = r'\.?/[a-zA-Z0-9_\-./]+'
+    matches = re.findall(pattern1, combined_text)
+    if matches:
+        # Return the last matched path (most recent in conversation)
+        return matches[-1]
+
+    # Pattern 2: Quoted paths
+    pattern2 = r'["\']([^"\']+?)["\']'
+    matches = re.findall(pattern2, combined_text)
+    for match in reversed(matches):  # Check from most recent
+        # Filter out short strings that are probably not paths
+        if '/' in match or '\\' in match or 'data' in match.lower():
+            return match
+
+    # Pattern 3: Common dataset path keywords
+    if 'dataset' in combined_text.lower() or 'data' in combined_text.lower():
+        # Look for word that looks like a path
+        words = combined_text.split()
+        for word in reversed(words):
+            if 'data' in word.lower() and ('/' in word or '\\' in word):
+                return word.strip('.,!?')
+
+    return None
 
 
 @router.post("/sessions", response_model=chat.SessionResponse)
@@ -91,20 +131,56 @@ async def send_message(request: chat.ChatRequest, db: DBSession = Depends(get_db
 
         logger.debug(f"Saved user message ID: {user_message.id}")
 
-        # Get conversation context (last 5 messages)
+        # Get conversation context (last 10 messages for better memory)
         previous_messages = (
             db.query(MessageModel)
             .filter(MessageModel.session_id == session.id)
             .order_by(MessageModel.created_at.desc())
-            .limit(5)
+            .limit(10)
             .all()
         )
-        context = "\n".join([f"{msg.role}: {msg.content}" for msg in reversed(previous_messages[:-1])])
+
+        # Build rich context with clear formatting
+        context_parts = []
+        for msg in reversed(previous_messages[:-1]):  # Exclude current message
+            context_parts.append(f"[{msg.role.upper()}]: {msg.content}")
+
+        context = "\n".join(context_parts) if context_parts else None
 
         logger.debug("Calling LLM for intent parsing...")
 
-        # Parse intent
-        parsed_result = await intent_parser.parse_message(request.message, context if context else None)
+        # Try to extract dataset path from current message AND full conversation history
+        dataset_info = None
+        full_conversation = context + f"\n[USER]: {request.message}" if context else request.message
+        dataset_path = _extract_dataset_path(request.message, full_conversation)
+        logger.debug(f"Extracted dataset path: {dataset_path}")
+
+        if dataset_path:
+            logger.debug(f"Dataset path detected: {dataset_path}")
+            logger.debug("Analyzing dataset...")
+            dataset_info = dataset_analyzer.analyze(dataset_path)
+            logger.debug(f"Dataset analysis complete: {dataset_info.get('format')}, "
+                        f"{dataset_info.get('num_classes')} classes")
+
+            # Add dataset analysis to context for LLM
+            if dataset_info and dataset_info.get('exists'):
+                analysis_summary = (
+                    f"\n\n[DATASET ANALYSIS - VERY IMPORTANT]:\n"
+                    f"- Dataset path: {dataset_info.get('resolved_path', dataset_path)}\n"
+                    f"- Format: {dataset_info.get('format')}\n"
+                    f"- Number of classes: {dataset_info.get('num_classes')}\n"
+                    f"- Class names: {', '.join(dataset_info.get('class_names', []))}\n"
+                    f"- Total images: {dataset_info.get('total_images')}\n"
+                    f"- Has train/val split: {dataset_info.get('has_train_val_split')}"
+                )
+                context = (context + analysis_summary) if context else analysis_summary
+
+        # Parse intent (with dataset info if available)
+        parsed_result = await intent_parser.parse_message(
+            request.message,
+            context if context else None,
+            dataset_info
+        )
 
         logger.debug(f"Parsed result status: {parsed_result.get('status')}")
         if parsed_result.get("status") == "error":

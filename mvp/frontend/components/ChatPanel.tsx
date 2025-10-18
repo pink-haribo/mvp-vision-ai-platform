@@ -73,16 +73,44 @@ export default function ChatPanel({
       // Clear input
       setInput('')
 
-      // If training config is complete, show training option
+      // If training config is complete, create training job
       if (data.parsed_intent?.status === 'complete') {
-        // TODO: Show training start button or automatically create training job
         console.log('Training config ready:', data.parsed_intent.config)
+        await createTrainingJob(data.session_id, data.parsed_intent.config)
       }
     } catch (error) {
       console.error('Error sending message:', error)
       alert('메시지 전송 실패')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const createTrainingJob = async (sessionId: number, config: any) => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/training/jobs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          config: config,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to create training job')
+      }
+
+      const job = await response.json()
+      console.log('Training job created:', job)
+
+      // Notify parent component
+      onTrainingRequested(job.id)
+    } catch (error) {
+      console.error('Error creating training job:', error)
+      alert('학습 작업 생성 실패')
     }
   }
 

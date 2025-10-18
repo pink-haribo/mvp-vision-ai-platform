@@ -26,6 +26,13 @@ interface TrainingMetric {
   }
 }
 
+interface TrainingLog {
+  id: number
+  log_type: string
+  content: string
+  created_at: string
+}
+
 interface TrainingPanelProps {
   trainingJobId: number | null
 }
@@ -33,6 +40,7 @@ interface TrainingPanelProps {
 export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
   const [job, setJob] = useState<TrainingJob | null>(null)
   const [metrics, setMetrics] = useState<TrainingMetric[]>([])
+  const [logs, setLogs] = useState<TrainingLog[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
   // Fetch training job details
@@ -83,6 +91,33 @@ export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
     // Poll for metrics every 2 seconds if training is running
     if (job?.status === 'running') {
       const interval = setInterval(fetchMetrics, 2000)
+      return () => clearInterval(interval)
+    }
+  }, [trainingJobId, job?.status])
+
+  // Fetch logs
+  useEffect(() => {
+    if (!trainingJobId) return
+
+    const fetchLogs = async () => {
+      try {
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/logs?limit=200`
+        )
+        if (response.ok) {
+          const data = await response.json()
+          setLogs(data)
+        }
+      } catch (error) {
+        console.error('Error fetching logs:', error)
+      }
+    }
+
+    fetchLogs()
+
+    // Poll for logs every 2 seconds if training is running
+    if (job?.status === 'running') {
+      const interval = setInterval(fetchLogs, 2000)
       return () => clearInterval(interval)
     }
   }, [trainingJobId, job?.status])
@@ -246,43 +281,69 @@ export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
         </div>
       </div>
 
-      {/* Metrics */}
-      <div className="flex-1 overflow-y-auto p-6">
-        <h3 className="text-sm font-semibold text-gray-900 mb-3">메트릭</h3>
+      {/* Content Area */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        {/* Metrics */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">메트릭</h3>
 
-        {metrics.length === 0 ? (
-          <p className="text-sm text-gray-500">학습을 시작하면 메트릭이 표시됩니다</p>
-        ) : (
-          <div className="space-y-2">
-            {metrics.map((metric) => (
-              <div
-                key={metric.epoch}
-                className="p-4 bg-white rounded-lg border border-gray-200"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-semibold text-gray-900">
-                    Epoch {metric.epoch}
-                  </span>
-                  <span className="text-xs text-gray-600">
-                    Accuracy: {metric.accuracy?.toFixed(2)}%
-                  </span>
+          {metrics.length === 0 ? (
+            <p className="text-sm text-gray-500">학습을 시작하면 메트릭이 표시됩니다</p>
+          ) : (
+            <div className="space-y-2">
+              {metrics.map((metric) => (
+                <div
+                  key={metric.epoch}
+                  className="p-4 bg-white rounded-lg border border-gray-200"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold text-gray-900">
+                      Epoch {metric.epoch}
+                    </span>
+                    <span className="text-xs text-gray-600">
+                      Accuracy: {metric.accuracy?.toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                    <div>Val Loss: {metric.loss?.toFixed(4)}</div>
+                    <div>Train Loss: {metric.extra_metrics?.train_loss?.toFixed(4)}</div>
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                  <div>Val Loss: {metric.loss?.toFixed(4)}</div>
-                  <div>Train Loss: {metric.extra_metrics?.train_loss?.toFixed(4)}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
 
-        {job.final_accuracy !== null && (
-          <div className="mt-6 p-4 bg-violet-50 rounded-lg border border-violet-200">
-            <p className="text-sm font-semibold text-violet-900">
-              최종 정확도: {job.final_accuracy.toFixed(2)}%
-            </p>
-          </div>
-        )}
+          {job.final_accuracy !== null && (
+            <div className="mt-6 p-4 bg-violet-50 rounded-lg border border-violet-200">
+              <p className="text-sm font-semibold text-violet-900">
+                최종 정확도: {job.final_accuracy.toFixed(2)}%
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Logs */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">학습 로그</h3>
+
+          {logs.length === 0 ? (
+            <p className="text-sm text-gray-500">학습을 시작하면 로그가 표시됩니다</p>
+          ) : (
+            <div className="bg-gray-900 rounded-lg p-4 font-mono text-xs overflow-auto max-h-96">
+              {logs.map((log) => (
+                <div
+                  key={log.id}
+                  className={cn(
+                    'mb-1',
+                    log.log_type === 'stderr' ? 'text-red-400' : 'text-green-400'
+                  )}
+                >
+                  {log.content}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

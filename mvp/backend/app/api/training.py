@@ -178,3 +178,35 @@ async def cancel_training_job(job_id: int, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(job)
         return job
+
+
+@router.get("/jobs/{job_id}/logs", response_model=list[training.TrainingLogResponse])
+async def get_training_logs(
+    job_id: int,
+    limit: int = 100,
+    log_type: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Get training logs for a job.
+
+    Args:
+        job_id: Training job ID
+        limit: Maximum number of log entries to return (default: 100)
+        log_type: Filter by log type ('stdout' or 'stderr'), optional
+    """
+    job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+
+    # Build query
+    query = db.query(models.TrainingLog).filter(models.TrainingLog.job_id == job_id)
+
+    # Apply log type filter if specified
+    if log_type in ["stdout", "stderr"]:
+        query = query.filter(models.TrainingLog.log_type == log_type)
+
+    # Get logs ordered by creation time
+    logs = query.order_by(models.TrainingLog.created_at).limit(limit).all()
+
+    return logs

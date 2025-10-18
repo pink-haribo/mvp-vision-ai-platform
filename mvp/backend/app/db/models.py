@@ -73,6 +73,7 @@ class TrainingJob(Base):
     # Relationships
     session = relationship("Session", back_populates="training_jobs")
     metrics = relationship("TrainingMetric", back_populates="job", cascade="all, delete-orphan")
+    logs = relationship("TrainingLog", back_populates="job", cascade="all, delete-orphan")
 
 
 class TrainingMetric(Base):
@@ -98,3 +99,19 @@ class TrainingMetric(Base):
 
     # Relationships
     job = relationship("TrainingJob", back_populates="metrics")
+
+
+class TrainingLog(Base):
+    """Training log model for capturing stdout/stderr."""
+
+    __tablename__ = "training_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(Integer, ForeignKey("training_jobs.id"), nullable=False)
+
+    log_type = Column(String(10), nullable=False)  # 'stdout' or 'stderr'
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    job = relationship("TrainingJob", back_populates="logs")

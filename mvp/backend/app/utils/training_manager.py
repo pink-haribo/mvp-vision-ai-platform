@@ -109,6 +109,9 @@ class TrainingManager:
                 if not line:
                     continue
 
+                # Save log to database
+                self._save_log(job_id, line, "stdout")
+
                 # Parse metrics from stdout
                 self._parse_and_save_metrics(job_id, line)
 
@@ -151,6 +154,28 @@ class TrainingManager:
             # Remove from active processes
             if job_id in self.processes:
                 del self.processes[job_id]
+
+    def _save_log(self, job_id: int, content: str, log_type: str):
+        """
+        Save a log entry to the database.
+
+        Args:
+            job_id: Training job ID
+            content: Log content
+            log_type: Type of log ('stdout' or 'stderr')
+        """
+        try:
+            log = models.TrainingLog(
+                job_id=job_id,
+                log_type=log_type,
+                content=content,
+            )
+            self.db.add(log)
+            self.db.commit()
+        except Exception as e:
+            print(f"Error saving log: {e}")
+            # Don't fail training if logging fails
+            pass
 
     def _parse_and_save_metrics(self, job_id: int, line: str):
         """
