@@ -1,6 +1,7 @@
 """Application configuration."""
 
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from typing import Optional
 
 
@@ -12,7 +13,12 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Vision AI Training Platform - MVP"
 
     # CORS
-    BACKEND_CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: str = "http://localhost:3000"
+
+    @property
+    def BACKEND_CORS_ORIGINS(self) -> list[str]:
+        """Parse CORS origins from comma-separated string."""
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
 
     # Database
     DATABASE_URL: str = "sqlite:///./mvp/data/db/vision_platform.db"

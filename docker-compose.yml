@@ -186,6 +186,13 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
+      # Enable anonymous access for iframe embedding
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      # Allow embedding in iframes
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      # Disable CSRF for embedding (development only)
+      - GF_SECURITY_COOKIE_SAMESITE=none
     volumes:
       - grafana_data:/var/lib/grafana
       - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards

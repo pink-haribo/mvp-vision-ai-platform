@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Play, Square, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import MetricsVisualization from './training/MetricsVisualization'
 
 interface TrainingJob {
   id: number
@@ -42,6 +43,7 @@ export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
   const [metrics, setMetrics] = useState<TrainingMetric[]>([])
   const [logs, setLogs] = useState<TrainingLog[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const logsContainerRef = useRef<HTMLDivElement>(null)
 
   // Fetch training job details
   useEffect(() => {
@@ -121,6 +123,13 @@ export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
       return () => clearInterval(interval)
     }
   }, [trainingJobId, job?.status])
+
+  // Auto-scroll logs to bottom when updated
+  useEffect(() => {
+    if (logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight
+    }
+  }, [logs])
 
   const startTraining = async () => {
     if (!trainingJobId) return
@@ -283,44 +292,28 @@ export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
 
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {/* Metrics */}
-        <div>
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">메트릭</h3>
+        {/* Grafana Metrics Dashboard */}
+        {(job.status === 'running' || job.status === 'completed') && (
+          <div>
+            <MetricsVisualization jobId={job.id} height="500px" />
+          </div>
+        )}
 
-          {metrics.length === 0 ? (
-            <p className="text-sm text-gray-500">학습을 시작하면 메트릭이 표시됩니다</p>
-          ) : (
-            <div className="space-y-2">
-              {metrics.map((metric) => (
-                <div
-                  key={metric.epoch}
-                  className="p-4 bg-white rounded-lg border border-gray-200"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-gray-900">
-                      Epoch {metric.epoch}
-                    </span>
-                    <span className="text-xs text-gray-600">
-                      Accuracy: {metric.accuracy?.toFixed(2)}%
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                    <div>Val Loss: {metric.loss?.toFixed(4)}</div>
-                    <div>Train Loss: {metric.extra_metrics?.train_loss?.toFixed(4)}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        {/* Show message if not started yet */}
+        {job.status === 'pending' && (
+          <div className="p-6 bg-white rounded-lg border border-gray-200 text-center">
+            <p className="text-sm text-gray-500">학습을 시작하면 실시간 메트릭이 표시됩니다</p>
+          </div>
+        )}
 
-          {job.final_accuracy !== null && (
-            <div className="mt-6 p-4 bg-violet-50 rounded-lg border border-violet-200">
-              <p className="text-sm font-semibold text-violet-900">
-                최종 정확도: {job.final_accuracy.toFixed(2)}%
-              </p>
-            </div>
-          )}
-        </div>
+        {/* Final Accuracy */}
+        {job.final_accuracy !== null && (
+          <div className="p-4 bg-violet-50 rounded-lg border border-violet-200">
+            <p className="text-sm font-semibold text-violet-900">
+              최종 정확도: {job.final_accuracy.toFixed(2)}%
+            </p>
+          </div>
+        )}
 
         {/* Logs */}
         <div>
@@ -329,7 +322,10 @@ export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
           {logs.length === 0 ? (
             <p className="text-sm text-gray-500">학습을 시작하면 로그가 표시됩니다</p>
           ) : (
-            <div className="bg-gray-900 rounded-lg p-4 font-mono text-xs overflow-auto max-h-96">
+            <div
+              ref={logsContainerRef}
+              className="bg-gray-900 rounded-lg p-4 font-mono text-xs overflow-auto max-h-96"
+            >
               {logs.map((log) => (
                 <div
                   key={log.id}
