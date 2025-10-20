@@ -143,7 +143,12 @@ class DatasetAnalyzer:
 
     def _is_yolo(self, path: Path) -> bool:
         """Check if dataset follows YOLO format."""
-        # YOLO: images/ and labels/ directories with .txt files
+        # YOLO: data.yaml file is the most reliable indicator
+        data_yaml = path / "data.yaml"
+        if data_yaml.exists():
+            return True
+
+        # Backup check: images/ and labels/ directories with .txt files
         images_dir = path / "images"
         labels_dir = path / "labels"
 
@@ -243,7 +248,7 @@ class DatasetAnalyzer:
                 )
 
         return {
-            "format": "ImageFolder",
+            "format": "imagefolder",  # lowercase for consistency
             "num_classes": len(class_names_list),
             "class_names": class_names_list,
             "is_labeled": True,
@@ -276,7 +281,7 @@ class DatasetAnalyzer:
                 warnings.append(f"Could not parse COCO annotation file: {str(e)}")
 
         return {
-            "format": "COCO",
+            "format": "coco",  # lowercase for consistency
             "num_classes": len(class_names),
             "class_names": class_names,
             "is_labeled": True,
@@ -287,25 +292,80 @@ class DatasetAnalyzer:
 
     def _analyze_yolo(self, path: Path) -> Dict:
         """Analyze YOLO format dataset."""
-        warnings = ["YOLO format detected but full analysis not yet implemented"]
+        warnings = []
+        class_names = []
+        has_split = False
+        total_images = 0
+        image_counts = {}
 
         # YOLO format requires data.yaml file for class names
         data_yaml = path / "data.yaml"
-        class_names = []
 
         if data_yaml.exists():
-            warnings.append("YOLO data.yaml parsing not yet implemented")
+            try:
+                import yaml
+                with open(data_yaml, "r") as f:
+                    data = yaml.safe_load(f)
 
+                    # Extract class names
+                    if "names" in data:
+                        if isinstance(data["names"], dict):
+                            # Format: names: {0: 'class1', 1: 'class2'}
+                            class_names = [data["names"][i] for i in sorted(data["names"].keys())]
+                        elif isinstance(data["names"], list):
+                            # Format: names: ['class1', 'class2']
+                            class_names = data["names"]
+
+                    # Check for train/val paths
+                    if "train" in data or "val" in data:
+                        has_split = True
+
+            except Exception as e:
+                warnings.append(f"Could not parse data.yaml: {str(e)}")
+        else:
+            warnings.append("No data.yaml found - YOLO format requires this file")
+
+        # Count images in different splits
         images_dir = path / "images"
-        total_images = self._count_images(images_dir) if images_dir.exists() else 0
+        if images_dir.exists():
+            # Check for train/val subdirectories
+            train_images_dir = images_dir / "train"
+            val_images_dir = images_dir / "val"
+            test_images_dir = images_dir / "test"
+
+            if train_images_dir.exists():
+                has_split = True
+                train_count = self._count_images(train_images_dir)
+                image_counts["train"] = train_count
+                total_images += train_count
+
+            if val_images_dir.exists():
+                val_count = self._count_images(val_images_dir)
+                image_counts["val"] = val_count
+                total_images += val_count
+
+            if test_images_dir.exists():
+                test_count = self._count_images(test_images_dir)
+                image_counts["test"] = test_count
+                total_images += test_count
+
+            # If no split subdirectories, count all images
+            if not has_split:
+                total_images = self._count_images(images_dir)
+        else:
+            warnings.append("No images/ directory found")
+
+        if not class_names:
+            warnings.append("Could not determine class names - check data.yaml format")
 
         return {
-            "format": "YOLO",
+            "format": "yolo",  # lowercase for consistency
             "num_classes": len(class_names),
             "class_names": class_names,
             "is_labeled": True,
             "total_images": total_images,
-            "has_train_val_split": False,
+            "has_train_val_split": has_split,
+            "image_counts": image_counts,
             "warnings": warnings,
         }
 

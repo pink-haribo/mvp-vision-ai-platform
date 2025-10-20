@@ -29,6 +29,34 @@ async def create_training_job(
     This endpoint creates a training job but does not start it immediately.
     Use the /jobs/{job_id}/start endpoint to start training.
     """
+    # Validate required fields
+    config = job_request.config
+
+    if not config.dataset_path or config.dataset_path == "None":
+        raise HTTPException(
+            status_code=400,
+            detail="dataset_path is required and cannot be empty"
+        )
+
+    if not config.model_name:
+        raise HTTPException(
+            status_code=400,
+            detail="model_name is required"
+        )
+
+    if not config.task_type:
+        raise HTTPException(
+            status_code=400,
+            detail="task_type is required"
+        )
+
+    # For classification tasks, num_classes is required
+    if config.task_type == "image_classification" and not config.num_classes:
+        raise HTTPException(
+            status_code=400,
+            detail="num_classes is required for image classification tasks"
+        )
+
     # Verify session exists
     session = db.query(models.Session).filter(models.Session.id == job_request.session_id).first()
     if not session:
