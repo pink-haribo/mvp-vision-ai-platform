@@ -79,6 +79,16 @@ export default function ChatPanel({
     scrollToBottom()
   }, [messages])
 
+  // Auto-focus input after sending message
+  useEffect(() => {
+    if (!isLoading && messages.length > 0) {
+      // Wait for DOM to update, then focus
+      setTimeout(() => {
+        inputRef.current?.focus()
+      }, 100)
+    }
+  }, [isLoading, messages.length])
+
   // Fetch capabilities on mount
   useEffect(() => {
     const fetchCapabilities = async () => {
@@ -132,11 +142,6 @@ export default function ChatPanel({
 
       // Clear input
       setInput('')
-
-      // Refocus input after message is sent
-      setTimeout(() => {
-        inputRef.current?.focus()
-      }, 0)
 
       // If training config is complete, create training job
       if (data.parsed_intent?.status === 'complete') {
