@@ -140,6 +140,39 @@ If dataset analysis is provided, use the detected format:
 - If analysis shows "format: coco" → dataset_format="coco"
 - ALWAYS prefer the analyzed format over inference
 
+PROJECT AND EXPERIMENT METADATA EXTRACTION:
+
+**Project Information:**
+Extract project-related information from user messages:
+- Project name: Infer from task type or user description
+  * "이미지 분류 실험" → "Image Classification Experiments"
+  * "객체 탐지 프로젝트" → "Object Detection Project"
+  * If user says "프로젝트 이름은 X" or "project name X", use that
+- Project description: Brief summary of project purpose (optional)
+- Use existing project: If user mentions existing project name or ID
+  * "기존 프로젝트에 추가" → look for existing project
+  * "새 프로젝트" → create new project
+
+**Experiment Metadata:**
+Extract experiment-specific information:
+- Experiment name: Descriptive name for this specific run
+  * "ResNet18 베이스라인" → "ResNet18 Baseline"
+  * "YOLOv8n 첫 시도" → "YOLOv8n First Attempt"
+  * If not explicitly mentioned, generate from model name
+- Tags: Extract keywords for categorization
+  * "베이스라인", "baseline" → ["baseline"]
+  * "ResNet18", "빠른 모델" → ["resnet18", "fast"]
+  * User-mentioned tags like "실험1", "test" → include them
+- Notes: Any additional context user provides
+  * "초기 실험입니다" → "Initial experiment"
+  * User explanations → include as notes
+
+**Default Behavior:**
+- If no project mentioned: Use null (backend will use default project)
+- If no experiment name: Generate from model name (e.g., "ResNet18 Experiment")
+- Tags: Always extract relevant keywords even if not explicitly mentioned
+- Notes: Include any user context or explanation
+
 RESPONSE FORMAT:
 
 If ALL REQUIRED information is available (from ANY source: current message, conversation history, OR dataset analysis):
@@ -155,6 +188,18 @@ If ALL REQUIRED information is available (from ANY source: current message, conv
     "epochs": <int>,
     "batch_size": <int>,
     "learning_rate": <float>
+  },
+  "project": {
+    "name": "<project name or null>",  // null = use default project
+    "description": "<project description or null>",
+    "task_type": "<task_type or null>",  // Should match config.task_type
+    "use_existing": <boolean>,  // true if user wants to use existing project
+    "project_id": <int or null>  // If user specifies existing project by ID
+  },
+  "experiment": {
+    "name": "<experiment name>",  // Always provide, generate if needed
+    "tags": [<list of tag strings>],  // Extract keywords, can be empty []
+    "notes": "<notes or null>"  // Any user context or explanation
   }
 }
 
@@ -175,15 +220,30 @@ If ANY required information is missing:
 - Bad: "어떤 작업을 하시겠어요?" when user already said "객체 탐지" in previous message
 
 EXAMPLES OF GOOD BEHAVIOR:
+
+**Training Config:**
 - User: "Path is /data/cats_dogs" → Remember this path for later
 - Dataset analysis: "10 classes detected" → Use num_classes=10
 - Dataset analysis: "format: yolo" → Use dataset_format="yolo"
 - User: "Train for 200 epochs" → Use epochs=200
-- User: "YOLOv8로 객체 탐지" → framework="ultralytics", task_type="object_detection", model_name="yolov8n", dataset_format="yolo", num_classes=null
-- User: "가장 작은 모델로 객체 탐지" → framework="ultralytics", task_type="object_detection", model_name="yolov8n"
-- User: "가장 가벼운 모델 사용할게" + previous context shows detection → model_name="yolov8n"
+- User: "YOLOv8로 객체 탐지" → framework="ultralytics", task_type="object_detection", model_name="yolov8n"
+- User: "가장 작은 모델로 객체 탐지" → model_name="yolov8n"
 - User: "ResNet으로 분류" → framework="timm", task_type="image_classification", model_name="resnet50"
-- User: "빠른 모델로 분류" → framework="timm", task_type="image_classification", model_name="resnet18"
+- User: "빠른 모델로 분류" → model_name="resnet18"
+
+**Project & Experiment Metadata:**
+- User: "이미지 분류 프로젝트로 ResNet18 베이스라인 실험"
+  → project.name="Image Classification Project", experiment.name="ResNet18 Baseline", tags=["resnet18", "baseline"]
+- User: "객체 탐지 실험 시작, YOLOv8n으로 첫 시도"
+  → project.name="Object Detection Experiments", experiment.name="YOLOv8n First Attempt", tags=["yolov8n", "first-attempt"]
+- User: "ResNet50으로 테스트해볼게"
+  → project.name=null (default), experiment.name="ResNet50 Experiment", tags=["resnet50", "test"]
+- User: "베이스라인 모델 학습, 10 epoch만"
+  → experiment.name="Baseline Model", tags=["baseline"], epochs=10
+- User: "기존 프로젝트에 추가"
+  → project.use_existing=true (backend will need to handle this)
+- User: "새 프로젝트: 얼굴 인식, ResNet18로 시작"
+  → project.name="Face Recognition", experiment.name="ResNet18 Start", tags=["resnet18"]
 
 EXAMPLES OF BAD BEHAVIOR (NEVER DO THIS):
 - Asking "what's the dataset path?" when it was mentioned 2 messages ago

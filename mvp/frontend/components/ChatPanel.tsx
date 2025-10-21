@@ -146,7 +146,12 @@ export default function ChatPanel({
       // If training config is complete, create training job
       if (data.parsed_intent?.status === 'complete') {
         console.log('Training config ready:', data.parsed_intent.config)
-        await createTrainingJob(data.session_id, data.parsed_intent.config)
+        console.log('Metadata:', data.parsed_intent.metadata)
+        await createTrainingJob(
+          data.session_id,
+          data.parsed_intent.config,
+          data.parsed_intent.metadata
+        )
       }
     } catch (error) {
       console.error('Error sending message:', error)
@@ -156,17 +161,27 @@ export default function ChatPanel({
     }
   }
 
-  const createTrainingJob = async (sessionId: number, config: any) => {
+  const createTrainingJob = async (sessionId: number, config: any, metadata?: any) => {
     try {
+      const requestBody: any = {
+        session_id: sessionId,
+        config: config,
+      }
+
+      // Add metadata if available
+      if (metadata) {
+        if (metadata.project_id) requestBody.project_id = metadata.project_id
+        if (metadata.experiment_name) requestBody.experiment_name = metadata.experiment_name
+        if (metadata.tags) requestBody.tags = metadata.tags
+        if (metadata.notes) requestBody.notes = metadata.notes
+      }
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/training/jobs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          session_id: sessionId,
-          config: config,
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       if (!response.ok) {

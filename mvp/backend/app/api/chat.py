@@ -429,6 +429,48 @@ async def send_message(request: chat.ChatRequest, db: DBSession = Depends(get_db
 
         logger.debug(f"Saved assistant message ID: {assistant_message.id}")
 
+        # Process project and experiment metadata if complete
+        if parsed_result.get("status") == "complete":
+            project_info = parsed_result.get("project", {})
+            experiment_info = parsed_result.get("experiment", {})
+
+            # Handle project creation/retrieval
+            project_id = None
+            if project_info:
+                project_name = project_info.get("name")
+
+                # If project name provided, create or get project
+                if project_name:
+                    from app.db.models import Project
+
+                    # Check if project exists
+                    existing_project = db.query(Project).filter(Project.name == project_name).first()
+
+                    if existing_project:
+                        project_id = existing_project.id
+                        logger.debug(f"Using existing project: {project_name} (ID: {project_id})")
+                    else:
+                        # Create new project
+                        new_project = Project(
+                            name=project_name,
+                            description=project_info.get("description"),
+                            task_type=project_info.get("task_type") or parsed_result.get("config", {}).get("task_type"),
+                        )
+                        db.add(new_project)
+                        db.commit()
+                        db.refresh(new_project)
+                        project_id = new_project.id
+                        logger.debug(f"Created new project: {project_name} (ID: {project_id})")
+
+            # Add project_id and experiment metadata to parsed_result
+            if "metadata" not in parsed_result:
+                parsed_result["metadata"] = {}
+
+            parsed_result["metadata"]["project_id"] = project_id
+            parsed_result["metadata"]["experiment_name"] = experiment_info.get("name") if experiment_info else None
+            parsed_result["metadata"]["tags"] = experiment_info.get("tags", []) if experiment_info else []
+            parsed_result["metadata"]["notes"] = experiment_info.get("notes") if experiment_info else None
+
         # Return response
         return chat.ChatResponse(
             session_id=session.id,
