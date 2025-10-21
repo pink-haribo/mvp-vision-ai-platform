@@ -43,7 +43,7 @@ class MLflowClientWrapper:
                 return None
 
             # Search for run with matching name
-            run_name = f"job-{job_id}"
+            run_name = f"job_{job_id}"
             runs = self.client.search_runs(
                 experiment_ids=[experiment.experiment_id],
                 filter_string=f"tags.mlflow.runName = '{run_name}'",

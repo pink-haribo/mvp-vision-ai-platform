@@ -29,10 +29,44 @@ async def create_training_job(
     This endpoint creates a training job but does not start it immediately.
     Use the /jobs/{job_id}/start endpoint to start training.
     """
+    # Validate required fields
+    config = job_request.config
+
+    if not config.dataset_path or config.dataset_path == "None":
+        raise HTTPException(
+            status_code=400,
+            detail="dataset_path is required and cannot be empty"
+        )
+
+    if not config.model_name:
+        raise HTTPException(
+            status_code=400,
+            detail="model_name is required"
+        )
+
+    if not config.task_type:
+        raise HTTPException(
+            status_code=400,
+            detail="task_type is required"
+        )
+
+    # For classification tasks, num_classes is required
+    if config.task_type == "image_classification" and not config.num_classes:
+        raise HTTPException(
+            status_code=400,
+            detail="num_classes is required for image classification tasks"
+        )
+
     # Verify session exists
     session = db.query(models.Session).filter(models.Session.id == job_request.session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Verify project exists if provided
+    if job_request.project_id:
+        project = db.query(models.Project).filter(models.Project.id == job_request.project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
 
     # Create output directory
     job_output_dir = os.path.join(
@@ -44,10 +78,16 @@ async def create_training_job(
     # Create training job
     job = models.TrainingJob(
         session_id=job_request.session_id,
+        project_id=job_request.project_id,
+        experiment_name=job_request.experiment_name,
+        tags=job_request.tags,  # Will be stored as JSON
+        notes=job_request.notes,
+        framework=job_request.config.framework,
         model_name=job_request.config.model_name,
         task_type=job_request.config.task_type,
         num_classes=job_request.config.num_classes,
         dataset_path=job_request.config.dataset_path,
+        dataset_format=job_request.config.dataset_format,
         output_dir=job_output_dir,
         epochs=job_request.config.epochs,
         batch_size=job_request.config.batch_size,
@@ -68,6 +108,21 @@ async def get_training_job(job_id: int, db: Session = Depends(get_db)):
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Training job not found")
+
+    # Auto-link MLflow run_id if not already linked and job is running/completed
+    if not job.mlflow_run_id and job.status in ["running", "completed"]:
+        try:
+            mlflow_client = get_mlflow_client()
+            mlflow_run = mlflow_client.get_run_by_job_id(job_id)
+            if mlflow_run:
+                job.mlflow_run_id = mlflow_run.info.run_id
+                db.commit()
+                db.refresh(job)
+                print(f"[INFO] Linked MLflow run_id {job.mlflow_run_id} to job {job_id}")
+        except Exception as e:
+            # Don't fail the request if MLflow linking fails
+            print(f"[WARNING] Failed to link MLflow run for job {job_id}: {e}")
+
     return job
 
 

@@ -9,9 +9,11 @@ import MLflowBestModel from './training/MLflowBestModel'
 
 interface TrainingJob {
   id: number
+  framework: string
   model_name: string
   task_type: string
-  num_classes: number
+  num_classes: number | null
+  dataset_format: string
   epochs: number
   batch_size: number
   learning_rate: number
@@ -327,13 +329,27 @@ export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
         <h3 className="text-sm font-semibold text-gray-900 mb-3">학습 설정</h3>
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
+            <span className="text-gray-600">프레임워크:</span>
+            <span className="ml-2 font-medium">{job.framework}</span>
+          </div>
+          <div>
+            <span className="text-gray-600">작업 유형:</span>
+            <span className="ml-2 font-medium">{job.task_type}</span>
+          </div>
+          <div>
             <span className="text-gray-600">모델:</span>
             <span className="ml-2 font-medium">{job.model_name}</span>
           </div>
           <div>
-            <span className="text-gray-600">클래스:</span>
-            <span className="ml-2 font-medium">{job.num_classes}</span>
+            <span className="text-gray-600">데이터셋 형식:</span>
+            <span className="ml-2 font-medium">{job.dataset_format}</span>
           </div>
+          {job.num_classes && (
+            <div>
+              <span className="text-gray-600">클래스:</span>
+              <span className="ml-2 font-medium">{job.num_classes}</span>
+            </div>
+          )}
           <div>
             <span className="text-gray-600">에포크:</span>
             <span className="ml-2 font-medium">{job.epochs}</span>
@@ -342,7 +358,7 @@ export default function TrainingPanel({ trainingJobId }: TrainingPanelProps) {
             <span className="text-gray-600">배치:</span>
             <span className="ml-2 font-medium">{job.batch_size}</span>
           </div>
-          <div className="col-span-2">
+          <div>
             <span className="text-gray-600">학습률:</span>
             <span className="ml-2 font-medium">{job.learning_rate}</span>
           </div>

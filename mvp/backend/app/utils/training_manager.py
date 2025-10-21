@@ -61,14 +61,21 @@ class TrainingManager:
         cmd = [
             training_python,
             train_script,
+            "--framework", job.framework,
+            "--task_type", job.task_type,
+            "--model_name", job.model_name,
             "--dataset_path", job.dataset_path,
+            "--dataset_format", job.dataset_format,
             "--output_dir", job.output_dir,
-            "--num_classes", str(job.num_classes),
             "--epochs", str(job.epochs),
             "--batch_size", str(job.batch_size),
             "--learning_rate", str(job.learning_rate),
             "--job_id", str(job.id),
         ]
+
+        # Add num_classes only if it's set (required for classification tasks)
+        if job.num_classes is not None:
+            cmd.extend(["--num_classes", str(job.num_classes)])
 
         try:
             # Debug logging
@@ -102,7 +109,7 @@ class TrainingManager:
             active_training_jobs.inc()
             update_training_metrics(
                 job_id=job.id,
-                model_name="resnet18",  # TODO: Get from job config
+                model_name=job.model_name,
                 dataset_name=os.path.basename(job.dataset_path),
                 status="running",
             )
@@ -173,7 +180,7 @@ class TrainingManager:
                     # Update Prometheus metrics
                     update_training_metrics(
                         job_id=job_id,
-                        model_name="resnet18",
+                        model_name=job.model_name,
                         dataset_name=os.path.basename(job.dataset_path),
                         status="completed",
                     )
@@ -185,7 +192,7 @@ class TrainingManager:
                     # Update Prometheus metrics
                     update_training_metrics(
                         job_id=job_id,
-                        model_name="resnet18",
+                        model_name=job.model_name,
                         dataset_name=os.path.basename(job.dataset_path),
                         status="failed",
                     )
@@ -208,7 +215,7 @@ class TrainingManager:
                     # Update Prometheus metrics
                     update_training_metrics(
                         job_id=job_id,
-                        model_name="resnet18",
+                        model_name=job.model_name,
                         dataset_name=os.path.basename(job.dataset_path),
                         status="failed",
                     )
@@ -304,12 +311,15 @@ class TrainingManager:
 
                 # Export to Prometheus (if we have metrics to export)
                 if loss is not None:
+                    # Get job info for model_name
+                    job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+
                     # Accuracy might be in 0-1 range, convert to percentage
                     acc_percentage = accuracy * 100 if accuracy and accuracy <= 1.0 else (accuracy or 0)
 
                     update_training_metrics(
                         job_id=job_id,
-                        model_name="resnet18",  # TODO: Get from job config
+                        model_name=job.model_name if job else "unknown",
                         loss=loss,
                         accuracy=acc_percentage,
                         epoch=metrics_data.get("epoch"),

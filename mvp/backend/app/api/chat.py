@@ -24,44 +24,183 @@ async def get_capabilities():
     Get platform capabilities including supported models and parameters.
 
     Returns information about:
-    - Available models
+    - Available frameworks
+    - Available models per framework
+    - Supported task types
     - Configurable parameters
     - Default values
     """
     return {
+        "frameworks": [
+            {
+                "name": "timm",
+                "display_name": "PyTorch Image Models (timm)",
+                "description": "Image classification with pretrained models",
+                "supported": True
+            },
+            {
+                "name": "ultralytics",
+                "display_name": "Ultralytics YOLO",
+                "description": "Object detection, segmentation, and pose estimation",
+                "supported": True
+            },
+            {
+                "name": "transformers",
+                "display_name": "HuggingFace Transformers",
+                "description": "Vision-Language models (coming soon)",
+                "supported": False
+            }
+        ],
         "models": [
+            # timm models
             {
                 "name": "resnet50",
                 "display_name": "ResNet-50",
-                "description": "50-layer Residual Network for image classification",
-                "task_types": ["classification"],
+                "description": "50-layer Residual Network",
+                "framework": "timm",
+                "task_types": ["image_classification"],
                 "supported": True
             },
             {
                 "name": "resnet18",
                 "display_name": "ResNet-18",
-                "description": "18-layer Residual Network (coming soon)",
-                "task_types": ["classification"],
-                "supported": False
+                "description": "18-layer Residual Network",
+                "framework": "timm",
+                "task_types": ["image_classification"],
+                "supported": True
             },
             {
                 "name": "efficientnet_b0",
                 "display_name": "EfficientNet-B0",
-                "description": "Efficient convolutional network (coming soon)",
-                "task_types": ["classification"],
+                "description": "Efficient convolutional network",
+                "framework": "timm",
+                "task_types": ["image_classification"],
+                "supported": True
+            },
+            # Ultralytics models
+            {
+                "name": "yolov8n",
+                "display_name": "YOLOv8 Nano",
+                "description": "Lightweight object detection model",
+                "framework": "ultralytics",
+                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
+                "supported": True
+            },
+            {
+                "name": "yolov8s",
+                "display_name": "YOLOv8 Small",
+                "description": "Small object detection model",
+                "framework": "ultralytics",
+                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
+                "supported": True
+            },
+            {
+                "name": "yolov8m",
+                "display_name": "YOLOv8 Medium",
+                "description": "Medium object detection model",
+                "framework": "ultralytics",
+                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
+                "supported": True
+            }
+        ],
+        "task_types": [
+            {
+                "name": "image_classification",
+                "display_name": "이미지 분류",
+                "description": "이미지를 여러 클래스 중 하나로 분류",
+                "frameworks": ["timm", "ultralytics"],
+                "supported": True
+            },
+            {
+                "name": "object_detection",
+                "display_name": "객체 탐지",
+                "description": "이미지 내 객체의 위치와 클래스 탐지",
+                "frameworks": ["ultralytics"],
+                "supported": True
+            },
+            {
+                "name": "instance_segmentation",
+                "display_name": "인스턴스 분할",
+                "description": "이미지 내 각 객체를 픽셀 단위로 분할",
+                "frameworks": ["ultralytics"],
+                "supported": True
+            },
+            {
+                "name": "pose_estimation",
+                "display_name": "자세 추정",
+                "description": "이미지 내 사람의 자세 키포인트 탐지",
+                "frameworks": ["ultralytics"],
+                "supported": True
+            }
+        ],
+        "dataset_formats": [
+            {
+                "name": "imagefolder",
+                "display_name": "ImageFolder",
+                "description": "PyTorch ImageFolder 형식 (class/image.jpg)",
+                "task_types": ["image_classification"],
+                "supported": True
+            },
+            {
+                "name": "yolo",
+                "display_name": "YOLO Format",
+                "description": "Ultralytics YOLO 형식 (images/, labels/, data.yaml)",
+                "task_types": ["object_detection", "instance_segmentation", "pose_estimation"],
+                "supported": True
+            },
+            {
+                "name": "coco",
+                "display_name": "COCO Format",
+                "description": "MS COCO JSON 형식",
+                "task_types": ["object_detection", "instance_segmentation"],
                 "supported": False
             }
         ],
         "parameters": [
             {
+                "name": "framework",
+                "display_name": "프레임워크",
+                "description": "사용할 딥러닝 프레임워크",
+                "type": "string",
+                "required": True,
+                "options": ["timm", "ultralytics"],
+                "default": "timm"
+            },
+            {
+                "name": "task_type",
+                "display_name": "작업 유형",
+                "description": "수행할 작업의 종류",
+                "type": "string",
+                "required": True,
+                "options": ["image_classification", "object_detection", "instance_segmentation", "pose_estimation"],
+                "default": "image_classification"
+            },
+            {
+                "name": "model_name",
+                "display_name": "모델 이름",
+                "description": "사용할 모델",
+                "type": "string",
+                "required": True,
+                "default": None
+            },
+            {
                 "name": "num_classes",
                 "display_name": "클래스 수",
-                "description": "분류할 클래스의 개수",
+                "description": "분류할 클래스의 개수 (classification 작업에만 필요)",
                 "type": "integer",
-                "required": True,
+                "required": False,
                 "min": 2,
                 "max": 1000,
                 "default": None
+            },
+            {
+                "name": "dataset_format",
+                "display_name": "데이터셋 형식",
+                "description": "데이터셋의 저장 형식",
+                "type": "string",
+                "required": False,
+                "options": ["imagefolder", "yolo", "coco"],
+                "default": "imagefolder"
             },
             {
                 "name": "epochs",
@@ -100,20 +239,6 @@ async def get_capabilities():
                 "type": "string",
                 "required": True,
                 "default": None
-            }
-        ],
-        "task_types": [
-            {
-                "name": "classification",
-                "display_name": "이미지 분류",
-                "description": "이미지를 여러 클래스 중 하나로 분류",
-                "supported": True
-            },
-            {
-                "name": "object_detection",
-                "display_name": "객체 탐지",
-                "description": "이미지 내 객체의 위치와 클래스 탐지 (coming soon)",
-                "supported": False
             }
         ]
     }
@@ -303,6 +428,48 @@ async def send_message(request: chat.ChatRequest, db: DBSession = Depends(get_db
         db.refresh(assistant_message)
 
         logger.debug(f"Saved assistant message ID: {assistant_message.id}")
+
+        # Process project and experiment metadata if complete
+        if parsed_result.get("status") == "complete":
+            project_info = parsed_result.get("project", {})
+            experiment_info = parsed_result.get("experiment", {})
+
+            # Handle project creation/retrieval
+            project_id = None
+            if project_info:
+                project_name = project_info.get("name")
+
+                # If project name provided, create or get project
+                if project_name:
+                    from app.db.models import Project
+
+                    # Check if project exists
+                    existing_project = db.query(Project).filter(Project.name == project_name).first()
+
+                    if existing_project:
+                        project_id = existing_project.id
+                        logger.debug(f"Using existing project: {project_name} (ID: {project_id})")
+                    else:
+                        # Create new project
+                        new_project = Project(
+                            name=project_name,
+                            description=project_info.get("description"),
+                            task_type=project_info.get("task_type") or parsed_result.get("config", {}).get("task_type"),
+                        )
+                        db.add(new_project)
+                        db.commit()
+                        db.refresh(new_project)
+                        project_id = new_project.id
+                        logger.debug(f"Created new project: {project_name} (ID: {project_id})")
+
+            # Add project_id and experiment metadata to parsed_result
+            if "metadata" not in parsed_result:
+                parsed_result["metadata"] = {}
+
+            parsed_result["metadata"]["project_id"] = project_id
+            parsed_result["metadata"]["experiment_name"] = experiment_info.get("name") if experiment_info else None
+            parsed_result["metadata"]["tags"] = experiment_info.get("tags", []) if experiment_info else []
+            parsed_result["metadata"]["notes"] = experiment_info.get("notes") if experiment_info else None
 
         # Return response
         return chat.ChatResponse(

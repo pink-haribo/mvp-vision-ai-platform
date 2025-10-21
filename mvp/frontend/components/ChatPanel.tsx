@@ -12,10 +12,32 @@ interface Message {
 }
 
 interface Capability {
+  frameworks: Array<{
+    name: string
+    display_name: string
+    description: string
+    supported: boolean
+  }>
   models: Array<{
     name: string
     display_name: string
     description: string
+    framework: string
+    task_types: string[]
+    supported: boolean
+  }>
+  task_types: Array<{
+    name: string
+    display_name: string
+    description: string
+    frameworks: string[]
+    supported: boolean
+  }>
+  dataset_formats: Array<{
+    name: string
+    display_name: string
+    description: string
+    task_types: string[]
     supported: boolean
   }>
   parameters: Array<{
@@ -26,6 +48,7 @@ interface Capability {
     required: boolean
     min?: number
     max?: number
+    options?: string[]
     default: any
   }>
 }
@@ -55,6 +78,16 @@ export default function ChatPanel({
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Auto-focus input after sending message
+  useEffect(() => {
+    if (!isLoading && messages.length > 0) {
+      // Wait for DOM to update, then focus
+      setTimeout(() => {
+        inputRef.current?.focus()
+      }, 100)
+    }
+  }, [isLoading, messages.length])
 
   // Fetch capabilities on mount
   useEffect(() => {
@@ -110,15 +143,15 @@ export default function ChatPanel({
       // Clear input
       setInput('')
 
-      // Refocus input after message is sent
-      setTimeout(() => {
-        inputRef.current?.focus()
-      }, 0)
-
       // If training config is complete, create training job
       if (data.parsed_intent?.status === 'complete') {
         console.log('Training config ready:', data.parsed_intent.config)
-        await createTrainingJob(data.session_id, data.parsed_intent.config)
+        console.log('Metadata:', data.parsed_intent.metadata)
+        await createTrainingJob(
+          data.session_id,
+          data.parsed_intent.config,
+          data.parsed_intent.metadata
+        )
       }
     } catch (error) {
       console.error('Error sending message:', error)
@@ -128,17 +161,27 @@ export default function ChatPanel({
     }
   }
 
-  const createTrainingJob = async (sessionId: number, config: any) => {
+  const createTrainingJob = async (sessionId: number, config: any, metadata?: any) => {
     try {
+      const requestBody: any = {
+        session_id: sessionId,
+        config: config,
+      }
+
+      // Add metadata if available
+      if (metadata) {
+        if (metadata.project_id) requestBody.project_id = metadata.project_id
+        if (metadata.experiment_name) requestBody.experiment_name = metadata.experiment_name
+        if (metadata.tags) requestBody.tags = metadata.tags
+        if (metadata.notes) requestBody.notes = metadata.notes
+      }
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/training/jobs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          session_id: sessionId,
-          config: config,
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       if (!response.ok) {
@@ -187,6 +230,67 @@ export default function ChatPanel({
             {/* Platform Capabilities */}
             {capabilities && (
               <div className="max-w-2xl mx-auto space-y-4">
+                {/* Frameworks */}
+                <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-lg p-4 border border-indigo-200">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-2">
+                    지원하는 프레임워크
+                  </h3>
+                  <div className="space-y-2">
+                    {capabilities.frameworks.map((framework) => (
+                      <div
+                        key={framework.name}
+                        className={cn(
+                          'text-xs p-2 rounded',
+                          framework.supported
+                            ? 'bg-white text-gray-900'
+                            : 'bg-gray-100 text-gray-500'
+                        )}
+                      >
+                        <div className="font-medium">
+                          {framework.display_name}
+                          {framework.supported && (
+                            <span className="ml-2 text-emerald-600">✓ 사용 가능</span>
+                          )}
+                        </div>
+                        <div className="text-gray-600 mt-0.5">{framework.description}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Task Types */}
+                <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-4 border border-emerald-200">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-2">
+                    지원하는 작업 유형
+                  </h3>
+                  <div className="space-y-2">
+                    {capabilities.task_types.map((task) => (
+                      <div
+                        key={task.name}
+                        className={cn(
+                          'text-xs p-2 rounded',
+                          task.supported
+                            ? 'bg-white text-gray-900'
+                            : 'bg-gray-100 text-gray-500'
+                        )}
+                      >
+                        <div className="font-medium">
+                          {task.display_name}
+                          {task.supported && (
+                            <span className="ml-2 text-emerald-600">✓ 사용 가능</span>
+                          )}
+                        </div>
+                        <div className="text-gray-600 mt-0.5">{task.description}</div>
+                        {task.frameworks && (
+                          <div className="text-gray-500 mt-0.5">
+                            프레임워크: {task.frameworks.join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Supported Models */}
                 <div className="bg-gradient-to-br from-violet-50 to-purple-50 rounded-lg p-4 border border-violet-200">
                   <h3 className="text-sm font-semibold text-gray-900 mb-2">
@@ -208,43 +312,44 @@ export default function ChatPanel({
                           {model.supported && (
                             <span className="ml-2 text-emerald-600">✓ 사용 가능</span>
                           )}
+                          <span className="ml-2 text-gray-500">
+                            ({model.framework})
+                          </span>
                         </div>
                         <div className="text-gray-600 mt-0.5">{model.description}</div>
+                        {model.task_types && (
+                          <div className="text-gray-500 mt-0.5">
+                            작업: {model.task_types.join(', ')}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* Configurable Parameters */}
-                <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-lg p-4 border border-blue-200">
+                {/* Dataset Formats */}
+                <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-lg p-4 border border-amber-200">
                   <h3 className="text-sm font-semibold text-gray-900 mb-2">
-                    설정 가능한 파라미터
+                    데이터셋 형식
                   </h3>
                   <div className="space-y-2">
-                    {capabilities.parameters.map((param) => (
-                      <div key={param.name} className="text-xs bg-white p-2 rounded">
-                        <div className="font-medium text-gray-900">
-                          {param.display_name}
-                          {param.required && (
-                            <span className="ml-2 text-red-600">* 필수</span>
-                          )}
-                          {!param.required && param.default !== null && (
-                            <span className="ml-2 text-gray-500">
-                              (기본값: {param.default})
-                            </span>
+                    {capabilities.dataset_formats.map((format) => (
+                      <div
+                        key={format.name}
+                        className={cn(
+                          'text-xs p-2 rounded',
+                          format.supported
+                            ? 'bg-white text-gray-900'
+                            : 'bg-gray-100 text-gray-500'
+                        )}
+                      >
+                        <div className="font-medium">
+                          {format.display_name}
+                          {format.supported && (
+                            <span className="ml-2 text-emerald-600">✓ 사용 가능</span>
                           )}
                         </div>
-                        <div className="text-gray-600 mt-0.5">{param.description}</div>
-                        {param.type === 'integer' && param.min && param.max && (
-                          <div className="text-gray-500 mt-0.5">
-                            범위: {param.min} ~ {param.max}
-                          </div>
-                        )}
-                        {param.type === 'float' && param.min && param.max && (
-                          <div className="text-gray-500 mt-0.5">
-                            범위: {param.min} ~ {param.max}
-                          </div>
-                        )}
+                        <div className="text-gray-600 mt-0.5">{format.description}</div>
                       </div>
                     ))}
                   </div>
