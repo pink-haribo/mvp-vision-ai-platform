@@ -76,15 +76,15 @@ class TimmAdapter(TrainingAdapter):
 
         print(f"Loading dataset from: {self.dataset_config.dataset_path}")
 
-        self.train_loader, self.val_loader = create_dataloaders(
-            data_dir=self.dataset_config.dataset_path,
+        self.train_loader, self.val_loader, num_classes = create_dataloaders(
+            dataset_path=self.dataset_config.dataset_path,
             batch_size=self.training_config.batch_size,
-            num_workers=4,
-            img_size=self.model_config.image_size
+            num_workers=4
         )
 
         print(f"Train batches: {len(self.train_loader)}")
         print(f"Val batches: {len(self.val_loader)}")
+        print(f"Detected classes: {num_classes}")
 
     def train_epoch(self, epoch: int) -> MetricsResult:
         """Train for one epoch."""
