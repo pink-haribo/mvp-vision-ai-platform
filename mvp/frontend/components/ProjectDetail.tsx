@@ -68,18 +68,37 @@ export default function ProjectDetail({
   const fetchProjectDetails = async () => {
     setLoading(true)
     try {
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        console.error('No access token found')
+        setLoading(false)
+        return
+      }
+
+      const headers = {
+        'Authorization': `Bearer ${token}`
+      }
+
       // Fetch project info
-      const projectRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}`)
+      const projectRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}`, {
+        headers
+      })
       if (projectRes.ok) {
         const projectData = await projectRes.json()
         setProject(projectData)
+      } else {
+        console.error('Failed to fetch project:', projectRes.status, projectRes.statusText)
       }
 
       // Fetch experiments
-      const expRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}/experiments`)
+      const expRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}/experiments`, {
+        headers
+      })
       if (expRes.ok) {
         const expData = await expRes.json()
         setExperiments(expData)
+      } else {
+        console.error('Failed to fetch experiments:', expRes.status, expRes.statusText)
       }
     } catch (error) {
       console.error('Failed to fetch project details:', error)

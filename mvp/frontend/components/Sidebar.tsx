@@ -140,6 +140,20 @@ export default function Sidebar({
   const displayName = authUser?.full_name || authUser?.email || 'User'
   const displayEmail = authUser?.email || ''
 
+  // Format system role for display
+  const getRoleLabel = (role?: string) => {
+    switch (role) {
+      case 'superadmin':
+        return '최고 관리자'
+      case 'admin':
+        return '관리자'
+      case 'guest':
+        return '게스트'
+      default:
+        return '게스트'
+    }
+  }
+
   return (
     <div className="w-64 h-screen bg-gray-900 text-white flex flex-col">
       {/* Project Title */}
@@ -194,7 +208,12 @@ export default function Sidebar({
                     : 'text-gray-500 group-hover:text-violet-400'
                 )} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{project.name}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium truncate">{project.name}</p>
+                    <span className="px-1.5 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-400 rounded flex-shrink-0">
+                      Owner
+                    </span>
+                  </div>
                   <p className="text-xs text-gray-500">
                     실험 {project.experiment_count}개
                   </p>
@@ -224,7 +243,12 @@ export default function Sidebar({
                 {getAvatarInitials()}
               </div>
               <div className="flex-1 min-w-0 text-left">
-                <p className="text-sm font-semibold truncate">{displayName}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold truncate">{displayName}</p>
+                  <span className="px-2 py-0.5 text-xs font-medium bg-violet-500/20 text-violet-300 rounded">
+                    {getRoleLabel(authUser?.system_role)}
+                  </span>
+                </div>
                 <p className="text-xs text-gray-400 truncate">{displayEmail}</p>
               </div>
             </button>
