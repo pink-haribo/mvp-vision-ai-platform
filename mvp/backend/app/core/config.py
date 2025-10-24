@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str
     LLM_MODEL: str = "gemini-2.0-flash-exp"
     LLM_TEMPERATURE: float = 0.0
+    # Security & Authentication
+    JWT_SECRET: str = "your-secret-key-change-this-in-production-use-openssl-rand-hex-32"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Storage Paths
     UPLOAD_DIR: str = "./mvp/data/uploads"

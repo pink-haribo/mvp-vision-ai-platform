@@ -1,8 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, CheckCircle2Icon, XCircleIcon, ClockIcon, EditIcon, SaveIcon, XIcon, PlusIcon, CopyIcon } from 'lucide-react'
+import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, CheckCircle2Icon, XCircleIcon, ClockIcon, EditIcon, SaveIcon, XIcon, PlusIcon, CopyIcon, Crown, UserPlus, X as XClose } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { getAvatarColorStyle, getAvatarRingColor } from '@/lib/utils/avatarColors'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface Experiment {
   id: number
@@ -29,6 +31,17 @@ interface Project {
   task_type: string | null
   created_at: string
   updated_at: string
+  user_id: number | null
+}
+
+interface ProjectMember {
+  user_id: number
+  email: string
+  full_name: string | null
+  role: string
+  joined_at: string
+  is_owner: boolean
+  badge_color?: string | null
 }
 
 interface ProjectDetailProps {
@@ -46,6 +59,7 @@ export default function ProjectDetail({
   onCloneExperiment,
   onViewExperiment
 }: ProjectDetailProps) {
+  const { user } = useAuth()
   const [project, setProject] = useState<Project | null>(null)
   const [experiments, setExperiments] = useState<Experiment[]>([])
   const [loading, setLoading] = useState(true)
@@ -59,6 +73,16 @@ export default function ProjectDetail({
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Member states
+  const [members, setMembers] = useState<ProjectMember[]>([])
+  const [showInviteModal, setShowInviteModal] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState('member')
+  const [isInviting, setIsInviting] = useState(false)
+
+  // Check if current user is the owner (both values must exist and match)
+  const isOwner = !!(project?.user_id && user?.id && project.user_id === user.id)
+
   useEffect(() => {
     if (projectId) {
       fetchProjectDetails()
@@ -68,18 +92,48 @@ export default function ProjectDetail({
   const fetchProjectDetails = async () => {
     setLoading(true)
     try {
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        console.error('No access token found')
+        setLoading(false)
+        return
+      }
+
+      const headers = {
+        'Authorization': `Bearer ${token}`
+      }
+
       // Fetch project info
-      const projectRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}`)
+      const projectRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}`, {
+        headers
+      })
       if (projectRes.ok) {
         const projectData = await projectRes.json()
         setProject(projectData)
+      } else {
+        console.error('Failed to fetch project:', projectRes.status, projectRes.statusText)
       }
 
       // Fetch experiments
-      const expRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}/experiments`)
+      const expRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}/experiments`, {
+        headers
+      })
       if (expRes.ok) {
         const expData = await expRes.json()
         setExperiments(expData)
+      } else {
+        console.error('Failed to fetch experiments:', expRes.status, expRes.statusText)
+      }
+
+      // Fetch members
+      const membersRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}/members`, {
+        headers
+      })
+      if (membersRes.ok) {
+        const membersData = await membersRes.json()
+        setMembers(membersData)
+      } else {
+        console.error('Failed to fetch members:', membersRes.status, membersRes.statusText)
       }
     } catch (error) {
       console.error('Failed to fetch project details:', error)
@@ -182,6 +236,85 @@ export default function ProjectDetail({
     }
   }
 
+  const handleInviteMember = async () => {
+    if (!inviteEmail.trim()) {
+      alert('이메일을 입력해주세요')
+      return
+    }
+
+    setIsInviting(true)
+    try {
+      const token = localStorage.getItem('access_token')
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}/members`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: inviteEmail,
+          role: inviteRole,
+        }),
+      })
+
+      if (response.ok) {
+        alert('멤버가 초대되었습니다')
+        setShowInviteModal(false)
+        setInviteEmail('')
+        fetchProjectDetails() // Refresh members
+      } else {
+        const error = await response.json()
+        alert(error.detail || '멤버 초대에 실패했습니다')
+      }
+    } catch (error) {
+      console.error('Failed to invite member:', error)
+      alert('멤버 초대 중 오류가 발생했습니다')
+    } finally {
+      setIsInviting(false)
+    }
+  }
+
+  const handleRemoveMember = async (userId: number) => {
+    if (!confirm('정말 이 멤버를 삭제하시겠습니까?')) return
+
+    try {
+      const token = localStorage.getItem('access_token')
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}/members/${userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      if (response.ok) {
+        alert('멤버가 삭제되었습니다')
+        fetchProjectDetails() // Refresh members
+      } else {
+        const error = await response.json()
+        alert(error.detail || '멤버 삭제에 실패했습니다')
+      }
+    } catch (error) {
+      console.error('Failed to remove member:', error)
+      alert('멤버 삭제 중 오류가 발생했습니다')
+    }
+  }
+
+  const getAvatarInitials = (member: ProjectMember) => {
+    if (member.full_name) {
+      // For Korean names, take first 2 characters
+      if (/[가-힣]/.test(member.full_name)) {
+        return member.full_name.slice(0, 2)
+      }
+      // For English names, take first letter of first and last name
+      const parts = member.full_name.split(' ')
+      if (parts.length >= 2) {
+        return parts[0][0] + parts[parts.length - 1][0]
+      }
+      return member.full_name.slice(0, 2).toUpperCase()
+    }
+    return member.email.slice(0, 2).toUpperCase()
+  }
+
   const taskTypes = [
     { value: 'image_classification', label: '이미지 분류' },
     { value: 'object_detection', label: '객체 탐지' },
@@ -212,7 +345,7 @@ export default function ProjectDetail({
       <div className="p-6 border-b border-gray-200">
         {/* Title bar with back button and action buttons */}
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 flex-1">
             {onBack && (
               <button
                 onClick={isEditing ? handleCancelEdit : onBack}
@@ -225,35 +358,83 @@ export default function ProjectDetail({
             <h2 className="text-lg font-semibold text-gray-900">
               {isEditing ? '프로젝트 정보 수정' : project.name}
             </h2>
+
+            {/* Project Members - Next to title (only in view mode) */}
+            {!isEditing && (
+              <div className="flex items-center gap-2 ml-4">
+                {members.map((member) => {
+                  const bgColorStyle = getAvatarColorStyle(member.badge_color)
+                  const ringClass = getAvatarRingColor(member.badge_color)
+
+                  return (
+                    <div key={member.user_id} className="relative group">
+                      <div
+                        className={cn(
+                          "w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-white",
+                          "hover:ring-2 hover:ring-offset-2 transition-all cursor-pointer",
+                          ringClass
+                        )}
+                        style={bgColorStyle}
+                        title={`${member.full_name || member.email} (${member.is_owner ? 'Owner' : member.role})`}
+                      >
+                        {member.is_owner && (
+                          <Crown className="absolute -top-1 -right-1 w-4 h-4 text-yellow-400 fill-yellow-400" />
+                        )}
+                        {getAvatarInitials(member)}
+                      </div>
+
+                      {/* Hover tooltip */}
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                        <div className="font-medium">{member.full_name || member.email}</div>
+                        <div className="text-gray-300">{member.is_owner ? 'Owner' : member.role}</div>
+                        {!member.is_owner && isOwner && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleRemoveMember(member.user_id)
+                            }}
+                            className="mt-1 text-red-400 hover:text-red-300 text-xs pointer-events-auto"
+                          >
+                            삭제
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {/* Add member button - Only for owner */}
+                {isOwner && (
+                  <button
+                    onClick={() => setShowInviteModal(true)}
+                    className={cn(
+                      "w-10 h-10 rounded-full flex items-center justify-center",
+                      "border-2 border-dashed border-gray-300 hover:border-violet-500",
+                      "text-gray-400 hover:text-violet-500 transition-colors"
+                    )}
+                    title="멤버 초대"
+                  >
+                    <UserPlus className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Edit/Save/Cancel Buttons */}
           <div className="flex gap-2">
             {!isEditing ? (
-              <>
-                <button
-                  onClick={() => onStartNewTraining?.(projectId)}
-                  className={cn(
-                    'px-3 py-1.5 bg-violet-600 text-white rounded-lg',
-                    'hover:bg-violet-700 transition-colors',
-                    'flex items-center gap-2 text-sm font-medium'
-                  )}
-                >
-                  <PlusIcon className="w-4 h-4" />
-                  <span>새 학습 시작</span>
-                </button>
-                <button
-                  onClick={handleStartEdit}
-                  className={cn(
-                    'px-3 py-1.5 hover:bg-gray-100 rounded-lg transition-colors',
-                    'text-gray-600 hover:text-violet-600',
-                    'flex items-center gap-2 text-sm font-medium'
-                  )}
-                >
-                  <EditIcon className="w-4 h-4" />
-                  <span>수정</span>
-                </button>
-              </>
+              <button
+                onClick={handleStartEdit}
+                className={cn(
+                  'px-3 py-1.5 hover:bg-gray-100 rounded-lg transition-colors',
+                  'text-gray-600 hover:text-violet-600',
+                  'flex items-center gap-2 text-sm font-medium'
+                )}
+              >
+                <EditIcon className="w-4 h-4" />
+                <span>수정</span>
+              </button>
             ) : (
               <>
                 <button
@@ -286,10 +467,13 @@ export default function ProjectDetail({
 
         {/* Content: View or Edit mode */}
         {!isEditing ? (
-          <div>
+          <div className="mt-4">
+            {/* Description */}
             {project.description && (
               <p className="text-sm text-gray-600 mb-4">{project.description}</p>
             )}
+
+            {/* Task type and experiment count */}
             <div className="flex items-center gap-3">
               {project.task_type && (
                 <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-700">
@@ -384,7 +568,20 @@ export default function ProjectDetail({
 
       {/* Experiments List */}
       <div className="flex-1 overflow-y-auto p-6">
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">실험 목록</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-700">실험 목록</h3>
+          <button
+            onClick={() => onStartNewTraining?.(projectId)}
+            className={cn(
+              'px-3 py-1.5 bg-violet-600 text-white rounded-lg',
+              'hover:bg-violet-700 transition-colors',
+              'flex items-center gap-2 text-sm font-medium'
+            )}
+          >
+            <PlusIcon className="w-4 h-4" />
+            <span>새 학습 시작</span>
+          </button>
+        </div>
 
         {experiments.length === 0 ? (
           <div className="text-center py-12">
@@ -562,6 +759,68 @@ export default function ProjectDetail({
           </div>
         )}
       </div>
+
+      {/* Invite Member Modal */}
+      {showInviteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">멤버 초대</h3>
+              <button
+                onClick={() => setShowInviteModal(false)}
+                className="p-1 hover:bg-gray-100 rounded transition-colors"
+              >
+                <XClose className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  이메일 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="user@example.com"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  역할
+                </label>
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                >
+                  <option value="member">Member (읽기/쓰기)</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => setShowInviteModal(false)}
+                  disabled={isInviting}
+                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors disabled:opacity-50"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleInviteMember}
+                  disabled={isInviting || !inviteEmail.trim()}
+                  className="flex-1 px-4 py-2 bg-violet-600 text-white rounded-md hover:bg-violet-700 transition-colors disabled:opacity-50"
+                >
+                  {isInviting ? '초대 중...' : '초대'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

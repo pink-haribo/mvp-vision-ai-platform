@@ -28,6 +28,7 @@ class ProjectResponse(BaseModel):
     name: str
     description: Optional[str] = None
     task_type: Optional[str] = None
+    user_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
@@ -45,6 +46,7 @@ class ProjectWithExperimentsResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     experiment_count: int = Field(0, description="Number of experiments in this project")
+    user_role: str = Field("owner", description="Current user's role in this project (owner or member)")
 
     class Config:
         from_attributes = True

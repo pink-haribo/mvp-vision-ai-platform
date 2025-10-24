@@ -1,8 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { User, FolderIcon, PlusIcon } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { User, FolderIcon, PlusIcon, Settings, LogOut, Users, FolderKanban } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils/cn'
+import { useAuth } from '@/contexts/AuthContext'
+import { getRoleLabel, getRoleBadgeColor } from '@/lib/utils/roleUtils'
+import { getAvatarColorStyle, getAvatarRingColor } from '@/lib/utils/avatarColors'
 
 interface Project {
   id: number
@@ -12,31 +16,78 @@ interface Project {
   created_at: string
   updated_at: string
   experiment_count: number
+  user_role: string
 }
 
 interface SidebarProps {
   onProjectSelect?: (projectId: number) => void
   selectedProjectId?: number | null
   onCreateProject?: () => void
+  onOpenLogin?: () => void
+  onOpenRegister?: () => void
+  onOpenProfile?: () => void
+  onOpenAdminProjects?: () => void
+  onOpenAdminUsers?: () => void
+  onLogout?: () => void
 }
 
 export default function Sidebar({
   onProjectSelect,
   selectedProjectId,
   onCreateProject,
+  onOpenLogin,
+  onOpenRegister,
+  onOpenProfile,
+  onOpenAdminProjects,
+  onOpenAdminUsers,
+  onLogout: onLogoutCallback,
 }: SidebarProps) {
+  const router = useRouter()
+  const { user: authUser, isAuthenticated, logout } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [loadingProjects, setLoadingProjects] = useState(false)
+  const [showUserMenu, setShowUserMenu] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
 
-  // Fetch recent projects
+  // Close dropdown when clicking outside
   useEffect(() => {
-    fetchRecentProjects()
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
   }, [])
+
+  // Fetch recent projects only when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchRecentProjects()
+    } else {
+      setProjects([])
+    }
+  }, [isAuthenticated])
 
   const fetchRecentProjects = async () => {
     setLoadingProjects(true)
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects`)
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        setProjects([])
+        setLoadingProjects(false)
+        return
+      }
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
       if (response.ok) {
         const data = await response.json()
         // Get top 5 most recent projects (excluding "Uncategorized")
@@ -47,9 +98,13 @@ export default function Sidebar({
           )
           .slice(0, 5)
         setProjects(filtered)
+      } else if (response.status === 401) {
+        // Unauthorized - clear projects
+        setProjects([])
       }
     } catch (error) {
       console.error('Failed to fetch projects:', error)
+      setProjects([])
     } finally {
       setLoadingProjects(false)
     }
@@ -60,12 +115,40 @@ export default function Sidebar({
     onProjectSelect?.(projectId)
   }
 
-  // Dummy user data
-  const user = {
-    name: 'John Doe',
-    email: 'john.doe@example.com',
-    avatar: 'JD',
+  const handleLogout = () => {
+    onLogoutCallback?.()  // Reset workspace state in parent
+    logout()
+    setShowUserMenu(false)
+    router.push('/')  // 메인 페이지로 이동 (로그아웃 상태의 플랫폼 화면)
   }
+
+  const handleSettings = () => {
+    setShowUserMenu(false)
+    onOpenProfile?.()
+  }
+
+  // Generate avatar initials from user name or email
+  const getAvatarInitials = () => {
+    if (authUser?.full_name) {
+      // For Korean names, take first 2 characters
+      if (/[가-힣]/.test(authUser.full_name)) {
+        return authUser.full_name.slice(0, 2)
+      }
+      // For English names, take first letter of first and last name
+      const parts = authUser.full_name.split(' ')
+      if (parts.length >= 2) {
+        return parts[0][0] + parts[parts.length - 1][0]
+      }
+      return authUser.full_name.slice(0, 2).toUpperCase()
+    }
+    if (authUser?.email) {
+      return authUser.email.slice(0, 2).toUpperCase()
+    }
+    return 'U'
+  }
+
+  const displayName = authUser?.full_name || authUser?.email || 'User'
+  const displayEmail = authUser?.email || ''
 
   return (
     <div className="w-64 h-screen bg-gray-900 text-white flex flex-col">
@@ -121,7 +204,17 @@ export default function Sidebar({
                     : 'text-gray-500 group-hover:text-violet-400'
                 )} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{project.name}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium truncate">{project.name}</p>
+                    <span className={cn(
+                      "px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0",
+                      project.user_role === "owner"
+                        ? "bg-emerald-500/20 text-emerald-400"
+                        : "bg-blue-500/20 text-blue-400"
+                    )}>
+                      {project.user_role === "owner" ? "Owner" : "Member"}
+                    </span>
+                  </div>
                   <p className="text-xs text-gray-500">
                     실험 {project.experiment_count}개
                   </p>
@@ -139,17 +232,97 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* User Info */}
-      <div className="border-t border-gray-800 p-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-full flex items-center justify-center font-semibold">
-            {user.avatar}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold truncate">{user.name}</p>
-            <p className="text-xs text-gray-400 truncate">{user.email}</p>
+      {/* Admin Controls */}
+      {isAuthenticated && authUser && (authUser.system_role === 'admin' || authUser.system_role === 'manager') && (
+        <div className="border-t border-gray-800 px-4 py-3">
+          <div className="space-y-1">
+            {/* Project Management - Admin only */}
+            {authUser.system_role === 'admin' && (
+              <button
+                onClick={onOpenAdminProjects}
+                className="w-full px-3 py-2 rounded-lg text-left text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-violet-400 transition-colors flex items-center gap-2"
+              >
+                <FolderKanban className="w-4 h-4" />
+                <span>프로젝트 관리</span>
+              </button>
+            )}
+            {/* User Management - Admin and Manager */}
+            <button
+              onClick={onOpenAdminUsers}
+              className="w-full px-3 py-2 rounded-lg text-left text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-violet-400 transition-colors flex items-center gap-2"
+            >
+              <Users className="w-4 h-4" />
+              <span>사용자 관리</span>
+            </button>
           </div>
         </div>
+      )}
+
+      {/* User Info */}
+      <div className="border-t border-gray-800 p-4">
+        {isAuthenticated ? (
+          <div className="relative" ref={userMenuRef}>
+            <button
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="w-full flex items-center gap-3 rounded-lg p-2 hover:bg-gray-800 transition-colors"
+            >
+              <div
+                className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-white"
+                style={getAvatarColorStyle(authUser?.badge_color)}
+              >
+                {getAvatarInitials()}
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-sm font-semibold truncate">{displayName}</p>
+                <p className="text-xs text-gray-400 truncate">{displayEmail}</p>
+                <span className={cn(
+                  "px-2 py-0.5 text-xs font-medium rounded inline-block mt-1",
+                  getRoleBadgeColor(authUser?.system_role || 'guest')
+                )}>
+                  {getRoleLabel(authUser?.system_role || 'guest')}
+                </span>
+              </div>
+            </button>
+
+            {/* Dropdown Menu */}
+            {showUserMenu && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 bg-gray-800 rounded-lg shadow-lg border border-gray-700 overflow-hidden">
+                <button
+                  onClick={handleSettings}
+                  className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-gray-700 transition-colors flex items-center gap-3"
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>설정</span>
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-gray-700 transition-colors flex items-center gap-3"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>로그아웃</span>
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-400 text-center">로그인이 필요합니다</p>
+            <div className="space-y-2">
+              <button
+                onClick={onOpenLogin}
+                className="w-full px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                로그인
+              </button>
+              <button
+                onClick={onOpenRegister}
+                className="w-full px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium rounded-lg transition-colors"
+              >
+                회원가입
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
