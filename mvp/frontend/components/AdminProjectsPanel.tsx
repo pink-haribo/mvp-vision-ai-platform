@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, X } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Search, X, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
 interface Project {
@@ -31,6 +31,9 @@ export default function AdminProjectsPanel() {
 
   // Filter state - unified search
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Delete modal state
+  const [deleteProject, setDeleteProject] = useState<Project | null>(null)
 
   useEffect(() => {
     fetchProjects()
@@ -128,6 +131,33 @@ export default function AdminProjectsPanel() {
 
   const clearSearch = () => {
     setSearchQuery('')
+  }
+
+  const handleDeleteProject = async (projectId: number) => {
+    try {
+      const token = localStorage.getItem('access_token')
+      if (!token) return
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/projects/${projectId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        setDeleteProject(null)
+        fetchProjects() // Refresh list
+        alert(result.message || '프로젝트가 삭제되었습니다.')
+      } else {
+        const error = await response.json()
+        alert(error.detail || '프로젝트 삭제에 실패했습니다.')
+      }
+    } catch (error) {
+      console.error('Failed to delete project:', error)
+      alert('프로젝트 삭제 중 오류가 발생했습니다.')
+    }
   }
 
   const formatDate = (dateString: string) => {
@@ -234,12 +264,15 @@ export default function AdminProjectsPanel() {
                   {getSortIcon('created_at')}
                 </button>
               </th>
+              <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                작업
+              </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {filteredProjects.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                   {searchQuery
                     ? '검색 조건에 맞는 프로젝트가 없습니다.'
                     : '프로젝트가 없습니다.'}
@@ -278,12 +311,56 @@ export default function AdminProjectsPanel() {
                   <td className="px-4 py-3 text-sm text-gray-500">
                     {formatDate(project.created_at)}
                   </td>
+                  <td className="px-4 py-3 text-sm text-center">
+                    <button
+                      onClick={() => setDeleteProject(project)}
+                      className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                      title="삭제"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      {deleteProject && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">프로젝트 삭제</h3>
+            <p className="text-sm text-gray-600 mb-2">
+              <span className="font-medium">{deleteProject.name}</span> 프로젝트를 정말 삭제하시겠습니까?
+            </p>
+            {deleteProject.experiment_count > 0 && (
+              <p className="text-sm text-orange-600 mb-4">
+                ⚠️ 이 프로젝트에는 {deleteProject.experiment_count}개의 실험이 포함되어 있습니다.
+                프로젝트를 삭제하면 모든 실험도 함께 삭제됩니다.
+              </p>
+            )}
+            <p className="text-sm text-gray-500 mb-6">
+              이 작업은 되돌릴 수 없습니다.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteProject(null)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => handleDeleteProject(deleteProject.id)}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

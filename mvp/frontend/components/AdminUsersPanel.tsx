@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, X } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Search, X, Edit2, Shield, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
 interface User {
@@ -34,6 +34,10 @@ export default function AdminUsersPanel() {
 
   // Filter state - unified search
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Modal states
+  const [roleEditUser, setRoleEditUser] = useState<User | null>(null)
+  const [deleteUser, setDeleteUser] = useState<User | null>(null)
 
   useEffect(() => {
     fetchUsers()
@@ -143,6 +147,60 @@ export default function AdminUsersPanel() {
 
   const clearSearch = () => {
     setSearchQuery('')
+  }
+
+  const handleRoleChange = async (userId: number, newRole: string) => {
+    try {
+      const token = localStorage.getItem('access_token')
+      if (!token) return
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/users/${userId}/role`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ system_role: newRole })
+      })
+
+      if (response.ok) {
+        setRoleEditUser(null)
+        fetchUsers() // Refresh list
+        alert('권한이 변경되었습니다.')
+      } else {
+        const error = await response.json()
+        alert(error.detail || '권한 변경에 실패했습니다.')
+      }
+    } catch (error) {
+      console.error('Failed to update role:', error)
+      alert('권한 변경 중 오류가 발생했습니다.')
+    }
+  }
+
+  const handleDeleteUser = async (userId: number) => {
+    try {
+      const token = localStorage.getItem('access_token')
+      if (!token) return
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/users/${userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      if (response.ok) {
+        setDeleteUser(null)
+        fetchUsers() // Refresh list
+        alert('사용자가 삭제되었습니다.')
+      } else {
+        const error = await response.json()
+        alert(error.detail || '사용자 삭제에 실패했습니다.')
+      }
+    } catch (error) {
+      console.error('Failed to delete user:', error)
+      alert('사용자 삭제 중 오류가 발생했습니다.')
+    }
   }
 
   const formatDate = (dateString: string) => {
@@ -302,12 +360,15 @@ export default function AdminUsersPanel() {
                   {getSortIcon('created_at')}
                 </button>
               </th>
+              <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                작업
+              </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {filteredUsers.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
                   {searchQuery
                     ? '검색 조건에 맞는 사용자가 없습니다.'
                     : '사용자가 없습니다.'}
@@ -348,12 +409,100 @@ export default function AdminUsersPanel() {
                   <td className="px-4 py-3 text-sm text-gray-500">
                     {formatDate(user.created_at)}
                   </td>
+                  <td className="px-4 py-3 text-sm text-center">
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => setRoleEditUser(user)}
+                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                        title="권한 수정"
+                      >
+                        <Shield className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setDeleteUser(user)}
+                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                        title="삭제"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Role Edit Modal */}
+      {roleEditUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">권한 수정</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              {roleEditUser.full_name || roleEditUser.email}의 권한을 변경합니다.
+            </p>
+            <div className="space-y-2 mb-6">
+              {['guest', 'admin', 'superadmin'].map((role) => (
+                <button
+                  key={role}
+                  onClick={() => handleRoleChange(roleEditUser.id, role)}
+                  className={cn(
+                    'w-full px-4 py-2 rounded-md text-left transition-colors',
+                    roleEditUser.system_role === role
+                      ? 'bg-violet-100 text-violet-700 font-medium'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  )}
+                >
+                  {getRoleLabel(role)}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setRoleEditUser(null)}
+              className="w-full px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">사용자 삭제</h3>
+            <p className="text-sm text-gray-600 mb-2">
+              <span className="font-medium">{deleteUser.full_name || deleteUser.email}</span>을(를) 정말 삭제하시겠습니까?
+            </p>
+            {deleteUser.project_count > 0 && (
+              <p className="text-sm text-red-600 mb-4">
+                ⚠️ 이 사용자는 {deleteUser.project_count}개의 프로젝트를 소유하고 있어 삭제할 수 없습니다.
+                먼저 프로젝트를 삭제하거나 다른 사용자에게 이전해주세요.
+              </p>
+            )}
+            <p className="text-sm text-gray-500 mb-6">
+              이 작업은 되돌릴 수 없습니다.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteUser(null)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => handleDeleteUser(deleteUser.id)}
+                disabled={deleteUser.project_count > 0}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
