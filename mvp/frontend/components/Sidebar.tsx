@@ -243,13 +243,11 @@ export default function Sidebar({
                 {getAvatarInitials()}
               </div>
               <div className="flex-1 min-w-0 text-left">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold truncate">{displayName}</p>
-                  <span className="px-2 py-0.5 text-xs font-medium bg-violet-500/20 text-violet-300 rounded">
-                    {getRoleLabel(authUser?.system_role)}
-                  </span>
-                </div>
+                <p className="text-sm font-semibold truncate">{displayName}</p>
                 <p className="text-xs text-gray-400 truncate">{displayEmail}</p>
+                <span className="px-2 py-0.5 text-xs font-medium bg-violet-500/20 text-violet-300 rounded inline-block mt-1">
+                  {getRoleLabel(authUser?.system_role)}
+                </span>
               </div>
             </button>
 
