@@ -2,6 +2,7 @@
 torch==2.1.0
 torchvision==0.16.0
 timm==0.9.12
+ultralytics==8.0.220  # YOLO models
 
 # Data Processing
 numpy==1.26.0

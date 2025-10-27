@@ -21,6 +21,12 @@ class TimmAdapter(TrainingAdapter):
 
     @classmethod
     def get_config_schema(cls) -> ConfigSchema:
+        """Return configuration schema for timm models."""
+        from training.config_schemas import get_timm_schema
+        return get_timm_schema()
+
+    @classmethod
+    def _get_config_schema_inline(cls) -> ConfigSchema:
         """Return configuration schema for timm models (image classification)."""
         fields = [
             # ========== Optimizer Settings ==========

@@ -677,73 +677,142 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
               </div>
 
               {/* Advanced Config */}
-              {job.advanced_config && (
+              {job.advanced_config && Object.keys(job.advanced_config).length > 0 && (
                 <div>
                   <h4 className="text-xs font-semibold text-gray-700 mb-2">고급 설정</h4>
                   <div className="space-y-3">
                     {/* Optimizer */}
-                    {job.advanced_config.optimizer && (
+                    {job.advanced_config.optimizer_type && (
                       <div className="bg-gray-50 rounded-lg p-3">
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-xs font-semibold text-gray-700">Optimizer</span>
                           <span className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded text-xs font-medium">
-                            {job.advanced_config.optimizer.type.toUpperCase()}
+                            {job.advanced_config.optimizer_type.toUpperCase()}
                           </span>
                         </div>
                         <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                          <div>Learning Rate: <span className="font-medium">{job.advanced_config.optimizer.learning_rate}</span></div>
-                          <div>Weight Decay: <span className="font-medium">{job.advanced_config.optimizer.weight_decay}</span></div>
+                          {job.advanced_config.weight_decay !== undefined && (
+                            <div>Weight Decay: <span className="font-medium">{job.advanced_config.weight_decay}</span></div>
+                          )}
+                          {job.advanced_config.momentum !== undefined && (
+                            <div>Momentum: <span className="font-medium">{job.advanced_config.momentum}</span></div>
+                          )}
                         </div>
                       </div>
                     )}
 
                     {/* Scheduler */}
-                    {job.advanced_config.scheduler && job.advanced_config.scheduler.type !== 'none' && (
+                    {job.advanced_config.scheduler_type && job.advanced_config.scheduler_type !== 'none' && (
                       <div className="bg-gray-50 rounded-lg p-3">
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-xs font-semibold text-gray-700">LR Scheduler</span>
                           <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">
-                            {job.advanced_config.scheduler.type.toUpperCase()}
+                            {job.advanced_config.scheduler_type.toUpperCase()}
                           </span>
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          {job.advanced_config.warmup_epochs !== undefined && (
+                            <div>Warmup: {job.advanced_config.warmup_epochs} epochs</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {job.advanced_config.cos_lr !== undefined && (
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-semibold text-gray-700">LR Scheduler</span>
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">
+                            {job.advanced_config.cos_lr ? 'COSINE' : 'CONSTANT'}
+                          </span>
+                        </div>
+                        {job.advanced_config.warmup_epochs !== undefined && (
+                          <div className="text-xs text-gray-600">
+                            Warmup: {job.advanced_config.warmup_epochs} epochs
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Augmentation - Classification (timm) */}
+                    {(job.advanced_config.aug_enabled || job.advanced_config.random_flip || job.advanced_config.mixup || job.advanced_config.cutmix) && (
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-semibold text-gray-700">Data Augmentation</span>
+                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                            {job.advanced_config.aug_enabled ? '활성화' : '부분 활성화'}
+                          </span>
+                        </div>
+                        <div className="flex gap-1 flex-wrap">
+                          {job.advanced_config.random_flip && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Flip</span>
+                          )}
+                          {job.advanced_config.random_rotation && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Rotation</span>
+                          )}
+                          {job.advanced_config.color_jitter && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Color Jitter</span>
+                          )}
+                          {job.advanced_config.mixup && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Mixup</span>
+                          )}
+                          {job.advanced_config.cutmix && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">CutMix</span>
+                          )}
+                          {job.advanced_config.random_erasing && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Random Erasing</span>
+                          )}
                         </div>
                       </div>
                     )}
 
-                    {/* Augmentation */}
-                    {job.advanced_config.augmentation && job.advanced_config.augmentation.enabled && (
+                    {/* Augmentation - Detection (YOLO) */}
+                    {(job.advanced_config.mosaic !== undefined || job.advanced_config.fliplr !== undefined) && (
                       <div className="bg-gray-50 rounded-lg p-3">
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-semibold text-gray-700">Data Augmentation</span>
+                          <span className="text-xs font-semibold text-gray-700">Data Augmentation (YOLO)</span>
                           <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
                             활성화
                           </span>
                         </div>
                         <div className="flex gap-1 flex-wrap">
-                          {job.advanced_config.augmentation.random_flip && (
-                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Flip</span>
+                          {job.advanced_config.mosaic > 0 && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">
+                              Mosaic ({(job.advanced_config.mosaic * 100).toFixed(0)}%)
+                            </span>
                           )}
-                          {job.advanced_config.augmentation.random_rotation && (
-                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Rotation</span>
+                          {job.advanced_config.mixup > 0 && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">
+                              Mixup ({(job.advanced_config.mixup * 100).toFixed(0)}%)
+                            </span>
                           )}
-                          {job.advanced_config.augmentation.color_jitter && (
-                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Color Jitter</span>
+                          {job.advanced_config.copy_paste > 0 && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">
+                              Copy-Paste ({(job.advanced_config.copy_paste * 100).toFixed(0)}%)
+                            </span>
                           )}
-                          {job.advanced_config.augmentation.mixup && (
-                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Mixup</span>
+                          {job.advanced_config.fliplr > 0 && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">
+                              Flip ({(job.advanced_config.fliplr * 100).toFixed(0)}%)
+                            </span>
                           )}
-                          {job.advanced_config.augmentation.cutmix && (
-                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">CutMix</span>
+                          {job.advanced_config.degrees > 0 && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">
+                              Rotation (±{job.advanced_config.degrees}°)
+                            </span>
+                          )}
+                          {(job.advanced_config.hsv_h > 0 || job.advanced_config.hsv_s > 0 || job.advanced_config.hsv_v > 0) && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">HSV Aug</span>
                           )}
                         </div>
                       </div>
                     )}
 
                     {/* Other Settings */}
-                    {(job.advanced_config.mixed_precision || job.advanced_config.gradient_clip_value) && (
+                    {(job.advanced_config.mixed_precision || job.advanced_config.gradient_clip_value || job.advanced_config.amp !== undefined) && (
                       <div className="bg-gray-50 rounded-lg p-3">
                         <span className="text-xs font-semibold text-gray-700 block mb-2">기타</span>
                         <div className="flex gap-2 flex-wrap text-xs">
-                          {job.advanced_config.mixed_precision && (
+                          {(job.advanced_config.mixed_precision || job.advanced_config.amp) && (
                             <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded">Mixed Precision</span>
                           )}
                           {job.advanced_config.gradient_clip_value && (

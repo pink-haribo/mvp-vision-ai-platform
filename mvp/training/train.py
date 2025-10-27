@@ -4,6 +4,11 @@ import argparse
 import json
 import sys
 import os
+from pathlib import Path
+
+# Disable output buffering to see logs immediately
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
 # Add training directory to path
 sys.path.insert(0, os.path.dirname(__file__))
@@ -19,7 +24,9 @@ from adapters.timm_adapter import TimmAdapter
 from adapters.ultralytics_adapter import UltralyticsAdapter
 
 # Configure MLflow tracking URI
-os.environ.setdefault("MLFLOW_TRACKING_URI", "http://localhost:5000")
+# Use file:// protocol for Windows paths to avoid URI parsing errors
+mlflow_dir = Path(__file__).parent.parent.parent / "runs" / "mlflow"
+os.environ.setdefault("MLFLOW_TRACKING_URI", f"file:///{mlflow_dir.as_posix()}")
 os.environ.setdefault("MLFLOW_S3_ENDPOINT_URL", "http://localhost:9000")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "minioadmin")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "minioadmin")
@@ -164,13 +171,20 @@ def main():
 
     # Create configuration objects
     try:
+        # Determine appropriate image size based on framework
+        image_size = args.image_size
+        if args.framework == 'ultralytics' and image_size == 224:
+            # YOLO models typically use 640x640
+            image_size = 640
+            print(f"[CONFIG] Adjusting image_size from 224 to 640 for YOLO")
+
         model_config = ModelConfig(
             framework=args.framework,
             task_type=TaskType(args.task_type),
             model_name=args.model_name,
             pretrained=args.pretrained,
             num_classes=args.num_classes,
-            image_size=args.image_size,
+            image_size=image_size,
         )
 
         dataset_config = DatasetConfig(
@@ -206,7 +220,7 @@ def main():
     print(f"[CONFIG] Task Type: {args.task_type}")
     print(f"[CONFIG] Model: {args.model_name}")
     print(f"[CONFIG] Pretrained: {args.pretrained}")
-    print(f"[CONFIG] Image Size: {args.image_size}")
+    print(f"[CONFIG] Image Size: {model_config.image_size}")  # Use actual config value
     if args.num_classes:
         print(f"[CONFIG] Number of Classes: {args.num_classes}")
     print(f"\n[CONFIG] Training Parameters:")

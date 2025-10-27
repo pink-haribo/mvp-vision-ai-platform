@@ -1,6 +1,7 @@
 """Training API endpoints."""
 
 import os
+import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -11,6 +12,8 @@ from app.schemas import training
 from app.core.config import settings
 from app.utils.training_manager import TrainingManager
 from app.utils.mlflow_client import get_mlflow_client
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -709,34 +712,45 @@ async def get_config_schema(framework: str, task_type: str = None):
         Configuration schema with fields, types, defaults, and presets
     """
     try:
-        # Import adapters
-        from training.adapters.timm_adapter import TimmAdapter
-        from training.adapters.ultralytics_adapter import UltralyticsAdapter
+        logger.info(f"[config-schema] Requested framework={framework}, task_type={task_type}")
 
-        # Map framework name to adapter class
-        adapter_map = {
-            'timm': TimmAdapter,
-            'ultralytics': UltralyticsAdapter,
+        # Import config schemas (lightweight, no torch dependencies)
+        from training.config_schemas import get_timm_schema, get_ultralytics_schema
+
+        # Map framework name to schema getter function
+        schema_map = {
+            'timm': get_timm_schema,
+            'ultralytics': get_ultralytics_schema,
         }
 
-        # Get adapter class
-        adapter_class = adapter_map.get(framework.lower())
-        if not adapter_class:
+        # Get schema getter function
+        schema_getter = schema_map.get(framework.lower())
+        if not schema_getter:
             raise HTTPException(
                 status_code=404,
-                detail=f"Framework '{framework}' not supported. Available: {list(adapter_map.keys())}"
+                detail=f"Framework '{framework}' not supported. Available: {list(schema_map.keys())}"
             )
 
+        logger.info(f"[config-schema] Getting schema for {framework}")
+
         # Get configuration schema
-        schema = adapter_class.get_config_schema()
+        schema = schema_getter()
+        schema_dict = schema.to_dict()
+
+        logger.info(f"[config-schema] Schema retrieved with {len(schema_dict.get('fields', []))} fields")
 
         return {
             "framework": framework,
             "task_type": task_type,
-            "schema": schema.to_dict()
+            "schema": schema_dict
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
+        import traceback
+        logger.error(f"[config-schema] Error: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get configuration schema: {str(e)}"

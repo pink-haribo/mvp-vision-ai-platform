@@ -93,15 +93,29 @@ class TrainingManager:
             print(f"[DEBUG] Command: {' '.join(cmd)}")
             print(f"[DEBUG] CWD: {project_root}")
 
+            # Prepare environment with unbuffered Python output
+            env = os.environ.copy()
+            env['PYTHONUNBUFFERED'] = '1'
+
+            # Add -u flag to python command for unbuffered output
+            if training_python.endswith('python.exe') or training_python.endswith('python'):
+                cmd_with_unbuffered = [training_python, '-u'] + cmd[1:]
+            else:
+                cmd_with_unbuffered = cmd
+
+            print(f"[DEBUG] Command with unbuffered: {' '.join(cmd_with_unbuffered)}")
+
             # Start subprocess (run from project root)
             process = subprocess.Popen(
-                cmd,
+                cmd_with_unbuffered,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                universal_newlines=True,
+                encoding='utf-8',  # Force UTF-8 encoding to handle emojis
+                errors='replace',  # Replace invalid characters instead of crashing
                 cwd=project_root,  # Set working directory to project root
+                env=env,  # Use environment with PYTHONUNBUFFERED
             )
 
             # Store process

@@ -1,5 +1,7 @@
 """Application configuration."""
 
+import os
+from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 from typing import Optional
@@ -33,11 +35,29 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # Storage Paths
+    # Storage Paths (will be converted to absolute paths)
     UPLOAD_DIR: str = "./mvp/data/uploads"
     OUTPUT_DIR: str = "./mvp/data/outputs"
     MODEL_DIR: str = "./mvp/data/models"
     LOG_DIR: str = "./mvp/data/logs"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Convert relative paths to absolute paths based on project root
+        project_root = Path(__file__).parent.parent.parent.parent.absolute()
+
+        for attr in ['UPLOAD_DIR', 'OUTPUT_DIR', 'MODEL_DIR', 'LOG_DIR']:
+            path_value = getattr(self, attr)
+            if not os.path.isabs(path_value):
+                # Convert relative path to absolute
+                abs_path = project_root / path_value.lstrip('./')
+                setattr(self, attr, str(abs_path))
+
+        # Also handle DATABASE_URL if it contains relative path
+        if self.DATABASE_URL.startswith('sqlite:///./'):
+            rel_path = self.DATABASE_URL.replace('sqlite:///./', '')
+            abs_path = project_root / rel_path
+            self.DATABASE_URL = f'sqlite:///{abs_path}'
 
     # Training Defaults
     DEFAULT_BATCH_SIZE: int = 32

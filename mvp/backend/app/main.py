@@ -1,5 +1,12 @@
 """FastAPI application entry point."""
 
+import sys
+from pathlib import Path
+
+# Add parent directory to sys.path for training module access
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
