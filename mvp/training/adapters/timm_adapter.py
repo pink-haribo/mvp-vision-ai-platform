@@ -46,33 +46,123 @@ class TimmAdapter(TrainingAdapter):
         self.criterion = nn.CrossEntropyLoss()
 
         # Build optimizer from advanced config (or use basic config)
+        print("\n" + "="*80)
+        print("OPTIMIZER CONFIGURATION")
+        print("="*80)
         self.optimizer = self.build_optimizer(self.model.parameters())
-        print(f"Optimizer: {self.optimizer.__class__.__name__}")
+        print(f"[CONFIG] Optimizer Type: {self.optimizer.__class__.__name__}")
+
+        # Print optimizer parameters
+        for group_idx, param_group in enumerate(self.optimizer.param_groups):
+            print(f"[CONFIG] Parameter Group {group_idx}:")
+            print(f"         - Learning Rate: {param_group['lr']}")
+            if 'weight_decay' in param_group:
+                print(f"         - Weight Decay: {param_group['weight_decay']}")
+            if 'momentum' in param_group:
+                print(f"         - Momentum: {param_group['momentum']}")
+            if 'betas' in param_group:
+                print(f"         - Betas: {param_group['betas']}")
 
         # Build scheduler from advanced config (optional)
+        print("\n" + "="*80)
+        print("SCHEDULER CONFIGURATION")
+        print("="*80)
         self.scheduler = self.build_scheduler(self.optimizer)
         if self.scheduler:
-            print(f"Scheduler: {self.scheduler.__class__.__name__}")
+            print(f"[CONFIG] Scheduler Type: {self.scheduler.__class__.__name__}")
+            # Print scheduler-specific parameters
+            if hasattr(self.scheduler, 'step_size'):
+                print(f"         - Step Size: {self.scheduler.step_size}")
+            if hasattr(self.scheduler, 'gamma'):
+                print(f"         - Gamma: {self.scheduler.gamma}")
+            if hasattr(self.scheduler, 'T_max'):
+                print(f"         - T_max: {self.scheduler.T_max}")
+            if hasattr(self.scheduler, 'eta_min'):
+                print(f"         - Min LR: {self.scheduler.eta_min}")
         else:
-            print("No scheduler configured")
+            print("[CONFIG] No scheduler configured (learning rate will be constant)")
 
         self.best_val_acc = 0.0
 
     def prepare_dataset(self):
-        """Prepare dataset for training."""
-        from data.dataset import create_dataloaders
+        """Prepare dataset for training with advanced config transforms."""
+        import os
+        from torchvision import datasets
 
-        print(f"Loading dataset from: {self.dataset_config.dataset_path}")
+        print("\n" + "="*80)
+        print("DATA AUGMENTATION CONFIGURATION")
+        print("="*80)
+        print(f"[CONFIG] Dataset Path: {self.dataset_config.dataset_path}")
 
-        self.train_loader, self.val_loader, num_classes = create_dataloaders(
-            dataset_path=self.dataset_config.dataset_path,
+        # Build transforms using advanced config (or defaults)
+        train_transform = self.build_train_transforms()
+        val_transform = self.build_val_transforms()
+
+        # Print augmentation details
+        if self.training_config.advanced_config and 'augmentation' in self.training_config.advanced_config:
+            aug_config = self.training_config.advanced_config['augmentation']
+            print(f"[CONFIG] Augmentation Enabled: {aug_config.get('enabled', False)}")
+            if aug_config.get('enabled'):
+                print(f"[CONFIG] Active Augmentations:")
+                if aug_config.get('random_flip'):
+                    print(f"         - Random Horizontal Flip (p={aug_config.get('random_flip_prob', 0.5)})")
+                if aug_config.get('random_rotation'):
+                    print(f"         - Random Rotation (degrees={aug_config.get('rotation_degrees', 15)})")
+                if aug_config.get('random_crop'):
+                    print(f"         - Random Crop")
+                if aug_config.get('color_jitter'):
+                    print(f"         - Color Jitter (brightness={aug_config.get('brightness', 0.2)}, contrast={aug_config.get('contrast', 0.2)})")
+                if aug_config.get('random_erasing'):
+                    print(f"         - Random Erasing (p={aug_config.get('random_erasing_prob', 0.5)})")
+                if aug_config.get('mixup'):
+                    print(f"         - Mixup (alpha={aug_config.get('mixup_alpha', 0.2)})")
+                if aug_config.get('cutmix'):
+                    print(f"         - CutMix (alpha={aug_config.get('cutmix_alpha', 1.0)})")
+        else:
+            print(f"[CONFIG] Using default augmentation transforms")
+
+        print(f"\n[CONFIG] Train Transform Pipeline:")
+        for idx, transform in enumerate(train_transform.transforms):
+            print(f"         {idx+1}. {transform.__class__.__name__}")
+
+        print(f"\n[CONFIG] Validation Transform Pipeline:")
+        for idx, transform in enumerate(val_transform.transforms):
+            print(f"         {idx+1}. {transform.__class__.__name__}")
+
+        # Create datasets
+        train_dir = os.path.join(self.dataset_config.dataset_path, "train")
+        val_dir = os.path.join(self.dataset_config.dataset_path, "val")
+
+        if not os.path.exists(train_dir):
+            raise ValueError(f"Training directory not found: {train_dir}")
+        if not os.path.exists(val_dir):
+            raise ValueError(f"Validation directory not found: {val_dir}")
+
+        train_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
+        val_dataset = datasets.ImageFolder(val_dir, transform=val_transform)
+
+        num_classes = len(train_dataset.classes)
+        print(f"Detected classes: {num_classes}")
+
+        # Create dataloaders
+        self.train_loader = DataLoader(
+            train_dataset,
             batch_size=self.training_config.batch_size,
-            num_workers=4
+            shuffle=True,
+            num_workers=4,
+            pin_memory=True,
+        )
+
+        self.val_loader = DataLoader(
+            val_dataset,
+            batch_size=self.training_config.batch_size,
+            shuffle=False,
+            num_workers=4,
+            pin_memory=True,
         )
 
         print(f"Train batches: {len(self.train_loader)}")
         print(f"Val batches: {len(self.val_loader)}")
-        print(f"Detected classes: {num_classes}")
 
     def train_epoch(self, epoch: int) -> MetricsResult:
         """Train for one epoch."""
@@ -80,6 +170,10 @@ class TimmAdapter(TrainingAdapter):
         running_loss = 0.0
         correct = 0
         total = 0
+
+        # Print current learning rate
+        current_lr = self.optimizer.param_groups[0]['lr']
+        print(f"\n[EPOCH {epoch + 1}] Learning Rate: {current_lr:.6f}")
 
         pbar = tqdm(self.train_loader, desc=f"Epoch {epoch + 1} [Train]")
         for batch_idx, (inputs, targets) in enumerate(pbar):
@@ -145,14 +239,20 @@ class TimmAdapter(TrainingAdapter):
         avg_loss = running_loss / len(self.val_loader)
         accuracy = 100. * correct / total
 
-        # Update scheduler if it exists and is ReduceLROnPlateau
+        # Update scheduler if it exists
         if self.scheduler:
+            old_lr = self.optimizer.param_groups[0]['lr']
             # ReduceLROnPlateau needs a metric value
             if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                 self.scheduler.step(avg_loss)
             else:
                 # Other schedulers are stepped per epoch
                 self.scheduler.step()
+
+            # Check if learning rate changed
+            new_lr = self.optimizer.param_groups[0]['lr']
+            if new_lr != old_lr:
+                print(f"[SCHEDULER] Learning rate updated: {old_lr:.6f} -> {new_lr:.6f}")
 
         # Track best accuracy
         if accuracy > self.best_val_acc:

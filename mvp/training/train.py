@@ -80,6 +80,68 @@ def parse_args():
     return parser.parse_args()
 
 
+def load_advanced_config_from_db(job_id: int):
+    """
+    Load advanced_config from database for given job_id.
+
+    Args:
+        job_id: Training job ID
+
+    Returns:
+        Advanced config dict or None
+    """
+    try:
+        from sqlalchemy import create_engine, Column, Integer, JSON
+        from sqlalchemy.orm import declarative_base, sessionmaker
+
+        # Get database path relative to project root
+        # train.py is at: mvp/training/train.py
+        # DB is at: mvp/data/db/vision_platform.db
+        training_dir = os.path.dirname(os.path.abspath(__file__))  # mvp/training
+        mvp_dir = os.path.dirname(training_dir)  # mvp
+        db_path = os.path.join(mvp_dir, 'data', 'db', 'vision_platform.db')
+
+        if not os.path.exists(db_path):
+            print(f"[WARNING] Database not found at: {db_path}")
+            return None
+
+        database_url = f"sqlite:///{db_path}"
+        print(f"[INFO] Connecting to database: {db_path}")
+
+        # Create engine and session
+        engine = create_engine(database_url, echo=False)
+        SessionLocal = sessionmaker(bind=engine)
+
+        # Define minimal TrainingJob model
+        Base = declarative_base()
+
+        class TrainingJob(Base):
+            __tablename__ = "training_jobs"
+            id = Column(Integer, primary_key=True)
+            advanced_config = Column(JSON, nullable=True)
+
+        # Query database
+        db = SessionLocal()
+        try:
+            job = db.query(TrainingJob).filter(TrainingJob.id == job_id).first()
+            if job and job.advanced_config:
+                print(f"[INFO] SUCCESS: Loaded advanced_config from database for job {job_id}")
+                print(f"[INFO]   Optimizer: {job.advanced_config.get('optimizer', {}).get('type', 'N/A')}")
+                print(f"[INFO]   Scheduler: {job.advanced_config.get('scheduler', {}).get('type', 'N/A')}")
+                print(f"[INFO]   Augmentation: {'enabled' if job.advanced_config.get('augmentation', {}).get('enabled') else 'disabled'}")
+                return job.advanced_config
+            else:
+                print(f"[INFO] No advanced_config found for job {job_id}, using defaults")
+                return None
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[WARNING] Failed to load advanced_config from DB: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def main():
     """Main training function."""
     args = parse_args()
@@ -88,6 +150,11 @@ def main():
     print("Vision AI Training Platform - Adapter Pattern")
     print("="*80)
     print(f"[CONFIG] {json.dumps(vars(args), indent=2)}")
+
+    # Load advanced_config from database if available
+    advanced_config = load_advanced_config_from_db(args.job_id)
+    if advanced_config:
+        print(f"[CONFIG] Advanced config loaded: {json.dumps(advanced_config, indent=2)}")
 
     # Create configuration objects
     try:
@@ -111,6 +178,7 @@ def main():
             learning_rate=args.learning_rate,
             optimizer=args.optimizer,
             device=args.device,
+            advanced_config=advanced_config,  # Pass advanced_config to TrainingConfig
         )
     except Exception as e:
         print(f"[ERROR] Failed to create configuration: {str(e)}")
@@ -122,6 +190,43 @@ def main():
         print(f"[ERROR] Framework '{args.framework}' not supported")
         print(f"[ERROR] Available frameworks: {list(ADAPTER_REGISTRY.keys())}")
         sys.exit(1)
+
+    # Print complete configuration summary
+    print("\n" + "="*80)
+    print("TRAINING CONFIGURATION SUMMARY")
+    print("="*80)
+    print(f"[CONFIG] Job ID: {args.job_id}")
+    print(f"[CONFIG] Framework: {args.framework}")
+    print(f"[CONFIG] Task Type: {args.task_type}")
+    print(f"[CONFIG] Model: {args.model_name}")
+    print(f"[CONFIG] Pretrained: {args.pretrained}")
+    print(f"[CONFIG] Image Size: {args.image_size}")
+    if args.num_classes:
+        print(f"[CONFIG] Number of Classes: {args.num_classes}")
+    print(f"\n[CONFIG] Training Parameters:")
+    print(f"         - Epochs: {args.epochs}")
+    print(f"         - Batch Size: {args.batch_size}")
+    print(f"         - Base Learning Rate: {args.learning_rate}")
+    print(f"         - Device: {args.device}")
+    print(f"\n[CONFIG] Dataset:")
+    print(f"         - Path: {args.dataset_path}")
+    print(f"         - Format: {args.dataset_format}")
+    print(f"\n[CONFIG] Output Directory: {args.output_dir}")
+
+    if advanced_config:
+        print(f"\n[CONFIG] Advanced Configuration: ENABLED")
+        if 'optimizer' in advanced_config:
+            print(f"         - Optimizer will be configured from advanced_config")
+        if 'scheduler' in advanced_config:
+            print(f"         - Scheduler will be configured from advanced_config")
+        if 'augmentation' in advanced_config and advanced_config['augmentation'].get('enabled'):
+            print(f"         - Custom augmentation will be applied")
+        if advanced_config.get('mixed_precision'):
+            print(f"         - Mixed Precision Training: ENABLED")
+        if advanced_config.get('gradient_clip_value'):
+            print(f"         - Gradient Clipping: {advanced_config['gradient_clip_value']}")
+    else:
+        print(f"\n[CONFIG] Advanced Configuration: DISABLED (using defaults)")
 
     # Create adapter instance
     print(f"\n[INFO] Creating {args.framework} adapter for {args.task_type}")
@@ -136,7 +241,7 @@ def main():
     # Train
     try:
         print("\n" + "="*80)
-        print("Starting Training")
+        print("STARTING TRAINING")
         print("="*80 + "\n")
 
         metrics = adapter.train()

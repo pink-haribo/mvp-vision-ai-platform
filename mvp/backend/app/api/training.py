@@ -93,6 +93,7 @@ async def create_training_job(
         epochs=job_request.config.epochs,
         batch_size=job_request.config.batch_size,
         learning_rate=job_request.config.learning_rate,
+        advanced_config=job_request.config.advanced_config.model_dump() if job_request.config.advanced_config else None,
         status="pending",
     )
 
@@ -252,16 +253,18 @@ async def cancel_training_job(job_id: int, db: Session = Depends(get_db)):
 @router.get("/jobs/{job_id}/logs", response_model=list[training.TrainingLogResponse])
 async def get_training_logs(
     job_id: int,
-    limit: int = 100,
+    limit: int = 500,
     log_type: str | None = None,
     db: Session = Depends(get_db),
 ):
     """
     Get training logs for a job.
 
+    Returns the most recent logs up to the limit, ordered chronologically.
+
     Args:
         job_id: Training job ID
-        limit: Maximum number of log entries to return (default: 100)
+        limit: Maximum number of log entries to return (default: 500)
         log_type: Filter by log type ('stdout' or 'stderr'), optional
     """
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
@@ -275,10 +278,11 @@ async def get_training_logs(
     if log_type in ["stdout", "stderr"]:
         query = query.filter(models.TrainingLog.log_type == log_type)
 
-    # Get logs ordered by creation time
-    logs = query.order_by(models.TrainingLog.created_at).limit(limit).all()
+    # Get most recent logs (newest first), then reverse to show chronologically
+    logs = query.order_by(models.TrainingLog.created_at.desc()).limit(limit).all()
 
-    return logs
+    # Reverse to show oldest first (chronological order)
+    return list(reversed(logs))
 
 
 @router.get("/jobs/{job_id}/mlflow/metrics")

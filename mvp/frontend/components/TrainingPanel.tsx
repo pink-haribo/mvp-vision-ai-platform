@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight } from 'lucide-react'
+import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import MLflowMetricsCharts from './training/MLflowMetricsCharts'
 import MLflowMetricsTable from './training/MLflowMetricsTable'
@@ -19,6 +19,7 @@ interface TrainingJob {
   epochs: number
   batch_size: number
   learning_rate: number
+  advanced_config: any | null
   status: string
   final_accuracy: number | null
 }
@@ -50,6 +51,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
   const [metrics, setMetrics] = useState<TrainingMetric[]>([])
   const [logs, setLogs] = useState<TrainingLog[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [showConfigDetails, setShowConfigDetails] = useState(false)
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
   // Fetch training job details
@@ -111,7 +113,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
     const fetchLogs = async () => {
       try {
         const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/logs?limit=200`
+          `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/logs?limit=500`
         )
         if (response.ok) {
           const data = await response.json()
@@ -360,45 +362,177 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
         </div>
       </div>
 
-      {/* Training Config */}
+      {/* Training Config - Compact Summary */}
       <div className="p-6 bg-white border-b border-gray-200">
-        <h3 className="text-sm font-semibold text-gray-900 mb-3">학습 설정</h3>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div>
-            <span className="text-gray-600">프레임워크:</span>
-            <span className="ml-2 font-medium">{job.framework}</span>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-900">학습 설정</h3>
+          <button
+            onClick={() => setShowConfigDetails(!showConfigDetails)}
+            className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+          >
+            {showConfigDetails ? (
+              <>
+                <ChevronUp className="w-4 h-4" />
+                간단히 보기
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-4 h-4" />
+                자세히 보기
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Compact Summary (Always Visible) */}
+        <div className="flex items-center gap-4 text-sm flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-1 bg-violet-100 text-violet-700 rounded text-xs font-semibold">
+              {job.model_name}
+            </span>
           </div>
-          <div>
-            <span className="text-gray-600">작업 유형:</span>
-            <span className="ml-2 font-medium">{job.task_type}</span>
-          </div>
-          <div>
-            <span className="text-gray-600">모델:</span>
-            <span className="ml-2 font-medium">{job.model_name}</span>
-          </div>
-          <div>
-            <span className="text-gray-600">데이터셋 형식:</span>
-            <span className="ml-2 font-medium">{job.dataset_format}</span>
+          <div className="text-gray-600">
+            <span className="font-medium text-gray-900">{job.task_type}</span>
           </div>
           {job.num_classes && (
-            <div>
-              <span className="text-gray-600">클래스:</span>
-              <span className="ml-2 font-medium">{job.num_classes}</span>
+            <div className="text-gray-600">
+              <span className="font-medium text-gray-900">{job.num_classes}</span>개 클래스
             </div>
           )}
-          <div>
-            <span className="text-gray-600">에포크:</span>
-            <span className="ml-2 font-medium">{job.epochs}</span>
-          </div>
-          <div>
-            <span className="text-gray-600">배치:</span>
-            <span className="ml-2 font-medium">{job.batch_size}</span>
-          </div>
-          <div>
-            <span className="text-gray-600">학습률:</span>
-            <span className="ml-2 font-medium">{job.learning_rate}</span>
+          <div className="text-gray-600">
+            <span className="font-medium text-gray-900">{job.epochs}</span> 에포크
           </div>
         </div>
+
+        {/* Detailed Config (Expandable) */}
+        {showConfigDetails && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <div className="space-y-4">
+              {/* Basic Config */}
+              <div>
+                <h4 className="text-xs font-semibold text-gray-700 mb-2">기본 설정</h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-600">프레임워크:</span>
+                    <span className="ml-2 font-medium">{job.framework}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">작업 유형:</span>
+                    <span className="ml-2 font-medium">{job.task_type}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">모델:</span>
+                    <span className="ml-2 font-medium">{job.model_name}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">데이터셋 형식:</span>
+                    <span className="ml-2 font-medium">{job.dataset_format}</span>
+                  </div>
+                  {job.num_classes && (
+                    <div>
+                      <span className="text-gray-600">클래스 수:</span>
+                      <span className="ml-2 font-medium">{job.num_classes}</span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-gray-600">에포크:</span>
+                    <span className="ml-2 font-medium">{job.epochs}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">배치 크기:</span>
+                    <span className="ml-2 font-medium">{job.batch_size}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">학습률:</span>
+                    <span className="ml-2 font-medium">{job.learning_rate}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Advanced Config */}
+              {job.advanced_config && (
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-700 mb-2">고급 설정</h4>
+                  <div className="space-y-3">
+                    {/* Optimizer */}
+                    {job.advanced_config.optimizer && (
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-semibold text-gray-700">Optimizer</span>
+                          <span className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded text-xs font-medium">
+                            {job.advanced_config.optimizer.type.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                          <div>Learning Rate: <span className="font-medium">{job.advanced_config.optimizer.learning_rate}</span></div>
+                          <div>Weight Decay: <span className="font-medium">{job.advanced_config.optimizer.weight_decay}</span></div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Scheduler */}
+                    {job.advanced_config.scheduler && job.advanced_config.scheduler.type !== 'none' && (
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-semibold text-gray-700">LR Scheduler</span>
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">
+                            {job.advanced_config.scheduler.type.toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Augmentation */}
+                    {job.advanced_config.augmentation && job.advanced_config.augmentation.enabled && (
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-semibold text-gray-700">Data Augmentation</span>
+                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                            활성화
+                          </span>
+                        </div>
+                        <div className="flex gap-1 flex-wrap">
+                          {job.advanced_config.augmentation.random_flip && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Flip</span>
+                          )}
+                          {job.advanced_config.augmentation.random_rotation && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Rotation</span>
+                          )}
+                          {job.advanced_config.augmentation.color_jitter && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Color Jitter</span>
+                          )}
+                          {job.advanced_config.augmentation.mixup && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">Mixup</span>
+                          )}
+                          {job.advanced_config.augmentation.cutmix && (
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs">CutMix</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Other Settings */}
+                    {(job.advanced_config.mixed_precision || job.advanced_config.gradient_clip_value) && (
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <span className="text-xs font-semibold text-gray-700 block mb-2">기타</span>
+                        <div className="flex gap-2 flex-wrap text-xs">
+                          {job.advanced_config.mixed_precision && (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded">Mixed Precision</span>
+                          )}
+                          {job.advanced_config.gradient_clip_value && (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded">
+                              Gradient Clipping ({job.advanced_config.gradient_clip_value})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Content Area */}
@@ -469,20 +603,28 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
 
         {/* Logs */}
         <div>
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">학습 로그</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-900">학습 로그</h3>
+            {logs.length > 0 && (
+              <span className="text-xs text-gray-500">
+                최근 {logs.length}개 로그 표시 중 (자동 스크롤)
+              </span>
+            )}
+          </div>
 
           {logs.length === 0 ? (
             <p className="text-sm text-gray-500">학습을 시작하면 로그가 표시됩니다</p>
           ) : (
             <div
               ref={logsContainerRef}
-              className="bg-gray-900 rounded-lg p-4 font-mono text-xs overflow-auto max-h-96"
+              className="bg-gray-900 rounded-lg p-4 font-mono text-xs overflow-auto"
+              style={{ maxHeight: '600px' }}
             >
               {logs.map((log) => (
                 <div
                   key={log.id}
                   className={cn(
-                    'mb-1',
+                    'mb-1 whitespace-pre-wrap break-words',
                     log.log_type === 'stderr' ? 'text-red-400' : 'text-green-400'
                   )}
                 >
