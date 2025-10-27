@@ -1,6 +1,7 @@
 """Ultralytics YOLO adapter for object detection, segmentation, and pose estimation."""
 
 import os
+import sys
 import yaml
 from typing import List, Dict, Any
 from .base import TrainingAdapter, MetricsResult, TaskType, DatasetFormat, ConfigSchema, ConfigField
@@ -27,6 +28,12 @@ class UltralyticsAdapter(TrainingAdapter):
 
     @classmethod
     def get_config_schema(cls) -> ConfigSchema:
+        """Return configuration schema for YOLO models."""
+        from training.config_schemas import get_ultralytics_schema
+        return get_ultralytics_schema()
+
+    @classmethod
+    def _get_config_schema_inline(cls) -> ConfigSchema:
         """Return configuration schema for YOLO models (object detection, segmentation, pose)."""
         fields = [
             # ========== Optimizer Settings ==========
@@ -362,26 +369,84 @@ class UltralyticsAdapter(TrainingAdapter):
 
     def prepare_model(self):
         """Initialize YOLO model."""
+        print("[prepare_model] Step 1: Importing ultralytics...")
+        sys.stdout.flush()
+
         try:
             from ultralytics import YOLO
-        except ImportError:
+            print("[prepare_model] ultralytics imported successfully")
+            sys.stdout.flush()
+        except ImportError as e:
+            print(f"[prepare_model] ERROR: Failed to import ultralytics: {e}")
+            sys.stdout.flush()
             raise ImportError(
                 "ultralytics not installed. Install with: pip install ultralytics"
             )
+        except Exception as e:
+            print(f"[prepare_model] ERROR during ultralytics import: {e}")
+            sys.stdout.flush()
+            import traceback
+            traceback.print_exc()
+            raise
 
         # Determine model path based on task
         suffix = self.TASK_SUFFIX_MAP.get(self.task_type, "")
         model_path = f"{self.model_config.model_name}{suffix}.pt"
 
-        print(f"Loading YOLO model: {model_path}")
-        self.model = YOLO(model_path)
-        print(f"Model loaded successfully")
+        print(f"[prepare_model] Step 2: Loading YOLO model: {model_path}")
+        print(f"[prepare_model] Task type: {self.task_type}")
+        print(f"[prepare_model] Suffix: '{suffix}'")
+        sys.stdout.flush()
+
+        try:
+            print(f"[prepare_model] About to call YOLO('{model_path}')...")
+            sys.stdout.flush()
+
+            self.model = YOLO(model_path)
+
+            print(f"[prepare_model] Model object created")
+            sys.stdout.flush()
+            print(f"[prepare_model] Model loaded successfully")
+            sys.stdout.flush()
+        except Exception as e:
+            print(f"[prepare_model] ERROR loading model: {e}")
+            sys.stdout.flush()
+            import traceback
+            traceback.print_exc()
+            sys.stdout.flush()
+            raise
 
     def prepare_dataset(self):
         """Prepare dataset in YOLO format."""
+        # Clear any existing YOLO cache files to avoid stale data issues
+        self._clear_yolo_cache()
+
         # YOLO requires data.yaml file
         self.data_yaml = self._create_data_yaml()
         print(f"Dataset config created: {self.data_yaml}")
+
+    def _clear_yolo_cache(self):
+        """Clear YOLO cache files in the dataset directory."""
+        from pathlib import Path
+        import glob
+
+        dataset_path = Path(self.dataset_config.dataset_path)
+        labels_dir = dataset_path / "labels"
+
+        if not labels_dir.exists():
+            return
+
+        # Find and remove all .cache files
+        cache_files = list(labels_dir.rglob("*.cache"))
+
+        for cache_file in cache_files:
+            try:
+                cache_file.unlink()
+                print(f"[_clear_yolo_cache] Removed cache file: {cache_file}")
+                sys.stdout.flush()
+            except Exception as e:
+                print(f"[_clear_yolo_cache] Warning: Failed to remove {cache_file}: {e}")
+                sys.stdout.flush()
 
     def _create_data_yaml(self) -> str:
         """
@@ -396,21 +461,42 @@ class UltralyticsAdapter(TrainingAdapter):
             ├── train/
             └── val/
         """
-        # Check if data.yaml already exists
+        # Check if data.yaml already exists in dataset
         existing_yaml = os.path.join(self.dataset_config.dataset_path, "data.yaml")
         if os.path.exists(existing_yaml):
             print(f"Using existing data.yaml: {existing_yaml}")
-            return existing_yaml
+            return os.path.abspath(existing_yaml)
+
+        # Ensure output_dir is absolute path
+        output_dir = os.path.abspath(self.output_dir)
+        print(f"[_create_data_yaml] Output directory (absolute): {output_dir}")
+        sys.stdout.flush()
+
+        # Create output directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"[_create_data_yaml] Output directory created/verified")
+        sys.stdout.flush()
 
         # Create new data.yaml
         if self.dataset_config.format == DatasetFormat.YOLO:
+            # Extract actual class IDs from label files to determine correct nc
+            actual_class_ids = self._extract_class_ids_from_labels()
+            max_class_id = max(actual_class_ids) if actual_class_ids else self.model_config.num_classes - 1
+
+            # nc must be max_class_id + 1 (e.g., if labels use ID 75, nc must be >= 76)
+            nc = max(max_class_id + 1, self.model_config.num_classes)
+
+            print(f"[_create_data_yaml] Found {len(actual_class_ids)} unique class IDs: {sorted(actual_class_ids)}")
+            print(f"[_create_data_yaml] Max class ID: {max_class_id}, setting nc={nc}")
+            sys.stdout.flush()
+
             # YOLO format - create data.yaml
             data = {
                 'path': os.path.abspath(self.dataset_config.dataset_path),
                 'train': 'images/train',
                 'val': 'images/val',
-                'nc': self.model_config.num_classes,
-                'names': [f'class_{i}' for i in range(self.model_config.num_classes)]
+                'nc': nc,
+                'names': [f'class_{i}' for i in range(nc)]
             }
         elif self.dataset_config.format == DatasetFormat.COCO:
             # COCO format - convert to YOLO format reference
@@ -424,44 +510,240 @@ class UltralyticsAdapter(TrainingAdapter):
         else:
             raise ValueError(f"Unsupported dataset format for YOLO: {self.dataset_config.format}")
 
-        # Save data.yaml
-        yaml_path = os.path.join(self.output_dir, "data.yaml")
-        os.makedirs(os.path.dirname(yaml_path), exist_ok=True)
+        # Save data.yaml with absolute path
+        yaml_path = os.path.join(output_dir, "data.yaml")
+        print(f"[_create_data_yaml] Writing data.yaml to: {yaml_path}")
+        sys.stdout.flush()
 
-        with open(yaml_path, 'w') as f:
-            yaml.dump(data, f, default_flow_style=False)
+        try:
+            with open(yaml_path, 'w') as f:
+                yaml.dump(data, f, default_flow_style=False)
+            print(f"[_create_data_yaml] File written successfully")
+            sys.stdout.flush()
+        except Exception as e:
+            print(f"[_create_data_yaml] ERROR writing file: {e}")
+            sys.stdout.flush()
+            raise
 
-        print(f"Created YOLO data.yaml with {data['nc']} classes")
+        # Verify file was created
+        if os.path.exists(yaml_path):
+            file_size = os.path.getsize(yaml_path)
+            print(f"Created YOLO data.yaml with {data['nc']} classes (size: {file_size} bytes)")
+            sys.stdout.flush()
+        else:
+            print(f"[_create_data_yaml] ERROR: File does not exist after writing!")
+            sys.stdout.flush()
+            raise IOError(f"Failed to create data.yaml at {yaml_path}")
+
         return yaml_path
 
-    def train(self) -> List[MetricsResult]:
+    def _extract_class_ids_from_labels(self) -> set:
+        """
+        Extract unique class IDs from YOLO label files.
+
+        Returns:
+            set: Set of unique class IDs found in label files
+        """
+        from pathlib import Path
+
+        class_ids = set()
+        dataset_path = Path(self.dataset_config.dataset_path)
+        labels_dir = dataset_path / "labels"
+
+        print(f"[_extract_class_ids] Searching for labels in: {labels_dir}")
+        sys.stdout.flush()
+
+        if not labels_dir.exists():
+            print(f"[_extract_class_ids] Labels directory not found: {labels_dir}")
+            sys.stdout.flush()
+            return class_ids
+
+        # Find all .txt label files recursively (train/, val/, etc.)
+        label_files = list(labels_dir.rglob("*.txt"))
+        print(f"[_extract_class_ids] Found {len(label_files)} label files")
+        sys.stdout.flush()
+
+        for label_file in label_files:
+            try:
+                with open(label_file, "r") as f:
+                    for line in f:
+                        parts = line.strip().split()
+                        if parts:
+                            # First column is class ID in YOLO format
+                            class_id = int(parts[0])
+                            class_ids.add(class_id)
+            except (ValueError, IOError) as e:
+                print(f"[_extract_class_ids] Warning: Error reading {label_file}: {e}")
+                sys.stdout.flush()
+                continue
+
+        print(f"[_extract_class_ids] Extracted {len(class_ids)} unique class IDs")
+        sys.stdout.flush()
+        return class_ids
+
+    def train(self, start_epoch: int = 0, checkpoint_path: str = None, resume_training: bool = False) -> List[MetricsResult]:
         """
         Train using YOLO's built-in training API.
 
         YOLO handles the full training loop internally,
         so we override the base train() method.
+
+        Args:
+            start_epoch: Starting epoch (for resume training)
+            checkpoint_path: Path to checkpoint file (for resume training)
+            resume_training: Whether this is a resumed training session
         """
-        self.prepare_model()
-        self.prepare_dataset()
+        try:
+            print("\n[YOLO] Preparing model...")
+            self.prepare_model()
+            print("[YOLO] Model prepared successfully")
+        except Exception as e:
+            print(f"[YOLO] ERROR preparing model: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+        try:
+            print("[YOLO] Preparing dataset...")
+            self.prepare_dataset()
+            print(f"[YOLO] Dataset prepared successfully")
+            print(f"[YOLO] data.yaml path: {self.data_yaml}")
+        except Exception as e:
+            print(f"[YOLO] ERROR preparing dataset: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
         print(f"\nStarting YOLO training...")
         print(f"  Model: {self.model_config.model_name}")
         print(f"  Task: {self.task_type.value}")
         print(f"  Epochs: {self.training_config.epochs}")
         print(f"  Batch size: {self.training_config.batch_size}")
+        print(f"  Image size: {self.model_config.image_size}")
         print(f"  Device: {self.training_config.device}")
 
+        if resume_training and checkpoint_path:
+            print(f"  Resume from: {checkpoint_path}")
+            print(f"  Start epoch: {start_epoch}")
+
         # Build YOLO training arguments from advanced config
-        train_args = self._build_yolo_train_args()
+        try:
+            print("[YOLO] Building training arguments...")
+            train_args = self._build_yolo_train_args()
+            print(f"[YOLO] Training args built: {list(train_args.keys())}")
+
+            # Print actual values for debugging
+            print("[YOLO] Training arguments values:")
+            for key, value in train_args.items():
+                print(f"  {key}: {value}")
+            sys.stdout.flush()
+        except Exception as e:
+            print(f"[YOLO] ERROR building training args: {e}")
+            sys.stdout.flush()
+            import traceback
+            traceback.print_exc()
+            raise
+
+        # Add resume training support
+        if resume_training and checkpoint_path:
+            train_args['resume'] = checkpoint_path
+
+        # Initialize TrainingCallbacks
+        from .base import TrainingCallbacks
+        callbacks = TrainingCallbacks(
+            job_id=self.job_id,
+            model_config=self.model_config,
+            training_config=self.training_config,
+            db_session=None  # No DB session in subprocess
+        )
+
+        # Start training (creates MLflow run)
+        callbacks.on_train_begin()
 
         # YOLO training
-        results = self.model.train(**train_args)
+        try:
+            print("[YOLO] Starting YOLO training loop...")
+            print(f"[YOLO] Calling self.model.train() with {len(train_args)} arguments")
+            print("[YOLO] Note: YOLO may take a few moments to download the model on first run")
+            print("[YOLO] Training output will appear below (this may take a while)...")
+            print("="*80)
+            sys.stdout.flush()
+
+            # Check CUDA availability and fall back to CPU if needed
+            import torch
+            print(f"[YOLO] CUDA available: {torch.cuda.is_available()}")
+            if torch.cuda.is_available():
+                print(f"[YOLO] CUDA device count: {torch.cuda.device_count()}")
+                print(f"[YOLO] CUDA device name: {torch.cuda.get_device_name(0)}")
+            elif train_args.get('device') == 'cuda':
+                print("[YOLO] WARNING: CUDA requested but not available, falling back to CPU")
+                train_args['device'] = 'cpu'
+            sys.stdout.flush()
+
+            # Call YOLO train - this will block until training is complete
+            print(f"[YOLO] Using device: {train_args['device']}")
+            print(f"[YOLO] MLflow tracking URI: {os.environ.get('MLFLOW_TRACKING_URI', 'Not set')}")
+            print(f"[YOLO] Callbacks MLflow Run ID: {callbacks.mlflow_run_id}")
+            print("[YOLO] About to call model.train()...")
+            sys.stdout.flush()
+
+            # Force YOLO to use our stdout/stderr
+            import logging
+            logging.basicConfig(
+                level=logging.INFO,
+                format='%(message)s',
+                handlers=[logging.StreamHandler(sys.stdout)]
+            )
+
+            # Ultralytics uses its own logger, force it to use stdout
+            from ultralytics.utils import LOGGER
+            LOGGER.setLevel(logging.INFO)
+            for handler in LOGGER.handlers[:]:
+                LOGGER.removeHandler(handler)
+            stream_handler = logging.StreamHandler(sys.stdout)
+            stream_handler.setFormatter(logging.Formatter('%(message)s'))
+            LOGGER.addHandler(stream_handler)
+
+            print("[YOLO] Logger configured, starting training...")
+            sys.stdout.flush()
+
+            results = self.model.train(**train_args)
+
+            print("[YOLO] model.train() returned!")
+            sys.stdout.flush()
+
+            print("="*80)
+            print("[YOLO] Training loop completed!")
+            print(f"[YOLO] Results type: {type(results)}")
+            sys.stdout.flush()
+        except KeyboardInterrupt:
+            print("\n[YOLO] Training interrupted by user")
+            sys.stdout.flush()
+            callbacks.on_train_end()  # Close MLflow run
+            raise
+        except Exception as e:
+            print(f"\n[YOLO] ERROR during training: {e}")
+            print(f"[YOLO] Error type: {type(e).__name__}")
+            sys.stdout.flush()
+            import traceback
+            traceback.print_exc()
+            sys.stdout.flush()
+            callbacks.on_train_end()  # Close MLflow run even on error
+            raise
 
         print(f"\nTraining completed!")
         print(f"Results saved to: {self.output_dir}/job_{self.job_id}")
 
-        # Convert results to MetricsResult format
-        metrics_list = self._convert_yolo_results(results)
+        # Convert results to MetricsResult format and report to callbacks
+        metrics_list = self._convert_yolo_results(results, callbacks=callbacks)
+
+        # End training and log final metrics
+        if metrics_list:
+            final_metrics = metrics_list[-1].metrics
+            callbacks.on_train_end(final_metrics)
+        else:
+            callbacks.on_train_end()
+
         return metrics_list
 
     def _build_yolo_train_args(self) -> Dict[str, Any]:
@@ -478,98 +760,112 @@ class UltralyticsAdapter(TrainingAdapter):
             'batch': self.training_config.batch_size,
             'lr0': self.training_config.learning_rate,
             'device': self.training_config.device,
-            'project': self.output_dir,
+            'project': os.path.abspath(self.output_dir),  # Use absolute path
             'name': f'job_{self.job_id}',
             'exist_ok': True,
             'verbose': True,
+            'workers': 0,  # Disable multiprocessing to avoid output issues
+            'plots': False,  # Disable plotting
         }
 
         adv_config = self.training_config.advanced_config
         if not adv_config:
             return args
 
-        # Optimizer config
-        if 'optimizer' in adv_config:
-            opt_config = adv_config['optimizer']
-            opt_type = opt_config.get('type', 'adam').upper()
-
-            # Map our optimizer types to YOLO optimizer types
+        # Optimizer (flat structure)
+        if 'optimizer_type' in adv_config:
             optimizer_map = {
-                'ADAM': 'Adam',
-                'ADAMW': 'AdamW',
+                'adam': 'Adam',
+                'adamw': 'AdamW',
+                'sgd': 'SGD',
+                'rmsprop': 'RMSprop',
+                'Adam': 'Adam',
+                'AdamW': 'AdamW',
                 'SGD': 'SGD',
-                'RMSPROP': 'RMSprop',
+                'RMSprop': 'RMSprop',
             }
-            args['optimizer'] = optimizer_map.get(opt_type, 'Adam')
+            args['optimizer'] = optimizer_map.get(adv_config['optimizer_type'], 'Adam')
 
-            if 'weight_decay' in opt_config:
-                args['weight_decay'] = opt_config['weight_decay']
-            if 'momentum' in opt_config and opt_type == 'SGD':
-                args['momentum'] = opt_config['momentum']
+        if 'weight_decay' in adv_config:
+            args['weight_decay'] = adv_config['weight_decay']
 
-        # Scheduler config
-        if 'scheduler' in adv_config:
-            sched_config = adv_config['scheduler']
-            sched_type = sched_config.get('type', 'none')
+        if 'momentum' in adv_config:
+            args['momentum'] = adv_config['momentum']
 
-            # YOLO has built-in cosine LR scheduler
-            if sched_type == 'cosine':
-                args['cos_lr'] = True
-                args['lrf'] = sched_config.get('eta_min', 0.01)
+        # Scheduler (flat structure)
+        if 'cos_lr' in adv_config:
+            args['cos_lr'] = adv_config['cos_lr']
 
-            # Warmup
-            if 'warmup_epochs' in sched_config:
-                args['warmup_epochs'] = sched_config['warmup_epochs']
+        if 'lrf' in adv_config:
+            args['lrf'] = adv_config['lrf']
 
-        # Augmentation config
-        if 'augmentation' in adv_config:
-            aug_config = adv_config['augmentation']
+        if 'warmup_epochs' in adv_config:
+            args['warmup_epochs'] = adv_config['warmup_epochs']
 
-            if aug_config.get('enabled', True):
-                # Random flip
-                if aug_config.get('random_flip', False):
-                    args['fliplr'] = aug_config.get('random_flip_prob', 0.5)
+        if 'warmup_momentum' in adv_config:
+            args['warmup_momentum'] = adv_config['warmup_momentum']
 
-                # Rotation
-                if aug_config.get('random_rotation', False):
-                    args['degrees'] = aug_config.get('rotation_degrees', 15)
+        if 'warmup_bias_lr' in adv_config:
+            args['warmup_bias_lr'] = adv_config['warmup_bias_lr']
 
-                # Color jitter (HSV augmentation)
-                if aug_config.get('color_jitter', False):
-                    # YOLO uses HSV augmentation parameters
-                    args['hsv_h'] = aug_config.get('hue', 0.015)
-                    args['hsv_s'] = aug_config.get('saturation', 0.7)
-                    args['hsv_v'] = aug_config.get('brightness', 0.4)
+        # Augmentation (flat structure - YOLO specific)
+        if 'fliplr' in adv_config:
+            args['fliplr'] = adv_config['fliplr']
 
-                # Mixup
-                if aug_config.get('mixup', False):
-                    args['mixup'] = aug_config.get('mixup_alpha', 0.0)
+        if 'flipud' in adv_config:
+            args['flipud'] = adv_config['flipud']
 
-                # YOLO-specific augmentations
-                args['mosaic'] = 1.0  # Enable mosaic augmentation by default
-                args['copy_paste'] = 0.0  # Disable copy-paste by default
+        if 'mosaic' in adv_config:
+            args['mosaic'] = adv_config['mosaic']
 
-        # Preprocessing config
-        if 'preprocessing' in adv_config:
-            preprocess_config = adv_config['preprocessing']
-            if 'image_size' in preprocess_config:
-                args['imgsz'] = preprocess_config['image_size']
+        if 'mixup' in adv_config:
+            args['mixup'] = adv_config['mixup']
 
-        # Validation config
-        if 'validation' in adv_config:
-            val_config = adv_config['validation']
-            # YOLO always validates, but we can control the interval
-            # Note: YOLO doesn't have a val_interval parameter in the same way
+        if 'copy_paste' in adv_config:
+            args['copy_paste'] = adv_config['copy_paste']
 
-        # Mixed precision
-        if self.training_config.mixed_precision:
-            args['amp'] = True
+        if 'degrees' in adv_config:
+            args['degrees'] = adv_config['degrees']
+
+        if 'translate' in adv_config:
+            args['translate'] = adv_config['translate']
+
+        if 'scale' in adv_config:
+            args['scale'] = adv_config['scale']
+
+        if 'shear' in adv_config:
+            args['shear'] = adv_config['shear']
+
+        if 'perspective' in adv_config:
+            args['perspective'] = adv_config['perspective']
+
+        if 'hsv_h' in adv_config:
+            args['hsv_h'] = adv_config['hsv_h']
+
+        if 'hsv_s' in adv_config:
+            args['hsv_s'] = adv_config['hsv_s']
+
+        if 'hsv_v' in adv_config:
+            args['hsv_v'] = adv_config['hsv_v']
+
+        # Optimization
+        if 'amp' in adv_config:
+            args['amp'] = adv_config['amp']
+
+        if 'close_mosaic' in adv_config:
+            args['close_mosaic'] = adv_config['close_mosaic']
+
+        # Mixed precision fallback
+        if 'mixed_precision' in adv_config and 'amp' not in args:
+            args['amp'] = adv_config['mixed_precision']
 
         return args
 
-    def _convert_yolo_results(self, results) -> List[MetricsResult]:
+    def _convert_yolo_results(self, results, callbacks=None) -> List[MetricsResult]:
         """
         Convert YOLO training results to standardized MetricsResult.
+
+        Parses results.csv and reports to callbacks for unified metric logging.
 
         YOLO results contain metrics like:
         - train/box_loss, train/cls_loss, train/dfl_loss
@@ -577,28 +873,81 @@ class UltralyticsAdapter(TrainingAdapter):
         - metrics/precision, metrics/recall
         - metrics/mAP50, metrics/mAP50-95
         """
-        # YOLO saves results in results.csv
-        # For now, return simplified metrics
-        # TODO: Parse results.csv for detailed metrics
+        import csv
 
         metrics_list = []
 
-        # Extract final metrics if available
-        if hasattr(results, 'results_dict'):
-            final_results = results.results_dict
-            metrics = MetricsResult(
-                epoch=self.training_config.epochs - 1,
-                step=self.training_config.epochs - 1,
-                train_loss=final_results.get('train/box_loss', 0.0),
-                val_loss=final_results.get('val/box_loss', 0.0),
-                metrics={
-                    'mAP50': final_results.get('metrics/mAP50(B)', 0.0),
-                    'mAP50-95': final_results.get('metrics/mAP50-95(B)', 0.0),
-                    'precision': final_results.get('metrics/precision(B)', 0.0),
-                    'recall': final_results.get('metrics/recall(B)', 0.0),
+        # Path to YOLO results.csv
+        results_csv = os.path.join(self.output_dir, f'job_{self.job_id}', 'results.csv')
+
+        if not os.path.exists(results_csv):
+            print(f"[_convert_yolo_results] Warning: results.csv not found at {results_csv}")
+            sys.stdout.flush()
+            return metrics_list
+
+        print(f"[_convert_yolo_results] Parsing {results_csv}")
+        sys.stdout.flush()
+
+        # Parse results.csv
+        with open(results_csv, 'r') as f:
+            reader = csv.DictReader(f)
+            reader.fieldnames = [name.strip() for name in reader.fieldnames]  # Remove whitespace
+
+            for row in reader:
+                # Clean up row values (remove whitespace)
+                row = {k.strip(): v.strip() for k, v in row.items()}
+
+                epoch = int(row['epoch'])
+
+                # Extract metrics
+                train_box_loss = float(row.get('train/box_loss', 0))
+                train_cls_loss = float(row.get('train/cls_loss', 0))
+                train_dfl_loss = float(row.get('train/dfl_loss', 0))
+                val_box_loss = float(row.get('val/box_loss', 0))
+                val_cls_loss = float(row.get('val/cls_loss', 0))
+                val_dfl_loss = float(row.get('val/dfl_loss', 0))
+                precision = float(row.get('metrics/precision(B)', 0))
+                recall = float(row.get('metrics/recall(B)', 0))
+                mAP50 = float(row.get('metrics/mAP50(B)', 0))
+                mAP50_95 = float(row.get('metrics/mAP50-95(B)', 0))
+
+                # Calculate total losses
+                train_loss = train_box_loss + train_cls_loss + train_dfl_loss
+                val_loss = val_box_loss + val_cls_loss + val_dfl_loss
+
+                # Create metrics dict for callbacks
+                metrics_dict = {
+                    'train_loss': train_loss,
+                    'train_box_loss': train_box_loss,
+                    'train_cls_loss': train_cls_loss,
+                    'train_dfl_loss': train_dfl_loss,
+                    'val_loss': val_loss,
+                    'val_box_loss': val_box_loss,
+                    'val_cls_loss': val_cls_loss,
+                    'val_dfl_loss': val_dfl_loss,
+                    'precision': precision,
+                    'recall': recall,
+                    'mAP50': mAP50,
+                    'mAP50-95': mAP50_95,
                 }
-            )
-            metrics_list.append(metrics)
+
+                # Report to callbacks for unified MLflow logging
+                if callbacks:
+                    callbacks.on_epoch_end(epoch - 1, metrics_dict)  # epoch is 1-indexed in CSV
+
+                # Create MetricsResult for our system
+                metrics = MetricsResult(
+                    epoch=epoch - 1,  # Convert to 0-indexed
+                    step=epoch - 1,
+                    train_loss=train_loss,
+                    val_loss=val_loss,
+                    accuracy=mAP50,  # Use mAP50 as accuracy for detection
+                    metrics=metrics_dict
+                )
+                metrics_list.append(metrics)
+
+        print(f"[_convert_yolo_results] Parsed {len(metrics_list)} epochs from results.csv")
+        sys.stdout.flush()
 
         return metrics_list
 

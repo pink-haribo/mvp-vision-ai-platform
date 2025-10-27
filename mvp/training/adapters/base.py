@@ -32,6 +32,151 @@ class TaskType(Enum):
     VIDEO_DETECTION = "video_detection"
 
 
+# Metric definitions for each task type
+@dataclass
+class MetricDefinition:
+    """Definition of a metric for display purposes."""
+    label: str  # Display label
+    format: str  # 'percent', 'float', 'int'
+    higher_is_better: bool  # True if higher values are better
+    description: str = ""  # Optional description
+
+
+# Primary metric for each task (used for best model selection)
+TASK_PRIMARY_METRICS = {
+    TaskType.IMAGE_CLASSIFICATION: 'accuracy',
+    TaskType.OBJECT_DETECTION: 'mAP50',
+    TaskType.INSTANCE_SEGMENTATION: 'mAP50',
+    TaskType.SEMANTIC_SEGMENTATION: 'miou',
+    TaskType.POSE_ESTIMATION: 'pck',
+}
+
+
+# Standard metrics for each task (displayed prominently in UI)
+TASK_STANDARD_METRICS = {
+    TaskType.IMAGE_CLASSIFICATION: {
+        'accuracy': MetricDefinition(
+            label='Accuracy',
+            format='percent',
+            higher_is_better=True,
+            description='Top-1 accuracy on validation set'
+        ),
+        'top5_accuracy': MetricDefinition(
+            label='Top-5 Accuracy',
+            format='percent',
+            higher_is_better=True,
+            description='Top-5 accuracy on validation set'
+        ),
+        'train_loss': MetricDefinition(
+            label='Train Loss',
+            format='float',
+            higher_is_better=False,
+            description='Training loss'
+        ),
+        'val_loss': MetricDefinition(
+            label='Validation Loss',
+            format='float',
+            higher_is_better=False,
+            description='Validation loss'
+        ),
+    },
+
+    TaskType.OBJECT_DETECTION: {
+        'mAP50': MetricDefinition(
+            label='mAP@0.5',
+            format='percent',
+            higher_is_better=True,
+            description='Mean Average Precision at IoU threshold 0.5'
+        ),
+        'mAP50-95': MetricDefinition(
+            label='mAP@[0.5:0.95]',
+            format='percent',
+            higher_is_better=True,
+            description='Mean Average Precision averaged over IoU thresholds 0.5 to 0.95'
+        ),
+        'precision': MetricDefinition(
+            label='Precision',
+            format='percent',
+            higher_is_better=True,
+            description='Detection precision'
+        ),
+        'recall': MetricDefinition(
+            label='Recall',
+            format='percent',
+            higher_is_better=True,
+            description='Detection recall'
+        ),
+        'train_box_loss': MetricDefinition(
+            label='Train Box Loss',
+            format='float',
+            higher_is_better=False,
+            description='Training bounding box loss'
+        ),
+        'train_cls_loss': MetricDefinition(
+            label='Train Class Loss',
+            format='float',
+            higher_is_better=False,
+            description='Training classification loss'
+        ),
+        'val_box_loss': MetricDefinition(
+            label='Val Box Loss',
+            format='float',
+            higher_is_better=False,
+            description='Validation bounding box loss'
+        ),
+        'val_cls_loss': MetricDefinition(
+            label='Val Class Loss',
+            format='float',
+            higher_is_better=False,
+            description='Validation classification loss'
+        ),
+    },
+
+    TaskType.SEMANTIC_SEGMENTATION: {
+        'miou': MetricDefinition(
+            label='Mean IoU',
+            format='percent',
+            higher_is_better=True,
+            description='Mean Intersection over Union'
+        ),
+        'pixel_accuracy': MetricDefinition(
+            label='Pixel Accuracy',
+            format='percent',
+            higher_is_better=True,
+            description='Per-pixel classification accuracy'
+        ),
+        'dice': MetricDefinition(
+            label='Dice Coefficient',
+            format='percent',
+            higher_is_better=True,
+            description='Dice similarity coefficient'
+        ),
+        'train_loss': MetricDefinition(
+            label='Train Loss',
+            format='float',
+            higher_is_better=False,
+            description='Training loss'
+        ),
+        'val_loss': MetricDefinition(
+            label='Validation Loss',
+            format='float',
+            higher_is_better=False,
+            description='Validation loss'
+        ),
+    },
+}
+
+
+def get_task_primary_metric(task_type: TaskType) -> str:
+    """Get primary metric name for a task type."""
+    return TASK_PRIMARY_METRICS.get(task_type, 'accuracy')
+
+
+def get_task_standard_metrics(task_type: TaskType) -> Dict[str, MetricDefinition]:
+    """Get standard metrics definitions for a task type."""
+    return TASK_STANDARD_METRICS.get(task_type, {})
+
+
 class DatasetFormat(Enum):
     """Dataset format types."""
     IMAGE_FOLDER = "imagefolder"  # Classification: folder per class
@@ -576,7 +721,7 @@ class TrainingAdapter(ABC):
         4. For each epoch:
            - Train
            - Validate
-           - Log metrics (MLflow)
+           - Log metrics (MLflow via Callbacks)
            - Save checkpoint
 
         Args:
@@ -587,8 +732,6 @@ class TrainingAdapter(ABC):
         Returns:
             List[MetricsResult]: All metrics history
         """
-        import mlflow
-
         # 1. Setup
         self.prepare_model()
         self.prepare_dataset()
@@ -610,20 +753,19 @@ class TrainingAdapter(ABC):
 
         all_metrics = []
 
-        # 2. Start MLflow experiment
-        mlflow.set_experiment("vision-ai-training")
-        with mlflow.start_run(run_name=f"job_{self.job_id}"):
-            # Log config
-            mlflow.log_params({
-                "framework": self.model_config.framework,
-                "model_name": self.model_config.model_name,
-                "task_type": self.model_config.task_type.value,
-                "epochs": self.training_config.epochs,
-                "batch_size": self.training_config.batch_size,
-                "learning_rate": self.training_config.learning_rate,
-            })
+        # 3. Initialize TrainingCallbacks
+        callbacks = TrainingCallbacks(
+            job_id=self.job_id,
+            model_config=self.model_config,
+            training_config=self.training_config,
+            db_session=None  # No DB session in subprocess
+        )
 
-            # 3. Training loop
+        # 4. Start training
+        callbacks.on_train_begin()
+
+        try:
+            # 5. Training loop
             for epoch in range(start_epoch, self.training_config.epochs):
                 print(f"\n[Epoch {epoch + 1}/{self.training_config.epochs}]")
 
@@ -639,22 +781,29 @@ class TrainingAdapter(ABC):
                     step=train_metrics.step,
                     train_loss=train_metrics.train_loss,
                     val_loss=val_metrics.train_loss if val_metrics else None,
+                    accuracy=val_metrics.metrics.get('val_accuracy') if val_metrics else train_metrics.metrics.get('train_accuracy'),
                     metrics={
+                        'train_loss': train_metrics.train_loss,
                         **train_metrics.metrics,
-                        **{f"val_{k}": v for k, v in (val_metrics.metrics if val_metrics else {}).items()}
+                        **({'val_loss': val_metrics.train_loss} if val_metrics else {}),
+                        **({f"val_{k}": v for k, v in (val_metrics.metrics if val_metrics else {}).items()})
                     }
                 )
 
                 all_metrics.append(combined_metrics)
 
-                # Log to MLflow
-                self.log_metrics_to_mlflow(combined_metrics)
+                # Report metrics to callbacks (handles MLflow logging)
+                callbacks.on_epoch_end(epoch, combined_metrics.metrics)
 
                 # Save checkpoint periodically
                 checkpoint_path = None
                 if epoch % 5 == 0 or epoch == self.training_config.epochs - 1:
                     checkpoint_path = self.save_checkpoint(epoch, combined_metrics)
                     print(f"Checkpoint saved: {checkpoint_path}")
+
+                    # Log checkpoint to MLflow
+                    if checkpoint_path:
+                        callbacks.log_artifact(checkpoint_path, "checkpoints")
 
                 # Output metrics for backend parsing
                 metrics_json = {
@@ -663,10 +812,21 @@ class TrainingAdapter(ABC):
                     "train_accuracy": combined_metrics.metrics.get('train_accuracy', 0) / 100.0,  # Convert to 0-1 range
                     "val_loss": combined_metrics.val_loss,
                     "val_accuracy": combined_metrics.metrics.get('val_accuracy', 0) / 100.0 if 'val_accuracy' in combined_metrics.metrics else None,
-                    "learning_rate": self.optimizer.param_groups[0]['lr'],
+                    "learning_rate": self.optimizer.param_groups[0]['lr'] if hasattr(self, 'optimizer') else None,
                     "checkpoint_path": checkpoint_path,
                 }
                 print(f"[METRICS] {json.dumps(metrics_json)}", flush=True)
+
+            # End training
+            final_metrics = all_metrics[-1].metrics if all_metrics else {}
+            callbacks.on_train_end(final_metrics)
+
+        except Exception as e:
+            print(f"[ERROR] Training failed: {e}")
+            import traceback
+            traceback.print_exc()
+            callbacks.on_train_end()  # Close MLflow run even on error
+            raise
 
         return all_metrics
 
@@ -701,3 +861,252 @@ class TrainingAdapter(ABC):
     def task_type(self) -> TaskType:
         """Get task type."""
         return self.model_config.task_type
+
+
+class TrainingCallbacks:
+    """
+    Standardized callback interface for metric collection.
+
+    Provides unified way for all adapters to report metrics to:
+    - MLflow (experiment tracking)
+    - Database (job status and metrics)
+    - WebSocket (real-time frontend updates)
+
+    Usage in adapters:
+        callbacks = TrainingCallbacks(job_id=123, db_session=db)
+        callbacks.on_train_begin(config)
+
+        for epoch in range(epochs):
+            # ... training ...
+            callbacks.on_epoch_end(epoch, {
+                'train_loss': 0.234,
+                'val_loss': 0.245,
+                'accuracy': 0.95
+            })
+
+        callbacks.on_train_end({'final_accuracy': 0.96})
+    """
+
+    def __init__(self, job_id: int, model_config: 'ModelConfig',
+                 training_config: 'TrainingConfig', db_session=None):
+        """
+        Initialize callbacks.
+
+        Args:
+            job_id: Training job ID
+            model_config: Model configuration
+            training_config: Training configuration
+            db_session: Database session (optional, for DB updates)
+        """
+        self.job_id = job_id
+        self.model_config = model_config
+        self.training_config = training_config
+        self.db_session = db_session
+        self.mlflow_run = None
+        self.mlflow_run_id = None
+        self.mlflow_experiment_id = None
+
+    def on_train_begin(self, config: Dict[str, Any] = None):
+        """
+        Called when training begins.
+
+        Creates MLflow run and stores IDs in database.
+
+        Args:
+            config: Additional configuration to log
+        """
+        import mlflow
+        import os
+
+        # Create experiment name from job_id
+        experiment_name = f"job_{self.job_id}"
+
+        # Set or create experiment
+        experiment = mlflow.set_experiment(experiment_name)
+        self.mlflow_experiment_id = experiment.experiment_id
+
+        # Start MLflow run
+        run_name = f"{self.model_config.model_name}_training"
+        self.mlflow_run = mlflow.start_run(run_name=run_name)
+        self.mlflow_run_id = self.mlflow_run.info.run_id
+
+        print(f"[Callbacks] MLflow run started:")
+        print(f"  Experiment ID: {self.mlflow_experiment_id}")
+        print(f"  Run ID: {self.mlflow_run_id}")
+
+        # Log parameters to MLflow
+        mlflow.log_param("model", self.model_config.model_name)
+        mlflow.log_param("framework", self.model_config.framework)
+        mlflow.log_param("task_type", self.model_config.task_type.value)
+        mlflow.log_param("epochs", self.training_config.epochs)
+        mlflow.log_param("batch_size", self.training_config.batch_size)
+        mlflow.log_param("learning_rate", self.training_config.learning_rate)
+        mlflow.log_param("image_size", self.model_config.image_size)
+        mlflow.log_param("device", self.training_config.device or 'auto')
+
+        if self.model_config.num_classes:
+            mlflow.log_param("num_classes", self.model_config.num_classes)
+
+        # Log additional config if provided
+        if config:
+            for key, value in config.items():
+                if isinstance(value, (str, int, float, bool)):
+                    mlflow.log_param(key, value)
+
+        # Update database with MLflow IDs
+        if self.db_session:
+            from app.db import models
+            job = self.db_session.query(models.TrainingJob).filter(
+                models.TrainingJob.id == self.job_id
+            ).first()
+
+            if job:
+                job.mlflow_experiment_id = self.mlflow_experiment_id
+                job.mlflow_run_id = self.mlflow_run_id
+                self.db_session.commit()
+                print(f"[Callbacks] Updated DB with MLflow IDs")
+
+    def on_epoch_begin(self, epoch: int):
+        """
+        Called at the beginning of each epoch.
+
+        Args:
+            epoch: Current epoch number
+        """
+        pass
+
+    def on_batch_end(self, batch: int, metrics: Dict[str, float]):
+        """
+        Called after each batch (for real-time updates).
+
+        Args:
+            batch: Current batch number
+            metrics: Batch metrics
+        """
+        pass
+
+    def on_epoch_end(self, epoch: int, metrics: Dict[str, float]):
+        """
+        Called at the end of each epoch.
+
+        Automatically logs metrics to:
+        - MLflow (with epoch as step)
+        - Database (TrainingMetric table)
+        - Console (formatted output)
+
+        Args:
+            epoch: Current epoch number
+            metrics: Dictionary of metrics, e.g.:
+                {
+                    'train_loss': 0.234,
+                    'val_loss': 0.245,
+                    'accuracy': 0.95,
+                    'mAP50': 0.88,
+                    ... any custom metrics
+                }
+        """
+        import mlflow
+
+        if not self.mlflow_run:
+            print(f"[Callbacks] Warning: MLflow run not started, call on_train_begin() first")
+            return
+
+        # Log to MLflow
+        for key, value in metrics.items():
+            if isinstance(value, (int, float)):
+                mlflow.log_metric(key, value, step=epoch)
+
+        # Log to database
+        if self.db_session:
+            from app.db import models
+
+            # Extract common metrics
+            train_loss = metrics.get('train_loss') or metrics.get('loss')
+            val_loss = metrics.get('val_loss')
+            accuracy = metrics.get('accuracy') or metrics.get('mAP50')  # mAP50 for detection
+            lr = metrics.get('learning_rate') or metrics.get('lr')
+
+            # Store in database
+            metric_record = models.TrainingMetric(
+                job_id=self.job_id,
+                epoch=epoch,
+                step=epoch,
+                loss=train_loss,
+                accuracy=accuracy,
+                learning_rate=lr,
+                extra_metrics=metrics  # Store all metrics as JSON
+            )
+            self.db_session.add(metric_record)
+            self.db_session.commit()
+
+        # Console output
+        print(f"[Callbacks] Epoch {epoch}: ", end="")
+        for key, value in metrics.items():
+            if isinstance(value, (int, float)):
+                print(f"{key}={value:.4f} ", end="")
+        print()
+
+    def on_train_end(self, final_metrics: Dict[str, float] = None):
+        """
+        Called when training ends.
+
+        Logs final metrics and closes MLflow run.
+
+        Args:
+            final_metrics: Final training metrics (optional)
+        """
+        import mlflow
+
+        if not self.mlflow_run:
+            print(f"[Callbacks] Warning: MLflow run not active")
+            return
+
+        # Log final metrics if provided
+        if final_metrics:
+            for key, value in final_metrics.items():
+                if isinstance(value, (int, float)):
+                    mlflow.log_metric(f"final_{key}", value)
+
+        # Update database with final accuracy
+        if self.db_session and final_metrics:
+            from app.db import models
+            job = self.db_session.query(models.TrainingJob).filter(
+                models.TrainingJob.id == self.job_id
+            ).first()
+
+            if job:
+                final_acc = final_metrics.get('accuracy') or final_metrics.get('mAP50')
+                if final_acc:
+                    job.final_accuracy = final_acc
+                self.db_session.commit()
+
+        # End MLflow run
+        mlflow.end_run()
+        print(f"[Callbacks] MLflow run ended: {self.mlflow_run_id}")
+        self.mlflow_run = None
+
+    def log_artifact(self, file_path: str, artifact_path: str = None):
+        """
+        Log artifact (file) to MLflow.
+
+        Args:
+            file_path: Path to file to log
+            artifact_path: Path within MLflow artifacts directory
+        """
+        import mlflow
+
+        if self.mlflow_run:
+            mlflow.log_artifact(file_path, artifact_path)
+
+    def log_artifacts(self, dir_path: str, artifact_path: str = None):
+        """
+        Log directory of artifacts to MLflow.
+
+        Args:
+            dir_path: Path to directory to log
+            artifact_path: Path within MLflow artifacts directory
+        """
+        import mlflow
+
+        if self.mlflow_run:
+            mlflow.log_artifacts(dir_path, artifact_path)

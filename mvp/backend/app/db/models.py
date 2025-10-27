@@ -121,7 +121,8 @@ class TrainingJob(Base):
     experiment_name = Column(String(200), nullable=True)
     tags = Column(JSON, nullable=True)
     notes = Column(Text, nullable=True)
-    mlflow_run_id = Column(String(100), nullable=True)
+    mlflow_experiment_id = Column(String(100), nullable=True)  # MLflow experiment ID
+    mlflow_run_id = Column(String(100), nullable=True)  # MLflow run ID for this training
 
     framework = Column(String(50), nullable=False, default="timm")
     model_name = Column(String(100), nullable=False)
