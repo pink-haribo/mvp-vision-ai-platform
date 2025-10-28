@@ -660,6 +660,64 @@ class UltralyticsAdapter(TrainingAdapter):
         # Start training (creates MLflow run)
         callbacks.on_train_begin()
 
+        # Define real-time callback for YOLO training
+        def on_yolo_epoch_end(trainer):
+            """
+            YOLO callback for real-time metric collection.
+
+            Called at the end of each training epoch by Ultralytics.
+            Extracts metrics from trainer and reports to TrainingCallbacks.
+            """
+            try:
+                epoch = trainer.epoch
+
+                # Extract loss components (trainer.label_loss_items returns dict-like object)
+                loss_items = trainer.label_loss_items(trainer.tloss, prefix="train")
+
+                # Get validation metrics if available
+                metrics_dict = {}
+
+                # Training losses
+                if isinstance(loss_items, dict):
+                    metrics_dict.update(loss_items)
+
+                # Validation metrics from trainer.metrics
+                if hasattr(trainer, 'metrics') and trainer.metrics:
+                    # trainer.metrics is a dict with keys like:
+                    # 'metrics/precision(B)', 'metrics/recall(B)', 'metrics/mAP50(B)', etc.
+                    val_metrics = trainer.metrics
+
+                    # Extract validation losses and metrics
+                    for key, value in val_metrics.items():
+                        if isinstance(value, (int, float)):
+                            # Clean up metric names
+                            clean_key = key.replace('metrics/', '').replace('(B)', '')
+                            metrics_dict[clean_key] = value
+
+                # Calculate total losses
+                train_loss = sum(v for k, v in metrics_dict.items() if k.startswith('train/') and 'loss' in k)
+                val_loss = sum(v for k, v in metrics_dict.items() if k.startswith('val/') and 'loss' in k)
+
+                # Add summary metrics
+                metrics_dict['train_loss'] = train_loss if train_loss > 0 else metrics_dict.get('train/box_loss', 0)
+                metrics_dict['val_loss'] = val_loss if val_loss > 0 else metrics_dict.get('val/box_loss', 0)
+
+                # Report to callbacks for unified metric collection (MLflow + Database)
+                print(f"[YOLO Callback] Epoch {epoch} completed, reporting metrics to callbacks...")
+                sys.stdout.flush()
+                callbacks.on_epoch_end(epoch, metrics_dict)
+
+            except Exception as e:
+                print(f"[YOLO Callback ERROR] Failed to collect metrics at epoch {epoch}: {e}")
+                import traceback
+                traceback.print_exc()
+                sys.stdout.flush()
+
+        # Register callback with YOLO model
+        self.model.add_callback("on_fit_epoch_end", on_yolo_epoch_end)
+        print("[YOLO] Registered real-time metric collection callback")
+        sys.stdout.flush()
+
         # YOLO training
         try:
             print("[YOLO] Starting YOLO training loop...")
@@ -734,17 +792,16 @@ class UltralyticsAdapter(TrainingAdapter):
         print(f"\nTraining completed!")
         print(f"Results saved to: {self.output_dir}/job_{self.job_id}")
 
-        # Convert results to MetricsResult format and report to callbacks
-        metrics_list = self._convert_yolo_results(results, callbacks=callbacks)
+        # Metrics are collected in real-time via on_yolo_epoch_end callback
+        # No need to parse results.csv after training completes
+        print("[YOLO] Metrics collected in real-time via callbacks")
 
-        # End training and log final metrics
-        if metrics_list:
-            final_metrics = metrics_list[-1].metrics
-            callbacks.on_train_end(final_metrics)
-        else:
-            callbacks.on_train_end()
+        # End training
+        callbacks.on_train_end()
 
-        return metrics_list
+        # For compatibility, still return empty list
+        # (metrics were already reported via callbacks during training)
+        return []
 
     def _build_yolo_train_args(self) -> Dict[str, Any]:
         """
