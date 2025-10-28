@@ -1071,11 +1071,12 @@ class TrainingCallbacks:
                     cursor = conn.cursor()
 
                     # Insert metric using direct SQL
+                    from datetime import datetime
                     cursor.execute(
                         """
                         INSERT INTO training_metrics
-                        (job_id, epoch, step, loss, accuracy, learning_rate, extra_metrics)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        (job_id, epoch, step, loss, accuracy, learning_rate, extra_metrics, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             self.job_id,
@@ -1084,7 +1085,8 @@ class TrainingCallbacks:
                             train_loss,
                             accuracy,
                             lr,
-                            json.dumps(metrics)
+                            json.dumps(metrics),
+                            datetime.utcnow().isoformat()
                         )
                     )
                     conn.commit()
