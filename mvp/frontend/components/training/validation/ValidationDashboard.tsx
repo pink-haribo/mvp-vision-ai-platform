@@ -57,16 +57,38 @@ export const ValidationDashboard: React.FC<ValidationDashboardProps> = ({
 
   // Fetch specific epoch when selected or currentEpoch changes
   useEffect(() => {
-    const epochToFetch = selectedEpoch || currentEpoch;
-    if (epochToFetch) {
-      fetchValidationResult(epochToFetch);
+    if (!summary) return; // Wait for summary to load
+
+    // Determine which epoch to fetch (priority: selectedEpoch > currentEpoch > best_epoch)
+    let epochToFetch = selectedEpoch !== null ? selectedEpoch : currentEpoch;
+    if (epochToFetch === null || epochToFetch === undefined) {
+      epochToFetch = summary.best_epoch;
     }
-  }, [selectedEpoch, currentEpoch]);
+
+    // Check if the epoch exists in the summary
+    if (epochToFetch !== null && epochToFetch !== undefined) {
+      const epochExists = summary.epoch_metrics.some((m) => m.epoch === epochToFetch);
+
+      if (epochExists) {
+        // Set selected epoch if not already set
+        if (selectedEpoch === null) {
+          setSelectedEpoch(epochToFetch);
+        }
+        fetchValidationResult(epochToFetch);
+      } else {
+        // Epoch doesn't exist, fallback to best_epoch
+        console.warn(`Epoch ${epochToFetch} not found in validation results, using best epoch ${summary.best_epoch}`);
+        if (summary.best_epoch !== null && summary.best_epoch !== epochToFetch) {
+          setSelectedEpoch(summary.best_epoch);
+        }
+      }
+    }
+  }, [selectedEpoch, currentEpoch, summary]);
 
   const fetchValidationSummary = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/v1/validation/jobs/${jobId}/summary`);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/validation/jobs/${jobId}/summary`);
 
       if (!response.ok) {
         if (response.status === 404) {
@@ -79,10 +101,8 @@ export const ValidationDashboard: React.FC<ValidationDashboardProps> = ({
       const data = await response.json();
       setSummary(data);
 
-      // Auto-select best epoch if no epoch is selected
-      if (!selectedEpoch && data.best_epoch) {
-        setSelectedEpoch(data.best_epoch);
-      }
+      // Don't auto-select here - let the other useEffect handle it
+      // This prevents conflicts with currentEpoch prop
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch validation summary');
       console.error('Error fetching validation summary:', err);
@@ -93,7 +113,7 @@ export const ValidationDashboard: React.FC<ValidationDashboardProps> = ({
 
   const fetchValidationResult = async (epoch: number) => {
     try {
-      const response = await fetch(`/api/v1/validation/jobs/${jobId}/results/${epoch}`);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/validation/jobs/${jobId}/results/${epoch}`);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch validation result: ${response.status}`);

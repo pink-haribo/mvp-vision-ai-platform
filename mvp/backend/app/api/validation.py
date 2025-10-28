@@ -51,7 +51,7 @@ async def get_validation_results(
     total_count = query.count()
     results = query.offset(skip).limit(limit).all()
 
-    # Parse JSON fields
+    # SQLAlchemy JSON type already deserializes, no need for json.loads()
     results_data = []
     for result in results:
         result_dict = {
@@ -62,14 +62,14 @@ async def get_validation_results(
             "primary_metric_name": result.primary_metric_name,
             "primary_metric_value": result.primary_metric_value,
             "overall_loss": result.overall_loss,
-            "metrics": json.loads(result.metrics) if result.metrics else None,
-            "per_class_metrics": json.loads(result.per_class_metrics) if result.per_class_metrics else None,
-            "confusion_matrix": json.loads(result.confusion_matrix) if result.confusion_matrix else None,
-            "pr_curves": json.loads(result.pr_curves) if result.pr_curves else None,
-            "class_names": json.loads(result.class_names) if result.class_names else None,
-            "visualization_data": json.loads(result.visualization_data) if result.visualization_data else None,
-            "sample_correct_images": json.loads(result.sample_correct_images) if result.sample_correct_images else None,
-            "sample_incorrect_images": json.loads(result.sample_incorrect_images) if result.sample_incorrect_images else None,
+            "metrics": result.metrics,
+            "per_class_metrics": result.per_class_metrics,
+            "confusion_matrix": result.confusion_matrix,
+            "pr_curves": result.pr_curves,
+            "class_names": result.class_names,
+            "visualization_data": result.visualization_data,
+            "sample_correct_images": result.sample_correct_images,
+            "sample_incorrect_images": result.sample_incorrect_images,
             "created_at": result.created_at,
         }
         results_data.append(validation_schemas.ValidationResultResponse(**result_dict))
@@ -113,7 +113,7 @@ async def get_validation_result_by_epoch(
             detail=f"Validation result not found for job {job_id}, epoch {epoch}"
         )
 
-    # Parse JSON fields
+    # SQLAlchemy JSON type already deserializes, no need for json.loads()
     result_dict = {
         "id": result.id,
         "job_id": result.job_id,
@@ -122,14 +122,14 @@ async def get_validation_result_by_epoch(
         "primary_metric_name": result.primary_metric_name,
         "primary_metric_value": result.primary_metric_value,
         "overall_loss": result.overall_loss,
-        "metrics": json.loads(result.metrics) if result.metrics else None,
-        "per_class_metrics": json.loads(result.per_class_metrics) if result.per_class_metrics else None,
-        "confusion_matrix": json.loads(result.confusion_matrix) if result.confusion_matrix else None,
-        "pr_curves": json.loads(result.pr_curves) if result.pr_curves else None,
-        "class_names": json.loads(result.class_names) if result.class_names else None,
-        "visualization_data": json.loads(result.visualization_data) if result.visualization_data else None,
-        "sample_correct_images": json.loads(result.sample_correct_images) if result.sample_correct_images else None,
-        "sample_incorrect_images": json.loads(result.sample_incorrect_images) if result.sample_incorrect_images else None,
+        "metrics": result.metrics,
+        "per_class_metrics": result.per_class_metrics,
+        "confusion_matrix": result.confusion_matrix,
+        "pr_curves": result.pr_curves,
+        "class_names": result.class_names,
+        "visualization_data": result.visualization_data,
+        "sample_correct_images": result.sample_correct_images,
+        "sample_incorrect_images": result.sample_incorrect_images,
         "created_at": result.created_at,
     }
 
@@ -194,7 +194,7 @@ async def get_validation_images(
     # Get paginated results
     image_results = query.order_by(models.ValidationImageResult.image_index).offset(skip).limit(limit).all()
 
-    # Parse JSON fields
+    # SQLAlchemy JSON type already deserializes, no need for json.loads()
     images_data = []
     for img_result in image_results:
         img_dict = {
@@ -210,17 +210,17 @@ async def get_validation_images(
             "predicted_label": img_result.predicted_label,
             "predicted_label_id": img_result.predicted_label_id,
             "confidence": img_result.confidence,
-            "top5_predictions": json.loads(img_result.top5_predictions) if img_result.top5_predictions else None,
-            "true_boxes": json.loads(img_result.true_boxes) if img_result.true_boxes else None,
-            "predicted_boxes": json.loads(img_result.predicted_boxes) if img_result.predicted_boxes else None,
+            "top5_predictions": img_result.top5_predictions,
+            "true_boxes": img_result.true_boxes,
+            "predicted_boxes": img_result.predicted_boxes,
             "true_mask_path": img_result.true_mask_path,
             "predicted_mask_path": img_result.predicted_mask_path,
-            "true_keypoints": json.loads(img_result.true_keypoints) if img_result.true_keypoints else None,
-            "predicted_keypoints": json.loads(img_result.predicted_keypoints) if img_result.predicted_keypoints else None,
+            "true_keypoints": img_result.true_keypoints,
+            "predicted_keypoints": img_result.predicted_keypoints,
             "is_correct": img_result.is_correct,
             "iou": img_result.iou,
             "oks": img_result.oks,
-            "extra_data": json.loads(img_result.extra_data) if img_result.extra_data else None,
+            "extra_data": img_result.extra_data,
             "created_at": img_result.created_at,
         }
         images_data.append(validation_schemas.ValidationImageResultResponse(**img_dict))
@@ -283,10 +283,9 @@ async def get_validation_summary(
             "primary_metric": result.primary_metric_value,
             "loss": result.overall_loss,
         }
-        # Add task-specific metrics
+        # Add task-specific metrics (already deserialized by SQLAlchemy)
         if result.metrics:
-            parsed_metrics = json.loads(result.metrics)
-            metrics_dict.update(parsed_metrics)
+            metrics_dict.update(result.metrics)
 
         epoch_metrics.append(metrics_dict)
 
