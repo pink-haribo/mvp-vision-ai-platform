@@ -761,13 +761,56 @@ class TrainingAdapter(ABC):
             db_session=None  # No DB session in subprocess
         )
 
+        # 3.5. Get primary metric configuration from database
+        primary_metric = None
+        primary_metric_mode = None
+        best_metric_value = None
+
+        try:
+            import sqlite3
+            from pathlib import Path
+
+            # Get database path
+            training_dir = Path(__file__).parent.parent
+            mvp_dir = training_dir.parent
+            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+            if db_path.exists():
+                conn = sqlite3.connect(str(db_path))
+                cursor = conn.cursor()
+
+                # Query job's primary metric configuration
+                cursor.execute(
+                    "SELECT primary_metric, primary_metric_mode FROM training_jobs WHERE id = ?",
+                    (self.job_id,)
+                )
+                result = cursor.fetchone()
+                conn.close()
+
+                if result:
+                    primary_metric, primary_metric_mode = result
+                    # Initialize best_metric_value based on mode
+                    if primary_metric_mode == 'max':
+                        best_metric_value = float('-inf')
+                    else:  # 'min'
+                        best_metric_value = float('inf')
+
+                    print(f"[INFO] Best checkpoint selection: {primary_metric} ({primary_metric_mode})")
+                else:
+                    print(f"[WARNING] Job {self.job_id} not found in database")
+            else:
+                print(f"[WARNING] Database not found at {db_path}")
+        except Exception as e:
+            print(f"[WARNING] Failed to load primary metric config: {e}")
+
         # 4. Start training
         callbacks.on_train_begin()
 
         try:
             # 5. Training loop
             for epoch in range(start_epoch, self.training_config.epochs):
-                print(f"\n[Epoch {epoch + 1}/{self.training_config.epochs}]")
+                epoch_num = epoch + 1  # 1-indexed for display and storage
+                print(f"\n[Epoch {epoch_num}/{self.training_config.epochs}]")
 
                 # Train
                 train_metrics = self.train_epoch(epoch)
@@ -776,33 +819,91 @@ class TrainingAdapter(ABC):
                 val_metrics = self.validate(epoch)
 
                 # Combine metrics
+                # Note: Avoid duplicate 'val_' prefix
+                val_metrics_dict = {}
+                if val_metrics:
+                    val_metrics_dict['val_loss'] = val_metrics.train_loss
+                    # Add validation metrics, checking if they already have 'val_' prefix
+                    for k, v in val_metrics.metrics.items():
+                        if k.startswith('val_'):
+                            # Already has val_ prefix, use as-is
+                            val_metrics_dict[k] = v
+                        else:
+                            # Add val_ prefix
+                            val_metrics_dict[f'val_{k}'] = v
+
                 combined_metrics = MetricsResult(
-                    epoch=epoch,
+                    epoch=epoch_num,  # Store as 1-indexed
                     step=train_metrics.step,
                     train_loss=train_metrics.train_loss,
                     val_loss=val_metrics.train_loss if val_metrics else None,
                     metrics={
                         'train_loss': train_metrics.train_loss,
                         **train_metrics.metrics,
-                        **({'val_loss': val_metrics.train_loss} if val_metrics else {}),
-                        **({f"val_{k}": v for k, v in (val_metrics.metrics if val_metrics else {}).items()})
+                        **val_metrics_dict
                     }
                 )
 
                 all_metrics.append(combined_metrics)
 
-                # Report metrics to callbacks (handles both MLflow and database logging)
-                callbacks.on_epoch_end(epoch, combined_metrics.metrics)
-
-                # Save checkpoint periodically
+                # Save checkpoint based on primary metric improvement (before reporting to callbacks)
                 checkpoint_path = None
-                if epoch % 5 == 0 or epoch == self.training_config.epochs - 1:
-                    checkpoint_path = self.save_checkpoint(epoch, combined_metrics)
+                should_save_checkpoint = False
+
+                # Check if this is the best checkpoint so far
+                if primary_metric and best_metric_value is not None:
+                    # Get current metric value with flexible key matching
+                    current_value = None
+                    actual_metric_key = None
+
+                    # Try exact match first
+                    if primary_metric in combined_metrics.metrics:
+                        current_value = combined_metrics.metrics[primary_metric]
+                        actual_metric_key = primary_metric
+                    # Try with 'val_' prefix (validation metrics are usually more important)
+                    elif f'val_{primary_metric}' in combined_metrics.metrics:
+                        current_value = combined_metrics.metrics[f'val_{primary_metric}']
+                        actual_metric_key = f'val_{primary_metric}'
+                    # Try with 'train_' prefix as fallback
+                    elif f'train_{primary_metric}' in combined_metrics.metrics:
+                        current_value = combined_metrics.metrics[f'train_{primary_metric}']
+                        actual_metric_key = f'train_{primary_metric}'
+
+                    if current_value is not None:
+                        # Check if metric improved
+                        if primary_metric_mode == 'max':
+                            is_better = current_value > best_metric_value
+                        else:  # 'min'
+                            is_better = current_value < best_metric_value
+
+                        if is_better:
+                            best_metric_value = current_value
+                            should_save_checkpoint = True
+                            print(f"[INFO] New best {actual_metric_key}: {current_value:.4f}")
+                    else:
+                        print(f"[WARNING] Primary metric '{primary_metric}' not found in metrics")
+                        print(f"[WARNING] Available metrics: {list(combined_metrics.metrics.keys())}")
+                        # Fallback to periodic saving
+                        should_save_checkpoint = (epoch_num % 5 == 0)
+                else:
+                    # No primary metric configured, use periodic saving
+                    should_save_checkpoint = (epoch_num % 5 == 0)
+
+                # Always save last epoch
+                if epoch_num == self.training_config.epochs:
+                    should_save_checkpoint = True
+
+                if should_save_checkpoint:
+                    checkpoint_path = self.save_checkpoint(epoch_num, combined_metrics)
                     print(f"Checkpoint saved: {checkpoint_path}")
 
                     # Log checkpoint to MLflow
                     if checkpoint_path:
                         callbacks.log_artifact(checkpoint_path, "checkpoints")
+
+                # Report metrics to callbacks with checkpoint path
+                # (handles both MLflow and database logging)
+                callbacks.on_epoch_end(epoch_num, combined_metrics.metrics, checkpoint_path)
 
             # End training
             final_metrics = all_metrics[-1].metrics if all_metrics else {}
@@ -1001,7 +1102,7 @@ class TrainingCallbacks:
         """
         pass
 
-    def on_epoch_end(self, epoch: int, metrics: Dict[str, float]):
+    def on_epoch_end(self, epoch: int, metrics: Dict[str, float], checkpoint_path: str = None):
         """
         Called at the end of each epoch.
 
@@ -1020,6 +1121,7 @@ class TrainingCallbacks:
                     'mAP50': 0.88,
                     ... any custom metrics
                 }
+            checkpoint_path: Optional path to saved checkpoint
         """
         import mlflow
 
@@ -1050,6 +1152,7 @@ class TrainingCallbacks:
                 loss=train_loss,
                 accuracy=accuracy,
                 learning_rate=lr,
+                checkpoint_path=checkpoint_path,
                 extra_metrics=metrics  # Store all metrics as JSON
             )
             self.db_session.add(metric_record)
@@ -1075,8 +1178,8 @@ class TrainingCallbacks:
                     cursor.execute(
                         """
                         INSERT INTO training_metrics
-                        (job_id, epoch, step, loss, accuracy, learning_rate, extra_metrics, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        (job_id, epoch, step, loss, accuracy, learning_rate, checkpoint_path, extra_metrics, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             self.job_id,
@@ -1085,6 +1188,7 @@ class TrainingCallbacks:
                             train_loss,
                             accuracy,
                             lr,
+                            checkpoint_path,
                             json.dumps(metrics),
                             datetime.utcnow().isoformat()
                         )

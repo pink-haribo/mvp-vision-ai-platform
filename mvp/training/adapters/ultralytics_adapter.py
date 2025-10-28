@@ -3,7 +3,7 @@
 import os
 import sys
 import yaml
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from .base import TrainingAdapter, MetricsResult, TaskType, DatasetFormat, ConfigSchema, ConfigField
 
 
@@ -490,11 +490,17 @@ class UltralyticsAdapter(TrainingAdapter):
             print(f"[_create_data_yaml] Max class ID: {max_class_id}, setting nc={nc}")
             sys.stdout.flush()
 
+            # Detect actual train/val folder names
+            train_path, val_path = self._detect_yolo_folders()
+            print(f"[_create_data_yaml] Detected train path: {train_path}")
+            print(f"[_create_data_yaml] Detected val path: {val_path}")
+            sys.stdout.flush()
+
             # YOLO format - create data.yaml
             data = {
                 'path': os.path.abspath(self.dataset_config.dataset_path),
-                'train': 'images/train',
-                'val': 'images/val',
+                'train': train_path,
+                'val': val_path,
                 'nc': nc,
                 'names': [f'class_{i}' for i in range(nc)]
             }
@@ -581,6 +587,78 @@ class UltralyticsAdapter(TrainingAdapter):
         sys.stdout.flush()
         return class_ids
 
+    def _detect_yolo_folders(self) -> Tuple[str, str]:
+        """
+        Detect actual train/val folder names in YOLO dataset.
+
+        YOLO datasets can have various folder structures:
+        - images/train, images/val (standard)
+        - images/train2017, images/val2017 (COCO format)
+        - train, val (flat structure)
+
+        Returns:
+            tuple: (train_path, val_path) relative to dataset root
+        """
+        from pathlib import Path
+
+        dataset_path = Path(self.dataset_config.dataset_path)
+        print(f"[_detect_yolo_folders] Scanning dataset: {dataset_path}")
+        sys.stdout.flush()
+
+        # Check for images/ subdirectory
+        images_dir = dataset_path / "images"
+        if images_dir.exists() and images_dir.is_dir():
+            # List all subdirectories under images/
+            subdirs = [d.name for d in images_dir.iterdir() if d.is_dir()]
+            print(f"[_detect_yolo_folders] Found subdirs in images/: {subdirs}")
+            sys.stdout.flush()
+
+            # Try to find train and val directories
+            train_candidates = [d for d in subdirs if 'train' in d.lower()]
+            val_candidates = [d for d in subdirs if 'val' in d.lower() or 'valid' in d.lower()]
+
+            # Prefer exact matches, then take first match
+            train_name = None
+            if 'train' in subdirs:
+                train_name = 'train'
+            elif train_candidates:
+                train_name = train_candidates[0]
+
+            val_name = None
+            if 'val' in subdirs:
+                val_name = 'val'
+            elif val_candidates:
+                val_name = val_candidates[0]
+
+            # If val not found, use train for validation (common in small datasets)
+            if not val_name and train_name:
+                print(f"[_detect_yolo_folders] Warning: No val folder found, using train for validation")
+                sys.stdout.flush()
+                val_name = train_name
+
+            if train_name:
+                train_path = f'images/{train_name}'
+                val_path = f'images/{val_name}' if val_name else train_path
+                print(f"[_detect_yolo_folders] Using train={train_path}, val={val_path}")
+                sys.stdout.flush()
+                return train_path, val_path
+
+        # Fallback: Check for flat structure (train/, val/ directly under dataset root)
+        train_dir = dataset_path / "train"
+        val_dir = dataset_path / "val"
+
+        if train_dir.exists() and train_dir.is_dir():
+            train_path = 'train'
+            val_path = 'val' if val_dir.exists() else 'train'
+            print(f"[_detect_yolo_folders] Using flat structure: train={train_path}, val={val_path}")
+            sys.stdout.flush()
+            return train_path, val_path
+
+        # Last resort: use default
+        print(f"[_detect_yolo_folders] Warning: Could not detect folder structure, using defaults")
+        sys.stdout.flush()
+        return 'images/train', 'images/val'
+
     def train(self, start_epoch: int = 0, checkpoint_path: str = None, resume_training: bool = False) -> List[MetricsResult]:
         """
         Train using YOLO's built-in training API.
@@ -657,8 +735,47 @@ class UltralyticsAdapter(TrainingAdapter):
             db_session=None  # No DB session in subprocess
         )
 
+        # Get primary metric configuration from database
+        primary_metric = None
+        primary_metric_mode = None
+
+        try:
+            import sqlite3
+            from pathlib import Path
+
+            # Get database path
+            training_dir = Path(__file__).parent.parent
+            mvp_dir = training_dir.parent
+            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+            if db_path.exists():
+                conn = sqlite3.connect(str(db_path))
+                cursor = conn.cursor()
+
+                # Query job's primary metric configuration
+                cursor.execute(
+                    "SELECT primary_metric, primary_metric_mode FROM training_jobs WHERE id = ?",
+                    (self.job_id,)
+                )
+                result = cursor.fetchone()
+                conn.close()
+
+                if result:
+                    primary_metric, primary_metric_mode = result
+                    print(f"[YOLO INFO] Primary metric for best checkpoint: {primary_metric} ({primary_metric_mode})")
+                    print(f"[YOLO INFO] YOLO will save best.pt based on its internal fitness calculation")
+                else:
+                    print(f"[YOLO WARNING] Job {self.job_id} not found in database")
+            else:
+                print(f"[YOLO WARNING] Database not found at {db_path}")
+        except Exception as e:
+            print(f"[YOLO WARNING] Failed to load primary metric config: {e}")
+
         # Start training (creates MLflow run)
         callbacks.on_train_begin()
+
+        # Track recorded epochs to prevent duplicates
+        recorded_epochs = set()
 
         # Define real-time callback for YOLO training
         def on_yolo_epoch_end(trainer):
@@ -669,7 +786,15 @@ class UltralyticsAdapter(TrainingAdapter):
             Extracts metrics from trainer and reports to TrainingCallbacks.
             """
             try:
-                epoch = trainer.epoch
+                epoch_num = trainer.epoch + 1  # Convert to 1-indexed
+
+                # Prevent duplicate recording of the same epoch
+                if epoch_num in recorded_epochs:
+                    print(f"[YOLO Callback] Skipping duplicate epoch {epoch_num}")
+                    sys.stdout.flush()
+                    return
+
+                recorded_epochs.add(epoch_num)
 
                 # Extract loss components (trainer.label_loss_items returns dict-like object)
                 loss_items = trainer.label_loss_items(trainer.tloss, prefix="train")
@@ -702,13 +827,23 @@ class UltralyticsAdapter(TrainingAdapter):
                 metrics_dict['train_loss'] = train_loss if train_loss > 0 else metrics_dict.get('train/box_loss', 0)
                 metrics_dict['val_loss'] = val_loss if val_loss > 0 else metrics_dict.get('val/box_loss', 0)
 
+                # Get checkpoint path if this is a checkpoint epoch
+                # YOLO saves checkpoints automatically (best.pt and last.pt)
+                checkpoint_path = None
+                if hasattr(trainer, 'save_dir') and hasattr(trainer, 'best_fitness'):
+                    # Check if we have weights saved
+                    import os
+                    last_pt = os.path.join(trainer.save_dir, 'weights', 'last.pt')
+                    if os.path.exists(last_pt):
+                        checkpoint_path = last_pt
+
                 # Report to callbacks for unified metric collection (MLflow + Database)
-                print(f"[YOLO Callback] Epoch {epoch} completed, reporting metrics to callbacks...")
+                print(f"[YOLO Callback] Epoch {epoch_num} completed, reporting metrics to callbacks...")
                 sys.stdout.flush()
-                callbacks.on_epoch_end(epoch, metrics_dict)
+                callbacks.on_epoch_end(epoch_num, metrics_dict, checkpoint_path)
 
             except Exception as e:
-                print(f"[YOLO Callback ERROR] Failed to collect metrics at epoch {epoch}: {e}")
+                print(f"[YOLO Callback ERROR] Failed to collect metrics at epoch {trainer.epoch}: {e}")
                 import traceback
                 traceback.print_exc()
                 sys.stdout.flush()

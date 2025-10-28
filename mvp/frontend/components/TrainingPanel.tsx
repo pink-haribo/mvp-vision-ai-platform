@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react'
+import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import MLflowMetricsCharts from './training/MLflowMetricsCharts'
 import DatabaseMetricsTable from './training/DatabaseMetricsTable'
@@ -22,6 +22,8 @@ interface TrainingJob {
   advanced_config: any | null
   status: string
   final_accuracy: number | null
+  primary_metric: string | null
+  primary_metric_mode: string | null
 }
 
 interface TrainingMetric {
@@ -63,6 +65,8 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
   const [showConfigDetails, setShowConfigDetails] = useState(false)
   const [resumeDialogMode, setResumeDialogMode] = useState<'start' | 'restart' | null>(null)
   const [showLogs, setShowLogs] = useState(false)
+  const [selectedMetrics, setSelectedMetrics] = useState<string[]>([])
+  const [showMetricTip, setShowMetricTip] = useState(false)
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
   // Fetch training job details
@@ -519,7 +523,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                   disabled={isLoading}
                   className={cn(
                     'px-4 py-2.5',
-                    'animate-gradient-rotate shadow-lg shadow-red-500/50',
+                    'bg-red-600 hover:bg-red-700',
                     'text-white font-semibold',
                     'rounded-lg',
                     'transition-all duration-200',
@@ -552,8 +556,8 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
               )}
             </div>
 
-            {/* Epoch Progress - Show when training has started */}
-            {job.status !== 'pending' && metrics.length > 0 && (
+            {/* Epoch Progress - Show from epoch 0 */}
+            {job.status !== 'pending' && (
               <div className="flex-1">
                 <div className="flex justify-between text-xs text-gray-600 mb-1">
                   <span className="font-medium">Epoch {progress.currentEpoch} / {progress.totalEpochs}</span>
@@ -561,10 +565,10 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                     {epochProgressPercent}%
                   </span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
                   <div
-                    className="bg-violet-600 h-2.5 rounded-full transition-all duration-300"
-                    style={{ width: `${epochProgressPercent}%` }}
+                    className="h-2.5 rounded-full transition-all duration-300 bg-gradient-to-r from-violet-600 via-fuchsia-500 to-purple-600 animate-gradient-x"
+                    style={{ width: `${Math.max(epochProgressPercent, job.status === 'running' ? 2 : 0)}%` }}
                   />
                 </div>
               </div>
@@ -846,9 +850,46 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
             {/* Metrics Charts */}
             <div>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-gray-900">
-                  학습 메트릭 차트
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    학습 메트릭 차트
+                  </h3>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowMetricTip(!showMetricTip)}
+                      className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                      title="도움말"
+                    >
+                      <HelpCircle className="w-4 h-4 text-gray-500" />
+                    </button>
+                    {showMetricTip && (
+                      <>
+                        {/* Backdrop */}
+                        <div
+                          className="fixed inset-0 z-40"
+                          onClick={() => setShowMetricTip(false)}
+                        />
+                        {/* Tooltip */}
+                        <div className="absolute left-0 top-full mt-2 w-80 p-3 bg-white border border-gray-200 rounded-lg shadow-lg z-50 animate-scale-in">
+                          <div className="flex items-start gap-2">
+                            <div className="flex-shrink-0 mt-0.5">
+                              <div className="w-6 h-6 bg-blue-50 rounded-full flex items-center justify-center">
+                                <span className="text-sm">💡</span>
+                              </div>
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="text-sm font-semibold text-gray-900 mb-1">메트릭 차트 사용법</h4>
+                              <p className="text-xs text-gray-600">
+                                아래 메트릭 테이블의 컬럼 헤더를 클릭하면 해당 메트릭 차트가 추가됩니다.
+                                Primary Metric은 자동으로 표시되며, 필요한 메트릭을 추가로 선택할 수 있습니다.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
                 <div className="flex items-center gap-3">
                   <a
                     href="http://localhost:3001"
@@ -870,7 +911,10 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                   </a>
                 </div>
               </div>
-              <MLflowMetricsCharts jobId={job.id} />
+              <MLflowMetricsCharts
+                jobId={job.id}
+                selectedMetrics={selectedMetrics}
+              />
             </div>
 
             {/* Metrics Table */}
@@ -878,6 +922,14 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
               <DatabaseMetricsTable
                 jobId={job.id}
                 metrics={metrics}
+                selectedMetrics={selectedMetrics}
+                onMetricToggle={(metricKey) => {
+                  setSelectedMetrics(prev =>
+                    prev.includes(metricKey)
+                      ? prev.filter(m => m !== metricKey)
+                      : [...prev, metricKey]
+                  )
+                }}
                 onCheckpointSelect={(checkpointPath, epoch) => {
                   console.log('Selected checkpoint:', checkpointPath, 'epoch:', epoch)
                   // Will implement resume dialog in next step
@@ -885,11 +937,11 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
               />
             </div>
 
-            {/* Final Accuracy */}
+            {/* Final Metric */}
             {job.final_accuracy !== null && (
               <div className="p-4 bg-violet-50 rounded-lg border border-violet-200">
                 <p className="text-sm font-semibold text-violet-900">
-                  최종 정확도: {(job.final_accuracy * 100).toFixed(2)}%
+                  최종 {job.primary_metric || 'accuracy'}: {(job.final_accuracy * 100).toFixed(2)}%
                 </p>
               </div>
             )}

@@ -36,15 +36,18 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Storage Paths (will be converted to absolute paths)
-    UPLOAD_DIR: str = "./mvp/data/uploads"
-    OUTPUT_DIR: str = "./mvp/data/outputs"
-    MODEL_DIR: str = "./mvp/data/models"
-    LOG_DIR: str = "./mvp/data/logs"
+    # Note: Paths are relative to project root (mvp-vision-ai-platform/)
+    UPLOAD_DIR: str = "./data/uploads"
+    OUTPUT_DIR: str = "./data/outputs"
+    MODEL_DIR: str = "./data/models"
+    LOG_DIR: str = "./data/logs"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Convert relative paths to absolute paths based on project root
-        project_root = Path(__file__).parent.parent.parent.parent.absolute()
+        # Convert relative paths to absolute paths based on mvp directory
+        # __file__ = mvp/backend/app/core/config.py
+        # parent x3 = mvp/backend -> mvp/
+        project_root = Path(__file__).parent.parent.parent.absolute()
 
         for attr in ['UPLOAD_DIR', 'OUTPUT_DIR', 'MODEL_DIR', 'LOG_DIR']:
             path_value = getattr(self, attr)

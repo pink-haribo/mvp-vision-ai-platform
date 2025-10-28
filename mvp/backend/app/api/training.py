@@ -427,7 +427,8 @@ async def get_mlflow_metrics(job_id: int, db: Session = Depends(get_db)):
     """
     Get MLflow metrics for a training job.
 
-    Returns all metrics with their history from MLflow tracking server.
+    Returns all metrics with their history from MLflow tracking server,
+    plus primary metric information.
     """
     # Verify job exists
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
@@ -437,6 +438,13 @@ async def get_mlflow_metrics(job_id: int, db: Session = Depends(get_db)):
     try:
         client = get_mlflow_client()
         metrics_data = client.get_run_metrics(job_id)
+
+        # Add primary metric information
+        metrics_data['primary_metric'] = job.primary_metric or 'loss'
+        metrics_data['primary_metric_mode'] = job.primary_metric_mode or 'min'
+        metrics_data['task_type'] = job.task_type
+        metrics_data['framework'] = job.framework
+
         return metrics_data
     except Exception as e:
         raise HTTPException(
@@ -825,4 +833,92 @@ async def get_config_schema(framework: str, task_type: str = None):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get configuration schema: {str(e)}"
+        )
+
+
+@router.get("/datasets/list")
+async def list_available_datasets():
+    """
+    List available datasets in the default datasets directory.
+
+    Scans the mvp/data/datasets folder and returns a list of available
+    datasets with their paths and detected formats.
+
+    Returns:
+        List of dataset info objects with:
+        - name: Dataset folder name
+        - path: Absolute path
+        - format: Detected format (imagefolder, yolo, coco, or unknown)
+        - size: Number of files (approximate)
+    """
+    try:
+        import os
+        from pathlib import Path
+
+        # Get datasets directory (mvp/data/datasets)
+        backend_dir = Path(__file__).parent.parent.parent
+        mvp_dir = backend_dir.parent
+        datasets_dir = mvp_dir / 'data' / 'datasets'
+
+        logger.info(f"[list-datasets] Scanning directory: {datasets_dir}")
+
+        datasets = []
+
+        # Create datasets directory if it doesn't exist
+        if not datasets_dir.exists():
+            datasets_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[list-datasets] Created datasets directory: {datasets_dir}")
+            return {"datasets": []}
+
+        # Scan for dataset folders
+        for item in datasets_dir.iterdir():
+            if item.is_dir() and not item.name.startswith('.'):
+                dataset_info = {
+                    "name": item.name,
+                    "path": str(item.absolute()),
+                    "format": "unknown",
+                    "size": 0
+                }
+
+                # Detect format by folder structure
+                if (item / 'train').exists() and (item / 'val').exists():
+                    # Could be ImageFolder or YOLO
+                    if (item / 'labels').exists():
+                        dataset_info["format"] = "yolo"
+                    else:
+                        # Check if train has class subfolders (ImageFolder)
+                        train_dir = item / 'train'
+                        subdirs = [d for d in train_dir.iterdir() if d.is_dir()]
+                        if subdirs:
+                            dataset_info["format"] = "imagefolder"
+                        else:
+                            dataset_info["format"] = "yolo"
+
+                elif (item / 'annotations').exists():
+                    # Likely COCO format
+                    dataset_info["format"] = "coco"
+
+                # Count total files (approximate)
+                try:
+                    file_count = sum(1 for _ in item.rglob('*') if _.is_file())
+                    dataset_info["size"] = file_count
+                except Exception as e:
+                    logger.warning(f"Failed to count files in {item}: {e}")
+
+                datasets.append(dataset_info)
+
+        logger.info(f"[list-datasets] Found {len(datasets)} datasets")
+
+        return {
+            "datasets": datasets,
+            "datasets_dir": str(datasets_dir.absolute())
+        }
+
+    except Exception as e:
+        import traceback
+        logger.error(f"[list-datasets] Error: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list datasets: {str(e)}"
         )

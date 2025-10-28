@@ -19,6 +19,8 @@ interface Experiment {
   batch_size: number
   learning_rate: number
   final_accuracy: number | null
+  primary_metric: string | null
+  primary_metric_mode: string | null
   created_at: string
   started_at: string | null
   completed_at: string | null
@@ -626,7 +628,7 @@ export default function ProjectDetail({
                         <>
                           <span>•</span>
                           <span className="text-emerald-600 font-medium">
-                            Accuracy: {(exp.final_accuracy * 100).toFixed(2)}%
+                            {exp.primary_metric || 'accuracy'}: {(exp.final_accuracy * 100).toFixed(2)}%
                           </span>
                         </>
                       )}
@@ -702,7 +704,7 @@ export default function ProjectDetail({
                     {exp.status === 'completed' && exp.final_accuracy && (
                       <div className="mt-4 p-3 bg-emerald-50 rounded-lg">
                         <p className="text-sm text-emerald-800">
-                          ✅ 학습 완료! 최종 정확도: <strong>{(exp.final_accuracy * 100).toFixed(2)}%</strong>
+                          ✅ 학습 완료! 최종 {exp.primary_metric || 'accuracy'}: <strong>{(exp.final_accuracy * 100).toFixed(2)}%</strong>
                         </p>
                       </div>
                     )}

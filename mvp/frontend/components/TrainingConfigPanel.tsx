@@ -203,6 +203,44 @@ export default function TrainingConfigPanel({
     }
   }, [taskType])
 
+  // Folder selection handler using File System Access API
+  const handleBrowseFolder = async () => {
+    try {
+      // Check if File System Access API is supported
+      if ('showDirectoryPicker' in window) {
+        // @ts-ignore - showDirectoryPicker is not in TypeScript types yet
+        const dirHandle = await window.showDirectoryPicker()
+
+        // Note: For security, browsers don't expose absolute paths
+        // We can only get the folder name
+        // User will need to provide the full path or use a known location
+        const folderName = dirHandle.name
+
+        // Show dialog asking user to provide full path
+        const fullPath = prompt(
+          `선택한 폴더: "${folderName}"\n\n전체 경로를 입력하세요 (예: C:\\datasets\\${folderName}):`,
+          datasetPath || `C:\\datasets\\${folderName}`
+        )
+
+        if (fullPath) {
+          setDatasetPath(fullPath)
+          setDatasetInfo(null)
+          setAnalysisError(null)
+        }
+      } else {
+        // Fallback: show instruction
+        alert(
+          '폴더 선택 기능을 지원하지 않는 브라우저입니다.\n\n' +
+          '데이터셋 폴더의 전체 경로를 직접 입력해주세요.\n' +
+          '(Windows: C:\\datasets\\..., Linux/Mac: /home/user/datasets/...)'
+        )
+      }
+    } catch (error) {
+      // User cancelled or error occurred
+      console.log('Folder selection cancelled or failed:', error)
+    }
+  }
+
   // Dataset analysis function
   const handleAnalyzeDataset = async () => {
     if (!datasetPath.trim()) {
@@ -499,6 +537,16 @@ export default function TrainingConfigPanel({
                     )}
                   />
                   <button
+                    onClick={handleBrowseFolder}
+                    className={cn(
+                      'px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg',
+                      'hover:bg-gray-200 transition-colors',
+                      'text-sm font-medium whitespace-nowrap border border-gray-300'
+                    )}
+                  >
+                    📁 찾아보기
+                  </button>
+                  <button
                     onClick={handleAnalyzeDataset}
                     disabled={isAnalyzing || !datasetPath.trim()}
                     className={cn(
@@ -512,7 +560,7 @@ export default function TrainingConfigPanel({
                   </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  절대 경로로 입력하세요 (Windows: C:\path, Linux/Mac: /path)
+                  절대 경로를 입력하거나 📁 찾아보기 버튼으로 폴더를 선택하세요
                 </p>
               </div>
 

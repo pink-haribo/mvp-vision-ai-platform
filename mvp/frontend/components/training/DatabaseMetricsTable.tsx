@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { CheckCircle2, XCircle, Star } from "lucide-react";
 import useSWR from "swr";
 
@@ -32,26 +32,81 @@ interface MetricSchema {
 interface DatabaseMetricsTableProps {
   jobId: number;
   metrics: TrainingMetric[];
+  selectedMetrics?: string[];
+  onMetricToggle?: (metricKey: string) => void;
   onCheckpointSelect?: (checkpointPath: string, epoch: number) => void;
 }
 
 export default function DatabaseMetricsTable({
   jobId,
   metrics,
+  selectedMetrics = [],
+  onMetricToggle,
   onCheckpointSelect,
 }: DatabaseMetricsTableProps) {
   console.log('[DatabaseMetricsTable] Received metrics:', metrics);
   console.log('[DatabaseMetricsTable] Metrics length:', metrics?.length);
 
   // Fetch metric schema for dynamic columns
-  const { data: metricSchema } = useSWR<MetricSchema>(
+  const { data: metricSchema, isLoading: schemaLoading } = useSWR<MetricSchema>(
     jobId ? `/training/jobs/${jobId}/metric-schema` : null,
     fetcher,
-    { refreshInterval: 0 } // Only fetch once
+    {
+      refreshInterval: 0, // Only fetch once
+      revalidateOnFocus: false, // Don't refetch on window focus
+      dedupingInterval: 60000 // Cache for 1 minute
+    }
   );
 
   console.log('[DatabaseMetricsTable] Metric schema:', metricSchema);
+  console.log('[DatabaseMetricsTable] Schema loading:', schemaLoading);
 
+  // Get metric columns from schema, or extract from actual metrics data
+  // IMPORTANT: useMemo must be called before any conditional returns (React hooks rule)
+  const metricColumns = useMemo(() => {
+    console.log('[DatabaseMetricsTable useMemo] Calculating metric columns');
+    console.log('[DatabaseMetricsTable useMemo] metricSchema:', metricSchema);
+    console.log('[DatabaseMetricsTable useMemo] metrics.length:', metrics?.length || 0);
+
+    if (metricSchema?.available_metrics && metricSchema.available_metrics.length > 0) {
+      // Use schema if available
+      console.log('[DatabaseMetricsTable useMemo] Using schema columns:', metricSchema.available_metrics);
+      return metricSchema.available_metrics;
+    }
+
+    // Extract unique metric keys from all metrics' extra_metrics
+    if (!metrics || metrics.length === 0) {
+      return [];
+    }
+
+    const allKeys = new Set<string>();
+    metrics.forEach(metric => {
+      if (metric.extra_metrics) {
+        Object.keys(metric.extra_metrics).forEach(key => {
+          // Exclude metadata keys
+          if (!['batch', 'total_batches', 'epoch_time'].includes(key)) {
+            allKeys.add(key);
+          }
+        });
+      }
+      // Also include standard fields
+      if (metric.loss !== undefined && metric.loss !== null) allKeys.add('loss');
+      if (metric.accuracy !== undefined && metric.accuracy !== null) allKeys.add('accuracy');
+      if (metric.learning_rate !== undefined && metric.learning_rate !== null) allKeys.add('learning_rate');
+    });
+
+    const extractedColumns = Array.from(allKeys).sort();
+    console.log('[DatabaseMetricsTable useMemo] Extracted columns from metrics:', extractedColumns);
+    return extractedColumns;
+  }, [metrics, metricSchema]);
+
+  const primaryMetric = metricSchema?.primary_metric || 'loss';
+  const primaryMetricMode = metricSchema?.primary_metric_mode || 'min';
+
+  console.log('[DatabaseMetricsTable] Final metricColumns:', metricColumns);
+  console.log('[DatabaseMetricsTable] Final primaryMetric:', primaryMetric);
+
+  // Early return AFTER all hooks
   if (!metrics || metrics.length === 0) {
     console.log('[DatabaseMetricsTable] No metrics, showing empty state');
     return (
@@ -66,20 +121,6 @@ export default function DatabaseMetricsTable({
   // Show last 10 epochs
   const recentMetrics = metrics.slice(-10).reverse();
   console.log('[DatabaseMetricsTable] Recent metrics count:', recentMetrics.length);
-
-  // Get metric columns from schema, or fallback to default
-  const metricColumns = metricSchema?.available_metrics || [
-    'loss',
-    'accuracy',
-    'train_loss',
-    'train_accuracy',
-    'val_loss',
-    'val_accuracy',
-    'learning_rate',
-  ];
-
-  const primaryMetric = metricSchema?.primary_metric || 'loss';
-  const primaryMetricMode = metricSchema?.primary_metric_mode || 'min';
 
   // Helper function to format metric display name
   const formatMetricName = (key: string): string => {
@@ -151,17 +192,17 @@ export default function DatabaseMetricsTable({
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-      <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-gray-900">
+      <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+        <h4 className="text-xs font-semibold text-gray-900">
           학습 메트릭 (최근 {recentMetrics.length} Epochs)
         </h4>
         {metricSchema && (
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2 text-[10px]">
             <span className="text-gray-500">Primary Metric:</span>
-            <div className="flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-medium">
-              <Star className="w-3 h-3" fill="currentColor" />
+            <div className="flex items-center gap-1 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full font-medium">
+              <Star className="w-2.5 h-2.5" fill="currentColor" />
               {formatMetricName(primaryMetric)}
-              <span className="text-[10px] opacity-75">
+              <span className="text-[9px] opacity-75">
                 ({primaryMetricMode === 'max' ? '↑' : '↓'})
               </span>
             </div>
@@ -169,33 +210,45 @@ export default function DatabaseMetricsTable({
         )}
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-xs">
+        <table className="w-full text-[10px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="px-3 py-1.5 text-left font-semibold text-gray-700 sticky left-0 bg-gray-50 z-10">
+              <th className="px-2 py-1 text-left font-semibold text-gray-700 sticky left-0 bg-gray-50 z-10">
                 Epoch
               </th>
               {metricColumns.map((col) => {
                 const isPrimary = col === primaryMetric;
+                const isSelected = selectedMetrics.includes(col);
+                const isClickable = onMetricToggle !== undefined;
+
                 return (
                   <th
                     key={col}
-                    className={`px-3 py-1.5 text-right font-semibold ${
+                    onClick={() => isClickable && onMetricToggle(col)}
+                    className={`px-2 py-1 text-right font-semibold transition-colors ${
                       isPrimary
                         ? 'bg-blue-50 text-blue-900'
+                        : isSelected
+                        ? 'bg-emerald-50 text-emerald-900'
                         : 'text-gray-700'
+                    } ${
+                      isClickable ? 'cursor-pointer hover:bg-gray-100' : ''
                     }`}
+                    title={isClickable ? 'Click to toggle chart visibility' : ''}
                   >
-                    <div className="flex items-center justify-end gap-1">
+                    <div className="flex items-center justify-end gap-0.5">
                       {isPrimary && (
-                        <Star className="w-3 h-3 text-blue-600" fill="currentColor" />
+                        <Star className="w-2.5 h-2.5 text-blue-600" fill="currentColor" />
+                      )}
+                      {!isPrimary && isSelected && (
+                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
                       )}
                       {formatMetricName(col)}
                     </div>
                   </th>
                 );
               })}
-              <th className="px-3 py-1.5 text-center font-semibold text-gray-700">
+              <th className="px-2 py-1 text-center font-semibold text-gray-700">
                 Checkpoint
               </th>
             </tr>
@@ -207,10 +260,10 @@ export default function DatabaseMetricsTable({
                   key={metric.id}
                   className={index === 0 ? "bg-violet-50" : "hover:bg-gray-50"}
                 >
-                  <td className="px-3 py-1.5 font-medium text-gray-900 sticky left-0 bg-inherit z-10">
+                  <td className="px-2 py-1 font-medium text-gray-900 sticky left-0 bg-inherit z-10">
                     {metric.epoch}
                     {index === 0 && (
-                      <span className="ml-1.5 text-[10px] text-violet-600 font-semibold">
+                      <span className="ml-1 text-[9px] text-violet-600 font-semibold">
                         Latest
                       </span>
                     )}
@@ -221,7 +274,7 @@ export default function DatabaseMetricsTable({
                     return (
                       <td
                         key={col}
-                        className={`px-3 py-1.5 text-right font-mono ${
+                        className={`px-2 py-1 text-right font-mono ${
                           isPrimary
                             ? 'bg-blue-50/50 text-blue-900 font-semibold'
                             : 'text-gray-700'
@@ -231,10 +284,10 @@ export default function DatabaseMetricsTable({
                       </td>
                     );
                   })}
-                  <td className="px-3 py-1.5 text-center">
+                  <td className="px-2 py-1 text-center">
                     {metric.checkpoint_path ? (
-                      <div className="flex items-center justify-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
+                      <div className="flex items-center justify-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-green-600" />
                         {onCheckpointSelect && (
                           <button
                             onClick={() =>
@@ -243,14 +296,14 @@ export default function DatabaseMetricsTable({
                                 metric.epoch
                               )
                             }
-                            className="text-[10px] text-violet-600 hover:text-violet-700 font-medium hover:underline"
+                            className="text-[9px] text-violet-600 hover:text-violet-700 font-medium hover:underline"
                           >
                             Load
                           </button>
                         )}
                       </div>
                     ) : (
-                      <XCircle className="w-3.5 h-3.5 text-gray-300 mx-auto" />
+                      <XCircle className="w-3 h-3 text-gray-300 mx-auto" />
                     )}
                   </td>
                 </tr>
@@ -260,8 +313,8 @@ export default function DatabaseMetricsTable({
         </table>
       </div>
       {metrics.length > 10 && (
-        <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 text-center">
-          <p className="text-xs text-gray-500">
+        <div className="px-3 py-1.5 bg-gray-50 border-t border-gray-200 text-center">
+          <p className="text-[10px] text-gray-500">
             총 {metrics.length} epochs (최근 10개만 표시)
           </p>
         </div>
