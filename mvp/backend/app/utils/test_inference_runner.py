@@ -21,10 +21,9 @@ sys.path.insert(0, str(project_root))
 
 from app.db import models
 from app.utils.dataset_analyzer import DatasetAnalyzer
-from training.adapters.base import TrainingAdapter, InferenceResult, TaskType
-from training.adapters.timm_adapter import TimmAdapter
-from training.adapters.ultralytics_adapter import UltralyticsAdapter
-from training.validators.metrics_calculator import ValidationMetricsCalculator
+
+# Lazy imports for training modules (to avoid requiring torch in backend venv)
+# These will be imported inside methods when actually needed
 
 
 class TestRunner:
@@ -55,6 +54,9 @@ class TestRunner:
         Returns:
             True if test completed successfully
         """
+        # Lazy import training modules
+        from training.adapters.base import InferenceResult
+
         # Get test run from database
         test_run = self.db.query(models.TestRun).filter(
             models.TestRun.id == test_run_id
@@ -161,8 +163,13 @@ class TestRunner:
 
             return False
 
-    def _create_adapter(self, job: models.TrainingJob, dataset_path: str) -> Optional[TrainingAdapter]:
+    def _create_adapter(self, job: models.TrainingJob, dataset_path: str) -> Optional[Any]:
         """Create adapter instance based on framework."""
+        # Lazy import training modules
+        from training.adapters.base import TaskType
+        from training.adapters.timm_adapter import TimmAdapter
+        from training.adapters.ultralytics_adapter import UltralyticsAdapter
+
         if job.framework == "timm":
             return TimmAdapter(
                 model_name=job.model_name,
@@ -236,8 +243,11 @@ class TestRunner:
 
         return sorted(image_paths)
 
-    def _store_test_image_results(self, test_run: models.TestRun, results: List[InferenceResult]):
+    def _store_test_image_results(self, test_run: models.TestRun, results: List[Any]):
         """Store image-level test results in database."""
+        # Lazy import training modules
+        from training.adapters.base import TaskType
+
         for idx, result in enumerate(results):
             # Get ground truth from dataset structure (ImageFolder format)
             true_label, true_label_id = self._extract_ground_truth(result)
@@ -281,7 +291,7 @@ class TestRunner:
 
         self.db.commit()
 
-    def _extract_ground_truth(self, result: InferenceResult) -> tuple:
+    def _extract_ground_truth(self, result: Any) -> tuple:
         """
         Extract ground truth label from image path.
 
@@ -305,12 +315,16 @@ class TestRunner:
         # TODO: Map class_name to class_id using dataset metadata
         return class_name, None
 
-    def _calculate_metrics(self, test_run: models.TestRun, results: List[InferenceResult]) -> Dict[str, Any]:
+    def _calculate_metrics(self, test_run: models.TestRun, results: List[Any]) -> Dict[str, Any]:
         """
         Calculate test metrics using ValidationMetricsCalculator.
 
         Reuses validation system's metric calculation logic.
         """
+        # Lazy import training modules
+        from training.validators.metrics_calculator import ValidationMetricsCalculator
+        from training.adapters.base import TaskType
+
         # Query image results from database
         image_results = self.db.query(models.TestImageResult).filter(
             models.TestImageResult.test_run_id == test_run.id
@@ -548,8 +562,13 @@ class InferenceRunner:
 
             return False
 
-    def _create_adapter(self, job: models.TrainingJob, dataset_path: str) -> Optional[TrainingAdapter]:
+    def _create_adapter(self, job: models.TrainingJob, dataset_path: str) -> Optional[Any]:
         """Create adapter instance based on framework."""
+        # Lazy import training modules
+        from training.adapters.base import TaskType
+        from training.adapters.timm_adapter import TimmAdapter
+        from training.adapters.ultralytics_adapter import UltralyticsAdapter
+
         if job.framework == "timm":
             return TimmAdapter(
                 model_name=job.model_name,
@@ -598,7 +617,7 @@ class InferenceRunner:
         else:
             return []
 
-    def _store_inference_results(self, inference_job: models.InferenceJob, results: List[InferenceResult]):
+    def _store_inference_results(self, inference_job: models.InferenceJob, results: List[Any]):
         """Store inference results in database (predictions only, no ground truth)."""
         for idx, result in enumerate(results):
             inference_result = models.InferenceResult(
