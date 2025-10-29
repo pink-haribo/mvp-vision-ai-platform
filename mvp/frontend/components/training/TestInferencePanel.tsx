@@ -48,6 +48,12 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   const [isRunning, setIsRunning] = useState(false)
   const [loading, setLoading] = useState(true)
 
+  // Session ID for image uploads (generated once per component mount)
+  const [sessionId] = useState<string>(() => {
+    // Generate UUID v4
+    return crypto.randomUUID()
+  })
+
   // Inference settings
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.25)
   const [iouThreshold, setIouThreshold] = useState(0.45)
@@ -98,6 +104,20 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     if (job) fetchCheckpoints()
   }, [job, jobId])
 
+  // Cleanup session on component unmount
+  useEffect(() => {
+    return () => {
+      // Clean up session when leaving the inference panel
+      fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/session/${sessionId}`,
+        { method: 'DELETE' }
+      ).catch((error) => {
+        // Ignore errors - background cleanup will handle it
+        console.log('Session cleanup failed (will be handled by background task):', error)
+      })
+    }
+  }, [sessionId])
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
     addImages(files)
@@ -143,7 +163,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             formData.append('file', image.file)
 
             const uploadResponse = await fetch(
-              `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/upload-image`,
+              `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/upload-image?session_id=${sessionId}`,
               {
                 method: 'POST',
                 body: formData

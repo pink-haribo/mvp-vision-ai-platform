@@ -63,3 +63,65 @@ async def root():
 async def metrics():
     """Prometheus metrics endpoint."""
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+# ========== Background Tasks ==========
+
+@app.on_event("startup")
+async def start_background_tasks():
+    """Start background tasks on application startup."""
+    import asyncio
+    from datetime import datetime, timedelta
+    import shutil
+
+    async def cleanup_old_inference_sessions():
+        """
+        Periodically clean up old inference session directories.
+
+        Runs every hour and deletes sessions where all files are older than 2 hours.
+        """
+        while True:
+            try:
+                await asyncio.sleep(3600)  # Run every 1 hour
+
+                temp_dir = Path(settings.UPLOAD_DIR) / "inference_temp"
+
+                if not temp_dir.exists():
+                    continue
+
+                cutoff_time = datetime.now() - timedelta(hours=2)
+
+                for session_dir in temp_dir.iterdir():
+                    if not session_dir.is_dir():
+                        continue
+
+                    try:
+                        # Check if all files in session are older than cutoff
+                        files = list(session_dir.iterdir())
+
+                        if not files:
+                            # Empty directory - delete it
+                            session_dir.rmdir()
+                            print(f"[CLEANUP] Removed empty session: {session_dir.name}")
+                            continue
+
+                        all_old = all(
+                            datetime.fromtimestamp(f.stat().st_mtime) < cutoff_time
+                            for f in files
+                        )
+
+                        if all_old:
+                            shutil.rmtree(session_dir)
+                            print(f"[CLEANUP] Removed old session: {session_dir.name} ({len(files)} files)")
+
+                    except Exception as e:
+                        print(f"[CLEANUP] Error processing session {session_dir.name}: {e}")
+                        continue
+
+            except Exception as e:
+                print(f"[CLEANUP] Background cleanup task error: {e}")
+                # Continue running even if there's an error
+
+    # Start the cleanup task
+    asyncio.create_task(cleanup_old_inference_sessions())
+    print("[STARTUP] Background cleanup task started (runs every 1 hour)")

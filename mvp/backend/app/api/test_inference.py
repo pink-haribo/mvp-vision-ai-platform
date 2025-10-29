@@ -695,17 +695,19 @@ async def get_inference_image(
 @router.post("/inference/upload-image")
 async def upload_inference_image(
     file: UploadFile = File(...),
+    session_id: Optional[str] = Query(default=None)
 ):
     """
     Upload an image for inference.
 
-    Saves the image to a temporary location and returns the server path.
+    Saves the image to a session-specific temporary location.
 
     Args:
         file: Image file to upload
+        session_id: Optional session ID for grouping images. If not provided, a new one is generated.
 
     Returns:
-        Dict with server_path
+        Dict with server_path and session_id
     """
     try:
         # Validate file type
@@ -715,15 +717,19 @@ async def upload_inference_image(
                 detail="File must be an image"
             )
 
-        # Create temp directory for inference images
+        # Generate session ID if not provided
+        if not session_id:
+            session_id = str(uuid.uuid4())
+
+        # Create session-specific temp directory
         from app.core.config import settings
-        temp_dir = Path(settings.UPLOAD_DIR) / "inference_temp"
-        temp_dir.mkdir(parents=True, exist_ok=True)
+        session_dir = Path(settings.UPLOAD_DIR) / "inference_temp" / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate unique filename
         file_extension = Path(file.filename or "image.jpg").suffix
         unique_filename = f"{uuid.uuid4()}{file_extension}"
-        file_path = temp_dir / unique_filename
+        file_path = session_dir / unique_filename
 
         # Save file
         with file_path.open("wb") as buffer:
@@ -731,7 +737,8 @@ async def upload_inference_image(
 
         return {
             "server_path": str(file_path.absolute()),
-            "filename": file.filename
+            "filename": file.filename,
+            "session_id": session_id
         }
 
     except HTTPException:
@@ -876,12 +883,48 @@ async def quick_inference(
             detail=f"Inference failed: {str(e)}"
         )
     finally:
-        # Clean up temporary uploaded image
-        # Only delete if it's in the inference_temp directory (safety check)
-        try:
-            if image_path_obj.exists() and "inference_temp" in str(image_path_obj):
-                image_path_obj.unlink()
-                print(f"[INFO] Cleaned up temporary image: {image_path}")
-        except Exception as cleanup_error:
-            # Log but don't raise - cleanup failure shouldn't break the response
-            print(f"[WARNING] Failed to clean up temporary image {image_path}: {cleanup_error}")
+        # No longer delete immediately - session-based cleanup handles this
+        pass
+
+
+@router.delete("/inference/session/{session_id}")
+async def cleanup_session(session_id: str):
+    """
+    Clean up all images in a session.
+
+    Called when user leaves the inference panel or explicitly cleans up.
+
+    Args:
+        session_id: Session ID to clean up
+
+    Returns:
+        Status message
+    """
+    try:
+        from app.core.config import settings
+        session_dir = Path(settings.UPLOAD_DIR) / "inference_temp" / session_id
+
+        if session_dir.exists() and session_dir.is_dir():
+            # Safety check: ensure it's within inference_temp
+            if "inference_temp" in str(session_dir):
+                shutil.rmtree(session_dir)
+                print(f"[INFO] Cleaned up session: {session_id}")
+                return {"status": "cleaned", "session_id": session_id}
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid session directory"
+                )
+        else:
+            return {"status": "not_found", "session_id": session_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Failed to clean up session {session_id}: {e}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to clean up session: {str(e)}"
+        )
