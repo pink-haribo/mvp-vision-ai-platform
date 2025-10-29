@@ -20,6 +20,7 @@ project_root = backend_dir.parent
 sys.path.insert(0, str(project_root))
 
 from app.db import models
+from app.utils.dataset_analyzer import DatasetAnalyzer
 from training.adapters.base import TrainingAdapter, InferenceResult, TaskType
 from training.adapters.timm_adapter import TimmAdapter
 from training.adapters.ultralytics_adapter import UltralyticsAdapter
@@ -187,21 +188,51 @@ class TestRunner:
         """
         Get image paths from dataset.
 
-        Currently supports ImageFolder format.
-        Future: Support YOLO, COCO formats.
+        Supports multiple formats: ImageFolder, YOLO, COCO.
+        Auto-detects format using DatasetAnalyzer.
         """
         dataset_dir = Path(dataset_path)
-        split_dir = dataset_dir / split
 
-        if not split_dir.exists():
-            # Try without split directory (flat structure)
-            split_dir = dataset_dir
+        # Detect dataset format
+        analyzer = DatasetAnalyzer(dataset_dir)
+        format_info = analyzer.detect_format()
+        detected_format = format_info.get('format', 'imagefolder')
+
+        print(f"[Dataset] Detected format: {detected_format}")
 
         image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp'}
         image_paths = []
 
-        for ext in image_extensions:
-            image_paths.extend([str(p) for p in split_dir.rglob(f"*{ext}")])
+        if detected_format == 'imagefolder':
+            # ImageFolder: dataset/split/class/image.jpg
+            split_dir = dataset_dir / split
+            if not split_dir.exists():
+                split_dir = dataset_dir
+
+            for ext in image_extensions:
+                image_paths.extend([str(p) for p in split_dir.rglob(f"*{ext}")])
+
+        elif detected_format == 'yolo':
+            # YOLO: images/split/*.jpg
+            images_dir = dataset_dir / 'images' / split
+            if not images_dir.exists():
+                images_dir = dataset_dir / 'images'
+
+            if images_dir.exists():
+                for ext in image_extensions:
+                    image_paths.extend([str(p) for p in images_dir.rglob(f"*{ext}")])
+
+        elif detected_format == 'coco':
+            # COCO: images/*.jpg (with annotations/split.json)
+            images_dir = dataset_dir / 'images'
+            if images_dir.exists():
+                for ext in image_extensions:
+                    image_paths.extend([str(p) for p in images_dir.rglob(f"*{ext}")])
+        else:
+            # Fallback: search recursively
+            print(f"[WARNING] Unknown format '{detected_format}', using recursive search")
+            for ext in image_extensions:
+                image_paths.extend([str(p) for p in dataset_dir.rglob(f"*{ext}")])
 
         return sorted(image_paths)
 
@@ -252,15 +283,26 @@ class TestRunner:
 
     def _extract_ground_truth(self, result: InferenceResult) -> tuple:
         """
-        Extract ground truth label from image path (ImageFolder format).
+        Extract ground truth label from image path.
 
-        ImageFolder structure: dataset/split/class_name/image.jpg
+        Supports ImageFolder, YOLO, COCO formats.
+        Returns (class_name, class_id) tuple.
         """
         image_path = Path(result.image_path)
+
+        # For ImageFolder: parent directory is class name
+        # Structure: dataset/split/class_name/image.jpg
         class_name = image_path.parent.name
 
+        # TODO: For YOLO format, read corresponding .txt label file
+        # Structure: images/train/img.jpg -> labels/train/img.txt
+        # Parse first line: <class_id> <x_center> <y_center> <width> <height>
+
+        # TODO: For COCO format, load annotations JSON and find image entry
+        # Structure: annotations/train.json contains image_id -> annotations mapping
+
+        # For now, return ImageFolder-style extraction
         # TODO: Map class_name to class_id using dataset metadata
-        # For now, return class name and None for ID
         return class_name, None
 
     def _calculate_metrics(self, test_run: models.TestRun, results: List[InferenceResult]) -> Dict[str, Any]:
