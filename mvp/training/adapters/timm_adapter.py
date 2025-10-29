@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from typing import List
+from typing import List, Optional, Dict, Any
 
 from .base import TrainingAdapter, MetricsResult, TaskType, DatasetFormat, ConfigSchema, ConfigField
 
