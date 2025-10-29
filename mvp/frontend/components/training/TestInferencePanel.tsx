@@ -7,7 +7,7 @@
  * Features image upload, checkpoint selection, task-specific settings, and real-time results.
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Upload, Settings, Play, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
@@ -51,6 +51,9 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   const [iouThreshold, setIouThreshold] = useState(0.45)
   const [maxDetections, setMaxDetections] = useState(100)
   const [topK, setTopK] = useState(5)
+
+  // File input ref
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Fetch job details
   useEffect(() => {
@@ -196,35 +199,24 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           <h3 className="text-sm font-semibold text-gray-900 mb-4">이미지 업로드</h3>
 
           <div className="space-y-3">
-            {/* File input buttons */}
-            <div className="flex gap-2">
-              <label className={cn(
-                'flex-1 px-4 py-2.5',
-                'bg-gray-50 hover:bg-gray-100',
-                'border border-gray-300 text-gray-700',
-                'rounded-lg font-medium text-sm',
-                'transition-colors cursor-pointer',
-                'flex items-center justify-center gap-2'
-              )}>
-                <Upload className="w-4 h-4" />
-                파일 선택
-                <input
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  onChange={handleFileSelect}
-                  className="hidden"
-                />
-              </label>
-            </div>
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
 
             {/* Upload count */}
             <div className="text-xs text-gray-500">
               업로드된 이미지: <span className="font-medium text-gray-900">{images.length}개</span>
             </div>
 
-            {/* Drop zone */}
+            {/* Drop zone - clickable */}
             <div
+              onClick={() => fileInputRef.current?.click()}
               onDrop={handleDrop}
               onDragOver={(e) => e.preventDefault()}
               className={cn(
@@ -232,7 +224,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                 'rounded-lg p-8',
                 'text-center',
                 'hover:border-violet-400 hover:bg-violet-50/50',
-                'transition-colors'
+                'transition-colors cursor-pointer'
               )}
             >
               <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400" />
@@ -240,7 +232,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                 이미지를 드래그 앤 드롭하세요
               </p>
               <p className="text-xs text-gray-500">
-                또는 위의 버튼을 클릭하여 선택
+                또는 클릭하여 파일 선택
               </p>
             </div>
           </div>
