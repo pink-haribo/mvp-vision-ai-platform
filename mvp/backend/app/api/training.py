@@ -956,14 +956,22 @@ async def get_job_checkpoints(
         # Common patterns: best.pt, last.pt, epoch_*.pt, checkpoint_*.pth
         checkpoint_files = []
 
-        # Look for .pt files (PyTorch/YOLO)
+        # Look for .pt files (PyTorch/YOLO) - direct children
         checkpoint_files.extend(list(output_path.glob("*.pt")))
-        # Look for .pth files (PyTorch)
+        # Look for .pth files (PyTorch) - direct children
         checkpoint_files.extend(list(output_path.glob("*.pth")))
+
         # Look in weights subdirectory (YOLO format)
         weights_dir = output_path / "weights"
         if weights_dir.exists():
             checkpoint_files.extend(list(weights_dir.glob("*.pt")))
+
+        # Recursively search for checkpoints in subdirectories (YOLO job_X/weights structure)
+        # This handles cases like: output_dir/job_3/weights/best.pt
+        for weights_subdir in output_path.glob("*/weights"):
+            if weights_subdir.is_dir():
+                checkpoint_files.extend(list(weights_subdir.glob("*.pt")))
+                checkpoint_files.extend(list(weights_subdir.glob("*.pth")))
 
         # Parse checkpoint information
         for ckpt_file in checkpoint_files:
