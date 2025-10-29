@@ -79,6 +79,9 @@ def run_inference(
     else:
         raise ValueError(f"Unsupported framework: {framework}")
 
+    # Prepare model (creates self.model)
+    adapter.prepare_model()
+
     # Load checkpoint
     adapter.load_checkpoint(
         checkpoint_path=checkpoint_path,
