@@ -7,6 +7,7 @@ import MLflowMetricsCharts from './training/MLflowMetricsCharts'
 import DatabaseMetricsTable from './training/DatabaseMetricsTable'
 import ResumeDialog from './training/ResumeDialog'
 import { ValidationDashboard } from './training/validation/ValidationDashboard'
+import TestInferencePanel from './training/TestInferencePanel'
 
 interface TrainingJob {
   id: number
@@ -68,7 +69,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
   const [resumeDialogMode, setResumeDialogMode] = useState<'start' | 'restart' | null>(null)
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>([])
   const [showMetricTip, setShowMetricTip] = useState(false)
-  const [activeTab, setActiveTab] = useState<'metrics' | 'validation' | 'config' | 'logs'>('metrics')
+  const [activeTab, setActiveTab] = useState<'metrics' | 'validation' | 'test_inference' | 'config' | 'logs'>('metrics')
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
   // Fetch training job details
@@ -656,6 +657,17 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                   검증 메트릭
                 </button>
                 <button
+                  onClick={() => setActiveTab('test_inference')}
+                  className={cn(
+                    'px-1 py-4 text-sm font-medium border-b-2 transition-colors',
+                    activeTab === 'test_inference'
+                      ? 'border-violet-600 text-violet-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  )}
+                >
+                  테스트/추론
+                </button>
+                <button
                   onClick={() => setActiveTab('config')}
                   className={cn(
                     'px-1 py-4 text-sm font-medium border-b-2 transition-colors',
@@ -808,6 +820,11 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                     </div>
                   )}
                 </>
+              )}
+
+              {/* Test/Inference Tab */}
+              {activeTab === 'test_inference' && (
+                <TestInferencePanel jobId={job.id} />
               )}
 
               {/* Config Tab */}
