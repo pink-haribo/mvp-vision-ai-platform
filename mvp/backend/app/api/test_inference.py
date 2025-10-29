@@ -763,6 +763,8 @@ async def quick_inference(
     This endpoint is optimized for UI interactions - runs inference immediately
     and returns results without creating database records.
 
+    Uses subprocess to run inference in the training venv (which has torch).
+
     Args:
         training_job_id: Training job ID
         checkpoint_path: Path to checkpoint file
@@ -776,6 +778,9 @@ async def quick_inference(
     Returns:
         Inference result with predictions
     """
+    import subprocess
+    import sys
+
     # Get training job
     job = db.query(models.TrainingJob).filter(
         models.TrainingJob.id == training_job_id
@@ -784,66 +789,78 @@ async def quick_inference(
     if not job:
         raise HTTPException(status_code=404, detail=f"Training job {training_job_id} not found")
 
-    # Lazy import to avoid torch dependency at startup
-    from training.adapters.base import TaskType
-
     try:
-        # Create adapter
-        runner = InferenceRunner(db)
-        adapter = runner._create_adapter(job, job.dataset_path)
+        # Path to training venv python
+        backend_dir = Path(__file__).parent.parent.parent
+        project_root = backend_dir.parent
+        training_venv_python = project_root / "training" / "venv" / "Scripts" / "python.exe"
+        inference_script = project_root / "training" / "run_quick_inference.py"
 
-        if not adapter:
+        if not training_venv_python.exists():
             raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported framework: {job.framework}"
+                status_code=500,
+                detail=f"Training venv not found at {training_venv_python}"
             )
 
-        # Load checkpoint
-        adapter.load_checkpoint(
-            checkpoint_path=checkpoint_path,
-            inference_mode=True
+        if not inference_script.exists():
+            raise HTTPException(
+                status_code=500,
+                detail=f"Inference script not found at {inference_script}"
+            )
+
+        # Build command
+        cmd = [
+            str(training_venv_python),
+            str(inference_script),
+            "--training_job_id", str(training_job_id),
+            "--checkpoint_path", checkpoint_path,
+            "--image_path", image_path,
+            "--framework", job.framework,
+            "--model_name", job.model_name,
+            "--task_type", job.task_type,
+            "--num_classes", str(job.num_classes or 0),
+            "--dataset_path", job.dataset_path or "",
+            "--output_dir", job.output_dir or "",
+            "--confidence_threshold", str(confidence_threshold),
+            "--iou_threshold", str(iou_threshold),
+            "--max_detections", str(max_detections),
+            "--top_k", str(top_k)
+        ]
+
+        # Run inference subprocess
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30  # 30 second timeout
         )
 
-        # Run inference on single image
-        results = adapter.infer_batch([image_path])
+        if result.returncode != 0:
+            error_msg = result.stderr or "Inference subprocess failed"
+            print(f"[ERROR] Inference subprocess failed: {error_msg}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Inference failed: {error_msg}"
+            )
 
-        if not results or len(results) == 0:
-            raise HTTPException(status_code=500, detail="Inference failed")
+        # Parse JSON output
+        try:
+            result_dict = json.loads(result.stdout)
+            return result_dict
+        except json.JSONDecodeError as e:
+            print(f"[ERROR] Failed to parse inference output: {result.stdout}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to parse inference output: {str(e)}"
+            )
 
-        result = results[0]
-
-        # Convert result to dict
-        result_dict = {
-            "image_path": result.image_path,
-            "image_name": result.image_name,
-            "task_type": result.task_type.value if hasattr(result.task_type, 'value') else str(result.task_type),
-            "inference_time_ms": result.inference_time_ms,
-            "preprocessing_time_ms": result.preprocessing_time_ms,
-            "postprocessing_time_ms": result.postprocessing_time_ms,
-        }
-
-        # Add task-specific results
-        if result.task_type == TaskType.IMAGE_CLASSIFICATION:
-            result_dict["predicted_label"] = result.predicted_label
-            result_dict["predicted_label_id"] = result.predicted_label_id
-            result_dict["confidence"] = result.confidence
-            result_dict["top5_predictions"] = result.top5_predictions or []
-
-        elif result.task_type == TaskType.OBJECT_DETECTION:
-            result_dict["predicted_boxes"] = result.predicted_boxes or []
-            result_dict["num_detections"] = len(result.predicted_boxes) if result.predicted_boxes else 0
-
-        elif result.task_type in [TaskType.INSTANCE_SEGMENTATION, TaskType.SEMANTIC_SEGMENTATION]:
-            result_dict["predicted_boxes"] = result.predicted_boxes or []
-            result_dict["predicted_mask_path"] = result.predicted_mask_path
-            result_dict["num_instances"] = len(result.predicted_boxes) if result.predicted_boxes else 0
-
-        elif result.task_type == TaskType.POSE_ESTIMATION:
-            result_dict["predicted_keypoints"] = result.predicted_keypoints or []
-            result_dict["num_persons"] = len(result.predicted_keypoints) if result.predicted_keypoints else 0
-
-        return result_dict
-
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=500,
+            detail="Inference timeout (30s)"
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         print(f"[ERROR] Quick inference failed: {e}")
