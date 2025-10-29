@@ -74,9 +74,10 @@ export default function MLflowMetricsCharts({
 
   if (!metricsData || !metricsData.found) {
     return (
-      <div className="p-6 bg-amber-50 rounded-lg border border-amber-200 text-center">
-        <p className="text-sm text-amber-800">
-          MLflow 데이터를 찾을 수 없습니다. 학습이 시작되면 표시됩니다.
+      <div className="p-6 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-400 mb-3"></div>
+        <p className="text-xs text-gray-400">
+          1에폭 완료 후 표시됩니다.
         </p>
       </div>
     );

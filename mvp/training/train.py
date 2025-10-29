@@ -24,9 +24,8 @@ from adapters.timm_adapter import TimmAdapter
 from adapters.ultralytics_adapter import UltralyticsAdapter
 
 # Configure MLflow tracking URI
-# Use file:// protocol for Windows paths to avoid URI parsing errors
-mlflow_dir = Path(__file__).parent.parent.parent / "runs" / "mlflow"
-os.environ.setdefault("MLFLOW_TRACKING_URI", f"file:///{mlflow_dir.as_posix()}")
+# Use MLflow server instead of local file storage
+os.environ.setdefault("MLFLOW_TRACKING_URI", "http://localhost:5000")
 os.environ.setdefault("MLFLOW_S3_ENDPOINT_URL", "http://localhost:9000")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "minioadmin")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "minioadmin")

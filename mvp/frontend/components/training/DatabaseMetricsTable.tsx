@@ -110,9 +110,10 @@ export default function DatabaseMetricsTable({
   if (!metrics || metrics.length === 0) {
     console.log('[DatabaseMetricsTable] No metrics, showing empty state');
     return (
-      <div className="p-6 bg-amber-50 rounded-lg border border-amber-200 text-center">
-        <p className="text-sm text-amber-800">
-          학습 데이터가 없습니다.
+      <div className="p-6 bg-white rounded-lg border border-gray-200 flex flex-col items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-400 mb-3"></div>
+        <p className="text-xs text-gray-400">
+          1에폭 완료 후 표시됩니다.
         </p>
       </div>
     );

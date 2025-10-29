@@ -55,6 +55,8 @@ export default function TrainingConfigPanel({
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [datasetInfo, setDatasetInfo] = useState<any | null>(null)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
+  const [availableDatasets, setAvailableDatasets] = useState<any[]>([])
+  const [isLoadingDatasets, setIsLoadingDatasets] = useState(false)
 
   // Step 3: Hyperparameters
   const [epochs, setEpochs] = useState(initialConfig?.epochs || 50)
@@ -69,40 +71,61 @@ export default function TrainingConfigPanel({
   const [advancedConfig, setAdvancedConfig] = useState<any>(null)
   const [showAdvancedConfig, setShowAdvancedConfig] = useState(false)
 
-  // Framework options
-  const frameworks = [
-    { value: 'timm', label: 'timm (PyTorch Image Models)' },
-    { value: 'ultralytics', label: 'Ultralytics YOLO' },
+  // All available frameworks with their supported tasks
+  const allFrameworks = [
+    { value: 'timm', label: 'timm (PyTorch Image Models)', supportedTasks: ['image_classification'] },
+    { value: 'ultralytics', label: 'Ultralytics YOLO', supportedTasks: ['object_detection', 'instance_segmentation', 'pose_estimation', 'image_classification'] },
   ]
 
-  // Model options based on framework
+  // All available models with their framework and supported tasks
+  const allModels = [
+    // timm models
+    { value: 'resnet18', label: 'ResNet-18', framework: 'timm', supportedTasks: ['image_classification'] },
+    { value: 'resnet50', label: 'ResNet-50', framework: 'timm', supportedTasks: ['image_classification'] },
+    { value: 'efficientnet_b0', label: 'EfficientNet-B0', framework: 'timm', supportedTasks: ['image_classification'] },
+    // Ultralytics models
+    {
+      value: 'yolov8n',
+      label: 'YOLOv8n (Nano)',
+      framework: 'ultralytics',
+      supportedTasks: ['object_detection', 'instance_segmentation', 'pose_estimation', 'image_classification']
+    },
+    {
+      value: 'yolov8s',
+      label: 'YOLOv8s (Small)',
+      framework: 'ultralytics',
+      supportedTasks: ['object_detection', 'instance_segmentation', 'pose_estimation', 'image_classification']
+    },
+    {
+      value: 'yolov8m',
+      label: 'YOLOv8m (Medium)',
+      framework: 'ultralytics',
+      supportedTasks: ['object_detection', 'instance_segmentation', 'pose_estimation', 'image_classification']
+    },
+  ]
+
+  // Get frameworks that support the selected task type
+  const getFrameworkOptions = () => {
+    if (!taskType) return allFrameworks
+
+    return allFrameworks.filter(fw =>
+      fw.supportedTasks.includes(taskType)
+    )
+  }
+
+  // Get models that support both the selected task type and framework
   const getModelOptions = () => {
-    if (framework === 'timm') {
-      return [
-        { value: 'resnet18', label: 'ResNet-18', supportedTasks: ['image_classification'] },
-        { value: 'resnet50', label: 'ResNet-50', supportedTasks: ['image_classification'] },
-        { value: 'efficientnet_b0', label: 'EfficientNet-B0', supportedTasks: ['image_classification'] },
-      ]
-    } else if (framework === 'ultralytics') {
-      return [
-        {
-          value: 'yolov8n',
-          label: 'YOLOv8n (Nano)',
-          supportedTasks: ['object_detection', 'instance_segmentation', 'pose_estimation', 'image_classification']
-        },
-        {
-          value: 'yolov8s',
-          label: 'YOLOv8s (Small)',
-          supportedTasks: ['object_detection', 'instance_segmentation', 'pose_estimation', 'image_classification']
-        },
-        {
-          value: 'yolov8m',
-          label: 'YOLOv8m (Medium)',
-          supportedTasks: ['object_detection', 'instance_segmentation', 'pose_estimation', 'image_classification']
-        },
-      ]
+    if (!taskType) return []
+
+    let models = allModels.filter(model =>
+      model.supportedTasks.includes(taskType)
+    )
+
+    if (framework) {
+      models = models.filter(model => model.framework === framework)
     }
-    return []
+
+    return models
   }
 
   // All task types
@@ -113,18 +136,6 @@ export default function TrainingConfigPanel({
     { value: 'instance_segmentation', label: '인스턴스 분할 (Instance Segmentation)' },
     { value: 'pose_estimation', label: '포즈 추정 (Pose Estimation)' },
   ]
-
-  // Get supported task types for current model
-  const getSupportedTaskTypes = () => {
-    const models = getModelOptions()
-    const currentModel = models.find(m => m.value === modelName)
-
-    if (!currentModel) return allTaskTypes
-
-    return allTaskTypes.filter(task =>
-      currentModel.supportedTasks.includes(task.value)
-    )
-  }
 
   // Dataset format options
   const datasetFormats = [
@@ -168,25 +179,32 @@ export default function TrainingConfigPanel({
     return metricsByTask[taskType] || metricsByTask['image_classification']
   }
 
+  // Update framework and model when task type changes
+  useEffect(() => {
+    const frameworks = getFrameworkOptions()
+
+    // If current framework doesn't support the task type, change it
+    if (frameworks.length > 0 && !frameworks.find(fw => fw.value === framework)) {
+      setFramework(frameworks[0].value)
+    }
+
+    const models = getModelOptions()
+
+    // If current model doesn't support the task type, change it
+    if (models.length > 0 && !models.find(m => m.value === modelName)) {
+      setModelName(models[0].value)
+    }
+  }, [taskType])
+
   // Update model when framework changes
   useEffect(() => {
     const models = getModelOptions()
+
+    // If current model is not in the filtered list, change it
     if (models.length > 0 && !models.find(m => m.value === modelName)) {
       setModelName(models[0].value)
     }
   }, [framework])
-
-  // Update task type when model changes (auto-select if only one supported)
-  useEffect(() => {
-    const supportedTasks = getSupportedTaskTypes()
-
-    // If current task type is not supported by the model, change it
-    if (!supportedTasks.find(t => t.value === taskType)) {
-      if (supportedTasks.length > 0) {
-        setTaskType(supportedTasks[0].value)
-      }
-    }
-  }, [modelName, framework])
 
   // Update primary metric when task type changes
   useEffect(() => {
@@ -203,41 +221,23 @@ export default function TrainingConfigPanel({
     }
   }, [taskType])
 
-  // Folder selection handler using File System Access API
-  const handleBrowseFolder = async () => {
+  // Fetch available datasets on mount
+  useEffect(() => {
+    fetchAvailableDatasets()
+  }, [])
+
+  const fetchAvailableDatasets = async () => {
+    setIsLoadingDatasets(true)
     try {
-      // Check if File System Access API is supported
-      if ('showDirectoryPicker' in window) {
-        // @ts-ignore - showDirectoryPicker is not in TypeScript types yet
-        const dirHandle = await window.showDirectoryPicker()
-
-        // Note: For security, browsers don't expose absolute paths
-        // We can only get the folder name
-        // User will need to provide the full path or use a known location
-        const folderName = dirHandle.name
-
-        // Show dialog asking user to provide full path
-        const fullPath = prompt(
-          `선택한 폴더: "${folderName}"\n\n전체 경로를 입력하세요 (예: C:\\datasets\\${folderName}):`,
-          datasetPath || `C:\\datasets\\${folderName}`
-        )
-
-        if (fullPath) {
-          setDatasetPath(fullPath)
-          setDatasetInfo(null)
-          setAnalysisError(null)
-        }
-      } else {
-        // Fallback: show instruction
-        alert(
-          '폴더 선택 기능을 지원하지 않는 브라우저입니다.\n\n' +
-          '데이터셋 폴더의 전체 경로를 직접 입력해주세요.\n' +
-          '(Windows: C:\\datasets\\..., Linux/Mac: /home/user/datasets/...)'
-        )
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/datasets/list`)
+      if (response.ok) {
+        const data = await response.json()
+        setAvailableDatasets(data.datasets || [])
       }
     } catch (error) {
-      // User cancelled or error occurred
-      console.log('Folder selection cancelled or failed:', error)
+      console.error('Failed to fetch datasets:', error)
+    } finally {
+      setIsLoadingDatasets(false)
     }
   }
 
@@ -413,7 +413,7 @@ export default function TrainingConfigPanel({
                 {initialConfig ? '설정 복사하여 새 학습' : '새 학습 시작'}
               </h2>
               <p className="text-sm text-gray-600 mt-1">
-                {step === 1 && '모델과 작업 유형을 선택하세요'}
+                {step === 1 && '작업 유형과 모델을 선택하세요'}
                 {step === 2 && '데이터셋 경로를 지정하세요'}
                 {step === 3 && '학습 하이퍼파라미터를 설정하세요'}
               </p>
@@ -447,6 +447,30 @@ export default function TrainingConfigPanel({
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
+                  작업 유형 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={taskType}
+                  onChange={(e) => setTaskType(e.target.value)}
+                  className={cn(
+                    'w-full px-4 py-2.5 border border-gray-300 rounded-lg',
+                    'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
+                    'text-sm bg-white'
+                  )}
+                >
+                  {allTaskTypes.map((type) => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  먼저 수행할 작업 유형을 선택하세요
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   프레임워크 <span className="text-red-500">*</span>
                 </label>
                 <select
@@ -458,12 +482,15 @@ export default function TrainingConfigPanel({
                     'text-sm bg-white'
                   )}
                 >
-                  {frameworks.map((fw) => (
+                  {getFrameworkOptions().map((fw) => (
                     <option key={fw.value} value={fw.value}>
                       {fw.label}
                     </option>
                   ))}
                 </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  선택한 작업 유형을 지원하는 프레임워크만 표시됩니다
+                </p>
               </div>
 
               <div>
@@ -485,29 +512,8 @@ export default function TrainingConfigPanel({
                     </option>
                   ))}
                 </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  작업 유형 <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={taskType}
-                  onChange={(e) => setTaskType(e.target.value)}
-                  className={cn(
-                    'w-full px-4 py-2.5 border border-gray-300 rounded-lg',
-                    'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
-                    'text-sm bg-white'
-                  )}
-                >
-                  {getSupportedTaskTypes().map((type) => (
-                    <option key={type.value} value={type.value}>
-                      {type.label}
-                    </option>
-                  ))}
-                </select>
                 <p className="text-xs text-gray-500 mt-1">
-                  선택한 모델이 지원하는 작업 유형만 표시됩니다
+                  선택한 작업 유형과 프레임워크를 지원하는 모델만 표시됩니다
                 </p>
               </div>
             </div>
@@ -537,16 +543,6 @@ export default function TrainingConfigPanel({
                     )}
                   />
                   <button
-                    onClick={handleBrowseFolder}
-                    className={cn(
-                      'px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg',
-                      'hover:bg-gray-200 transition-colors',
-                      'text-sm font-medium whitespace-nowrap border border-gray-300'
-                    )}
-                  >
-                    📁 찾아보기
-                  </button>
-                  <button
                     onClick={handleAnalyzeDataset}
                     disabled={isAnalyzing || !datasetPath.trim()}
                     className={cn(
@@ -560,8 +556,60 @@ export default function TrainingConfigPanel({
                   </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  절대 경로를 입력하거나 📁 찾아보기 버튼으로 폴더를 선택하세요
+                  절대 경로를 입력하거나 아래 목록에서 데이터셋을 선택하세요
                 </p>
+              </div>
+
+              {/* Available Datasets List */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  사용 가능한 데이터셋
+                </label>
+                {isLoadingDatasets ? (
+                  <div className="p-4 bg-gray-50 rounded-lg text-center">
+                    <p className="text-sm text-gray-500">데이터셋 목록을 불러오는 중...</p>
+                  </div>
+                ) : availableDatasets.length === 0 ? (
+                  <div className="p-4 bg-gray-50 rounded-lg text-center">
+                    <p className="text-sm text-gray-500">사용 가능한 데이터셋이 없습니다</p>
+                    <p className="text-xs text-gray-400 mt-1">C:\datasets 폴더에 데이터셋을 추가하세요</p>
+                  </div>
+                ) : (
+                  <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
+                    {availableDatasets.map((dataset) => (
+                      <button
+                        key={dataset.path}
+                        onClick={() => {
+                          setDatasetPath(dataset.path)
+                          setDatasetInfo(null)
+                          setAnalysisError(null)
+                        }}
+                        className={cn(
+                          'w-full px-4 py-3 text-left border-b border-gray-100 last:border-b-0',
+                          'hover:bg-gray-50 transition-colors',
+                          datasetPath === dataset.path && 'bg-violet-50 hover:bg-violet-100'
+                        )}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {dataset.name}
+                            </p>
+                            <p className="text-xs text-gray-500 truncate">{dataset.path}</p>
+                          </div>
+                          <div className="ml-4 flex-shrink-0 text-xs text-gray-400">
+                            {dataset.num_items && (
+                              <span className="mr-2">{dataset.num_items.toLocaleString()} images</span>
+                            )}
+                            {dataset.size_mb && (
+                              <span>{dataset.size_mb.toFixed(1)} MB</span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Analysis Error */}

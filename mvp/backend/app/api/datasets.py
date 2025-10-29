@@ -1,11 +1,12 @@
 """
 Datasets API endpoints for dataset analysis and management.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 import logging
+import os
 
 from app.utils.dataset_analyzer import DatasetAnalyzer
 
@@ -131,3 +132,111 @@ async def analyze_dataset(request: DatasetAnalyzeRequest):
                 "일부 파일이 손상되었을 수 있습니다"
             ]
         )
+
+
+class DatasetListItem(BaseModel):
+    """Dataset list item"""
+    name: str
+    path: str
+    size_mb: Optional[float] = None
+    num_items: Optional[int] = None
+
+
+class DatasetListResponse(BaseModel):
+    """Response model for dataset list"""
+    base_path: str
+    datasets: List[DatasetListItem]
+
+
+@router.get("/list", response_model=DatasetListResponse)
+async def list_datasets(
+    base_path: str = Query(default="C:\\datasets", description="Base directory to scan for datasets")
+):
+    """
+    List available datasets in the specified base directory.
+
+    Scans for subdirectories that appear to be datasets based on their structure.
+    """
+    try:
+        base = Path(base_path)
+
+        if not base.exists():
+            # Try common dataset locations
+            alternative_paths = [
+                Path("C:\\datasets"),
+                Path("D:\\datasets"),
+                Path.home() / "datasets",
+                Path.cwd() / "datasets"
+            ]
+
+            for alt_path in alternative_paths:
+                if alt_path.exists():
+                    base = alt_path
+                    break
+            else:
+                # None found, return empty list
+                return DatasetListResponse(
+                    base_path=str(base),
+                    datasets=[]
+                )
+
+        if not base.is_dir():
+            return DatasetListResponse(
+                base_path=str(base),
+                datasets=[]
+            )
+
+        datasets = []
+
+        # Scan subdirectories
+        try:
+            for item in base.iterdir():
+                if not item.is_dir():
+                    continue
+
+                # Skip hidden directories
+                if item.name.startswith('.'):
+                    continue
+
+                # Calculate directory size and item count
+                size_bytes = 0
+                num_items = 0
+
+                try:
+                    for root, dirs, files in os.walk(item):
+                        # Count image files
+                        image_files = [f for f in files if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff'))]
+                        num_items += len(image_files)
+
+                        # Calculate size
+                        for file in files:
+                            try:
+                                size_bytes += os.path.getsize(os.path.join(root, file))
+                            except:
+                                pass
+                except:
+                    pass
+
+                size_mb = round(size_bytes / (1024 * 1024), 2) if size_bytes > 0 else None
+
+                datasets.append(DatasetListItem(
+                    name=item.name,
+                    path=str(item),
+                    size_mb=size_mb,
+                    num_items=num_items if num_items > 0 else None
+                ))
+
+        except PermissionError:
+            logger.warning(f"Permission denied accessing {base}")
+
+        # Sort by name
+        datasets.sort(key=lambda x: x.name.lower())
+
+        return DatasetListResponse(
+            base_path=str(base),
+            datasets=datasets
+        )
+
+    except Exception as e:
+        logger.error(f"Error listing datasets: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list datasets: {str(e)}")

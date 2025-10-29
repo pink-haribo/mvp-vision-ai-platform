@@ -69,6 +69,9 @@ mvp/data/models/
 mvp/data/logs/
 mvp/data/db/
 
+# Training outputs
+mvp/backend/mvp/
+
 # Node.js / Frontend
 node_modules/
 .next/

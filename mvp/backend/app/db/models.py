@@ -159,6 +159,7 @@ class TrainingJob(Base):
     project = relationship("Project", back_populates="experiments")
     metrics = relationship("TrainingMetric", back_populates="job", cascade="all, delete-orphan")
     logs = relationship("TrainingLog", back_populates="job", cascade="all, delete-orphan")
+    validation_results = relationship("ValidationResult", back_populates="job", cascade="all, delete-orphan")
 
 
 class TrainingMetric(Base):
@@ -197,3 +198,99 @@ class TrainingLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     job = relationship("TrainingJob", back_populates="logs")
+
+
+class ValidationResult(Base):
+    """Task-agnostic validation result model.
+
+    Stores validation metrics for any computer vision task (classification,
+    detection, segmentation, pose estimation, etc.) using flexible JSON fields.
+    """
+
+    __tablename__ = "validation_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(Integer, ForeignKey("training_jobs.id"), nullable=False, index=True)
+    epoch = Column(Integer, nullable=False, index=True)
+
+    # Task identification
+    task_type = Column(String(50), nullable=False, index=True)
+
+    # Primary metric (task-specific)
+    primary_metric_value = Column(Float, nullable=True)
+    primary_metric_name = Column(String(100), nullable=True)
+    overall_loss = Column(Float, nullable=True)
+
+    # Task-specific metrics stored as JSON
+    metrics = Column(JSON, nullable=True)  # Overall metrics dict
+    per_class_metrics = Column(JSON, nullable=True)  # Per-class/category metrics
+
+    # Visualization data (task-specific)
+    confusion_matrix = Column(JSON, nullable=True)  # Classification
+    pr_curves = Column(JSON, nullable=True)  # Detection, Segmentation
+    class_names = Column(JSON, nullable=True)  # Class/category labels
+    visualization_data = Column(JSON, nullable=True)  # Additional viz data
+
+    # Sample images for UI display
+    sample_correct_images = Column(JSON, nullable=True)
+    sample_incorrect_images = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    job = relationship("TrainingJob", back_populates="validation_results")
+    image_results = relationship("ValidationImageResult", back_populates="validation_result", cascade="all, delete-orphan")
+
+
+class ValidationImageResult(Base):
+    """Task-agnostic image-level validation result model.
+
+    Stores per-image validation results with fields supporting all task types.
+    Only relevant fields are populated based on task_type.
+    """
+
+    __tablename__ = "validation_image_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    validation_result_id = Column(Integer, ForeignKey("validation_results.id"), nullable=False, index=True)
+    job_id = Column(Integer, ForeignKey("training_jobs.id"), nullable=False, index=True)
+    epoch = Column(Integer, nullable=False, index=True)
+
+    # Image information
+    image_path = Column(String(500), nullable=True)  # Made nullable - path may not be available during training
+    image_name = Column(String(200), nullable=False, index=True)
+    image_index = Column(Integer, nullable=True)
+
+    # Classification fields
+    true_label = Column(String(100), nullable=True)
+    true_label_id = Column(Integer, nullable=True)
+    predicted_label = Column(String(100), nullable=True)
+    predicted_label_id = Column(Integer, nullable=True)
+    confidence = Column(Float, nullable=True)
+    top5_predictions = Column(JSON, nullable=True)  # List of (label, confidence)
+
+    # Object Detection fields
+    true_boxes = Column(JSON, nullable=True)  # List of ground truth bounding boxes
+    predicted_boxes = Column(JSON, nullable=True)  # List of predicted bounding boxes
+
+    # Segmentation fields
+    true_mask_path = Column(String(500), nullable=True)
+    predicted_mask_path = Column(String(500), nullable=True)
+
+    # Pose Estimation fields
+    true_keypoints = Column(JSON, nullable=True)  # Ground truth keypoints
+    predicted_keypoints = Column(JSON, nullable=True)  # Predicted keypoints
+
+    # Common metrics
+    is_correct = Column(Boolean, nullable=False, default=False, index=True)
+    iou = Column(Float, nullable=True)  # IoU for detection/segmentation
+    oks = Column(Float, nullable=True)  # Object Keypoint Similarity for pose
+
+    # Extra data for task-specific needs
+    extra_data = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    validation_result = relationship("ValidationResult", back_populates="image_results")
+    job = relationship("TrainingJob")

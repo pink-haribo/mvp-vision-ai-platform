@@ -521,29 +521,137 @@ class TimmAdapter(TrainingAdapter):
         )
 
     def validate(self, epoch: int) -> MetricsResult:
-        """Run validation."""
+        """Run validation with comprehensive metrics calculation."""
+        import numpy as np
+        from validators import ValidationMetricsCalculator, TaskType as ValidatorTaskType
+
         self.model.eval()
         running_loss = 0.0
-        correct = 0
-        total = 0
+
+        # Collect all predictions and labels for comprehensive metrics
+        all_predictions = []
+        all_labels = []
+        all_probabilities = []
+
+        # Collect per-image results for database storage
+        image_results = []
+        image_index = 0
+
+        # Get image paths if available from dataset
+        image_paths = None
+        dataset = self.val_loader.dataset
+        if hasattr(dataset, 'samples'):
+            # ImageFolder or similar - samples is list of (path, label)
+            image_paths = [path for path, _ in dataset.samples]
+            print(f"[Validation] Found {len(image_paths)} image paths from dataset.samples")
+        elif hasattr(dataset, 'imgs'):
+            # Some datasets use imgs instead of samples
+            image_paths = [path for path, _ in dataset.imgs]
+            print(f"[Validation] Found {len(image_paths)} image paths from dataset.imgs")
+        elif hasattr(dataset, 'dataset'):
+            # Subset wrapper - check underlying dataset
+            underlying = dataset.dataset
+            if hasattr(underlying, 'samples'):
+                image_paths = [underlying.samples[i][0] for i in dataset.indices]
+                print(f"[Validation] Found {len(image_paths)} image paths from Subset.dataset.samples")
+            elif hasattr(underlying, 'imgs'):
+                image_paths = [underlying.imgs[i][0] for i in dataset.indices]
+                print(f"[Validation] Found {len(image_paths)} image paths from Subset.dataset.imgs")
+
+        if not image_paths:
+            print(f"[Validation] WARNING: Could not extract image paths from dataset, will use placeholders")
 
         with torch.no_grad():
             pbar = tqdm(self.val_loader, desc=f"Epoch {epoch + 1} [Val]")
-            for inputs, targets in pbar:
+            for batch_idx, (inputs, targets) in enumerate(pbar):
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
 
                 # Forward pass
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, targets)
-
-                # Calculate accuracy
-                _, predicted = outputs.max(1)
-                total += targets.size(0)
-                correct += predicted.eq(targets).sum().item()
                 running_loss += loss.item()
 
+                # Get predictions and probabilities
+                probabilities = torch.softmax(outputs, dim=1)
+                _, predicted = outputs.max(1)
+
+                # Collect for metrics calculation
+                all_predictions.extend(predicted.cpu().numpy())
+                all_labels.extend(targets.cpu().numpy())
+                all_probabilities.append(probabilities.cpu().numpy())
+
+                # Collect per-image results
+                batch_probs = probabilities.cpu().numpy()
+                batch_preds = predicted.cpu().numpy()
+                batch_labels = targets.cpu().numpy()
+
+                for i in range(len(targets)):
+                    # Get actual image path and name if available
+                    image_path = None
+                    image_name = f'image_{image_index}'
+
+                    if image_paths and image_index < len(image_paths):
+                        from pathlib import Path
+                        full_path = image_paths[image_index]
+                        image_path = full_path
+                        image_name = Path(full_path).name
+
+                    # Get top-5 predictions with confidence scores
+                    top5_indices = batch_probs[i].argsort()[-5:][::-1]  # Top 5 class indices
+                    top5_predictions = [
+                        {
+                            'label_id': int(idx),
+                            'confidence': float(batch_probs[i][idx])
+                        }
+                        for idx in top5_indices
+                    ]
+
+                    image_results.append({
+                        'image_index': image_index,
+                        'image_name': image_name,
+                        'image_path': image_path,
+                        'true_label_id': int(batch_labels[i]),
+                        'predicted_label_id': int(batch_preds[i]),
+                        'confidence': float(batch_probs[i][batch_preds[i]]),
+                        'top5_predictions': top5_predictions,
+                        'is_correct': batch_preds[i] == batch_labels[i]
+                    })
+                    image_index += 1
+
+        # Convert to numpy arrays
+        all_predictions = np.array(all_predictions)
+        all_labels = np.array(all_labels)
+        all_probabilities = np.vstack(all_probabilities)
+
         avg_loss = running_loss / len(self.val_loader)
-        accuracy = 100. * correct / total
+
+        # Get class names from dataset if available
+        class_names = None
+        if hasattr(self.val_loader.dataset, 'classes'):
+            class_names = self.val_loader.dataset.classes
+        elif hasattr(self.val_loader.dataset, 'dataset') and hasattr(self.val_loader.dataset.dataset, 'classes'):
+            class_names = self.val_loader.dataset.dataset.classes
+
+        # Compute comprehensive validation metrics using ValidationMetricsCalculator
+        validation_metrics = ValidationMetricsCalculator.compute_metrics(
+            task_type=ValidatorTaskType.CLASSIFICATION,
+            predictions=all_predictions,
+            labels=all_labels,
+            class_names=class_names,
+            loss=avg_loss,
+            probabilities=all_probabilities
+        )
+
+        # Save validation result to database
+        validation_result_id = self._save_validation_result(epoch, validation_metrics)
+
+        # Save per-image results to database
+        if validation_result_id:
+            self._save_validation_image_results(validation_result_id, epoch, image_results, class_names)
+
+        # Extract metrics for return
+        clf_metrics = validation_metrics.classification
+        accuracy = clf_metrics.accuracy * 100.0  # Convert to percentage for consistency
 
         # Update scheduler if it exists
         if self.scheduler:
@@ -564,14 +672,23 @@ class TimmAdapter(TrainingAdapter):
         if accuracy > self.best_val_acc:
             self.best_val_acc = accuracy
 
+        # Build metrics dict for return
+        metrics_dict = {
+            'val_accuracy': accuracy,
+            'val_precision': clf_metrics.precision * 100.0,
+            'val_recall': clf_metrics.recall * 100.0,
+            'val_f1_score': clf_metrics.f1_score * 100.0,
+            'best_val_accuracy': self.best_val_acc,
+        }
+
+        if clf_metrics.top5_accuracy is not None:
+            metrics_dict['val_top5_accuracy'] = clf_metrics.top5_accuracy * 100.0
+
         return MetricsResult(
             epoch=epoch,
             step=epoch * len(self.val_loader),
             train_loss=avg_loss,  # Using train_loss field for val_loss
-            metrics={
-                'val_accuracy': accuracy,
-                'best_val_accuracy': self.best_val_acc,
-            }
+            metrics=metrics_dict
         )
 
     def save_checkpoint(self, epoch: int, metrics: MetricsResult) -> str:

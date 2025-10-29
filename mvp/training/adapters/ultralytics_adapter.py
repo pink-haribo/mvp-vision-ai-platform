@@ -3,6 +3,7 @@
 import os
 import sys
 import yaml
+from pathlib import Path
 from typing import List, Dict, Any, Tuple
 from .base import TrainingAdapter, MetricsResult, TaskType, DatasetFormat, ConfigSchema, ConfigField
 
@@ -671,6 +672,13 @@ class UltralyticsAdapter(TrainingAdapter):
             checkpoint_path: Path to checkpoint file (for resume training)
             resume_training: Whether this is a resumed training session
         """
+        # Clear previous validation results if this is a new training (not resume)
+        if not resume_training:
+            print("[YOLO] Clearing previous validation results (new training)...")
+            self._clear_validation_results()
+            print("[YOLO] Previous validation results cleared")
+            sys.stdout.flush()
+
         try:
             print("\n[YOLO] Preparing model...")
             self.prepare_model()
@@ -842,6 +850,243 @@ class UltralyticsAdapter(TrainingAdapter):
                 sys.stdout.flush()
                 callbacks.on_epoch_end(epoch_num, metrics_dict, checkpoint_path)
 
+                # Save validation results to database
+                if hasattr(trainer, 'metrics') and trainer.metrics:
+                    try:
+                        # Add parent directory to sys.path for imports
+                        from pathlib import Path
+                        training_dir = Path(__file__).parent.parent
+                        if str(training_dir) not in sys.path:
+                            sys.path.insert(0, str(training_dir))
+
+                        from validators.metrics import ValidationMetricsCalculator, TaskType
+
+                        # Extract validation metrics
+                        map_50 = metrics_dict.get('mAP50', 0.0)
+                        map_50_95 = metrics_dict.get('mAP50-95', 0.0)
+                        precision = metrics_dict.get('precision', 0.0)
+                        recall = metrics_dict.get('recall', 0.0)
+
+                        # Extract per-class metrics from YOLO trainer
+                        per_class_metrics = None
+                        class_names = None
+                        pr_curve_path = None
+
+                        if hasattr(trainer, 'validator') and trainer.validator is not None:
+                            validator = trainer.validator
+
+                            # Get class names from validator
+                            if hasattr(validator, 'names'):
+                                class_names = list(validator.names.values())
+                                print(f"[YOLO Callback] Found {len(class_names)} classes: {class_names}")
+                                sys.stdout.flush()
+
+                            # Get per-class AP from validator results
+                            if hasattr(validator, 'metrics') and validator.metrics is not None:
+                                val_metrics = validator.metrics
+
+                                # YOLO metrics structure: metrics.box.maps (per-class mAP50-95 array)
+                                if hasattr(val_metrics, 'box') and val_metrics.box is not None:
+                                    box_metrics = val_metrics.box
+
+                                    # maps: array of per-class mAP@0.5:0.95
+                                    per_class_ap50_95 = None
+                                    if hasattr(box_metrics, 'maps') and box_metrics.maps is not None:
+                                        import numpy as np
+                                        if isinstance(box_metrics.maps, np.ndarray):
+                                            per_class_ap50_95 = box_metrics.maps.tolist()
+                                        elif isinstance(box_metrics.maps, list):
+                                            per_class_ap50_95 = box_metrics.maps
+
+                                    # map50: array of per-class mAP@0.5
+                                    per_class_ap50 = None
+                                    if hasattr(box_metrics, 'ap50') and box_metrics.ap50 is not None:
+                                        import numpy as np
+                                        if isinstance(box_metrics.ap50, np.ndarray):
+                                            per_class_ap50 = box_metrics.ap50.tolist()
+                                        elif isinstance(box_metrics.ap50, list):
+                                            per_class_ap50 = box_metrics.ap50
+
+                                    # Get per-class precision and recall
+                                    per_class_precision = None
+                                    per_class_recall = None
+                                    if hasattr(box_metrics, 'p') and box_metrics.p is not None:
+                                        import numpy as np
+                                        if isinstance(box_metrics.p, np.ndarray):
+                                            per_class_precision = box_metrics.p.tolist()
+                                        elif isinstance(box_metrics.p, list):
+                                            per_class_precision = box_metrics.p
+
+                                    if hasattr(box_metrics, 'r') and box_metrics.r is not None:
+                                        import numpy as np
+                                        if isinstance(box_metrics.r, np.ndarray):
+                                            per_class_recall = box_metrics.r.tolist()
+                                        elif isinstance(box_metrics.r, list):
+                                            per_class_recall = box_metrics.r
+
+                                    # Get per-class object count (support)
+                                    per_class_count = {}
+
+                                    # Try multiple sources for ground truth counts
+                                    # 1. Try nt_per_class from box_metrics
+                                    if hasattr(box_metrics, 'nt_per_class') and box_metrics.nt_per_class is not None:
+                                        import numpy as np
+                                        nt_per_class = box_metrics.nt_per_class
+                                        print(f"[YOLO Callback DEBUG] nt_per_class type: {type(nt_per_class)}, value: {nt_per_class}")
+                                        sys.stdout.flush()
+                                        if isinstance(nt_per_class, np.ndarray) and len(nt_per_class) > 0:
+                                            for i, count in enumerate(nt_per_class):
+                                                if count > 0:
+                                                    per_class_count[i] = int(count)
+                                        elif isinstance(nt_per_class, dict):
+                                            per_class_count = {int(k): int(v) for k, v in nt_per_class.items()}
+
+                                    # 2. Try stats from validator
+                                    if not per_class_count and hasattr(validator, 'stats') and validator.stats is not None:
+                                        try:
+                                            import numpy as np
+                                            stats = validator.stats
+                                            print(f"[YOLO Callback DEBUG] validator.stats available, len: {len(stats) if hasattr(stats, '__len__') else 'N/A'}")
+                                            sys.stdout.flush()
+                                            # stats is usually a list of arrays, each containing detection info per image
+                                            # We need to count how many ground truth objects per class
+                                            if isinstance(stats, list) and len(stats) > 0:
+                                                class_gt_counts = {}
+                                                for stat in stats:
+                                                    if isinstance(stat, tuple) and len(stat) > 1:
+                                                        # stat typically contains (tp, conf, pred_cls, target_cls)
+                                                        target_cls = stat[3] if len(stat) > 3 else stat[-1]
+                                                        if isinstance(target_cls, np.ndarray):
+                                                            for cls_id in target_cls:
+                                                                cls_id = int(cls_id)
+                                                                class_gt_counts[cls_id] = class_gt_counts.get(cls_id, 0) + 1
+                                                per_class_count = class_gt_counts
+                                                print(f"[YOLO Callback] Extracted counts from validator.stats: {per_class_count}")
+                                                sys.stdout.flush()
+                                        except Exception as e:
+                                            print(f"[YOLO Callback] Failed to extract from stats: {e}")
+                                            import traceback
+                                            traceback.print_exc()
+                                            sys.stdout.flush()
+
+                                    # 3. Try confusion matrix (row sums = ground truth counts)
+                                    if not per_class_count and hasattr(validator, 'confusion_matrix') and validator.confusion_matrix is not None:
+                                        try:
+                                            import numpy as np
+                                            cm = validator.confusion_matrix
+                                            print(f"[YOLO Callback DEBUG] confusion_matrix available: {hasattr(cm, 'matrix')}")
+                                            sys.stdout.flush()
+                                            if hasattr(cm, 'matrix') and cm.matrix is not None:
+                                                matrix = cm.matrix
+                                                print(f"[YOLO Callback DEBUG] matrix shape: {matrix.shape}")
+                                                sys.stdout.flush()
+                                                if isinstance(matrix, np.ndarray) and matrix.shape[0] > 0:
+                                                    # Sum each row to get ground truth count per class
+                                                    # Row i = ground truth class i
+                                                    for i in range(min(matrix.shape[0] - 1, len(class_names) if class_names else matrix.shape[0])):
+                                                        # Exclude last column if it's background
+                                                        row_sum = int(matrix[i, :-1].sum()) if matrix.shape[1] > len(class_names) else int(matrix[i, :].sum())
+                                                        if row_sum > 0:
+                                                            per_class_count[i] = row_sum
+                                                    print(f"[YOLO Callback] Extracted counts from confusion matrix: {per_class_count}")
+                                                    sys.stdout.flush()
+                                        except Exception as e:
+                                            print(f"[YOLO Callback] Failed to extract from confusion matrix: {e}")
+                                            import traceback
+                                            traceback.print_exc()
+                                            sys.stdout.flush()
+
+                                    print(f"[YOLO Callback] Final per-class counts: {per_class_count}")
+                                    sys.stdout.flush()
+
+                                    # Build per-class metrics dict
+                                    if per_class_ap50_95 is not None and class_names is not None:
+                                        per_class_metrics = {}
+                                        for i, class_name in enumerate(class_names):
+                                            if i < len(per_class_ap50_95):
+                                                per_class_metrics[class_name] = {
+                                                    'ap_50_95': float(per_class_ap50_95[i]),
+                                                    'ap_50': float(per_class_ap50[i]) if per_class_ap50 and i < len(per_class_ap50) else 0.0,
+                                                    'precision': float(per_class_precision[i]) if per_class_precision and i < len(per_class_precision) else 0.0,
+                                                    'recall': float(per_class_recall[i]) if per_class_recall and i < len(per_class_recall) else 0.0,
+                                                    'support': per_class_count.get(i, 0),
+                                                }
+
+                                        print(f"[YOLO Callback] Extracted per-class metrics for {len(per_class_metrics)} classes")
+                                        print(f"[YOLO Callback] Per-class counts: {per_class_count}")
+                                        if per_class_precision:
+                                            print(f"[YOLO Callback] Per-class precision: {per_class_precision[:3]}...")
+                                        if per_class_recall:
+                                            print(f"[YOLO Callback] Per-class recall: {per_class_recall[:3]}...")
+                                        sys.stdout.flush()
+
+                            # Get PR curve path (YOLO saves it automatically)
+                            if hasattr(trainer, 'save_dir'):
+                                import os
+                                pr_curve_file = os.path.join(trainer.save_dir, 'PR_curve.png')
+                                if os.path.exists(pr_curve_file):
+                                    pr_curve_path = pr_curve_file
+                                    print(f"[YOLO Callback] Found PR curve: {pr_curve_path}")
+                                    sys.stdout.flush()
+
+                        # Create ValidationMetrics using calculator
+                        validation_metrics = ValidationMetricsCalculator.compute_metrics(
+                            task_type=TaskType.DETECTION,
+                            predictions=None,  # YOLO pre-computes metrics
+                            labels=None,
+                            class_names=class_names,
+                            loss=val_loss,
+                            map_50=map_50,
+                            map_50_95=map_50_95,
+                            precision=precision,
+                            recall=recall
+                        )
+
+                        # Override per_class_metrics if we extracted them
+                        if per_class_metrics:
+                            # Manually set per_class_metrics in validation_metrics
+                            if hasattr(validation_metrics, 'detection') and validation_metrics.detection:
+                                validation_metrics.detection.per_class_ap = per_class_metrics
+
+                        # Store class_names in validation_metrics for detection
+                        if class_names:
+                            validation_metrics._class_names = class_names
+
+                        # Store PR curve path
+                        if pr_curve_path:
+                            if hasattr(validation_metrics, 'detection') and validation_metrics.detection:
+                                validation_metrics.detection.pr_curves = {'image_path': pr_curve_path}
+
+                        # Save to database
+                        validation_result_id = self._save_validation_result(epoch_num, validation_metrics)
+                        print(f"[YOLO Callback] Saved validation result ID: {validation_result_id}")
+                        sys.stdout.flush()
+
+                        # Save per-image detection results with bbox info
+                        print(f"[YOLO Callback] Checking image results save: validation_result_id={validation_result_id}, has_validator={hasattr(trainer, 'validator')}, validator_not_none={trainer.validator is not None if hasattr(trainer, 'validator') else False}")
+                        sys.stdout.flush()
+
+                        if validation_result_id and hasattr(trainer, 'validator') and trainer.validator is not None:
+                            try:
+                                print(f"[YOLO Callback] Attempting to save image results...")
+                                sys.stdout.flush()
+                                self._save_yolo_image_results(validation_result_id, epoch_num, trainer.validator, class_names)
+                                print(f"[YOLO Callback] Successfully saved image results")
+                                sys.stdout.flush()
+                            except Exception as e:
+                                print(f"[YOLO Callback WARNING] Failed to save image results: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                sys.stdout.flush()
+                        else:
+                            print(f"[YOLO Callback] Skipping image results save (validation_result_id: {validation_result_id}, validator: {trainer.validator is not None if hasattr(trainer, 'validator') else 'no attr'})")
+                            sys.stdout.flush()
+                    except Exception as e:
+                        print(f"[YOLO Callback WARNING] Failed to save validation result: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        sys.stdout.flush()
+
             except Exception as e:
                 print(f"[YOLO Callback ERROR] Failed to collect metrics at epoch {trainer.epoch}: {e}")
                 import traceback
@@ -957,7 +1202,8 @@ class UltralyticsAdapter(TrainingAdapter):
             'exist_ok': True,
             'verbose': True,
             'workers': 0,  # Disable multiprocessing to avoid output issues
-            'plots': False,  # Disable plotting
+            'plots': True,  # Enable plotting for PR curves
+            'save_json': True,  # Save predictions to JSON for per-image analysis
         }
 
         adv_config = self.training_config.advanced_config
@@ -1151,8 +1397,273 @@ class UltralyticsAdapter(TrainingAdapter):
         pass
 
     def validate(self, epoch: int) -> MetricsResult:
-        """Not used - YOLO handles validation internally."""
+        """
+        Not used - YOLO handles validation internally.
+
+        TODO: Integrate validation result saving into _convert_yolo_results()
+        by calling self._save_validation_result() for each epoch.
+
+        YOLO automatically computes detection metrics (mAP, precision, recall)
+        and saves them to results.csv. We should parse those results and save
+        them to the validation_results table using ValidationMetricsCalculator
+        or by directly creating ValidationResult entries.
+
+        For now, YOLO validation metrics are only logged to TrainingMetric table
+        via callbacks in _convert_yolo_results().
+        """
         pass
+
+    def _save_yolo_image_results(self, validation_result_id: int, epoch: int, validator, class_names):
+        """
+        Save per-image detection results with bbox information.
+
+        Parses YOLO predictions.json and ground truth labels to extract bbox info
+        in a framework-independent format.
+
+        Args:
+            validation_result_id: Database ID of validation result
+            epoch: Current epoch
+            validator: YOLO validator object with results
+            class_names: List of class names
+        """
+        print(f"[YOLO] Collecting per-image detection results for epoch {epoch}...")
+        sys.stdout.flush()
+
+        try:
+            import json
+            from pathlib import Path
+            from collections import defaultdict
+
+            # Find predictions.json file
+            save_dir = Path(self.output_dir) / f'job_{self.job_id}'
+            predictions_file = save_dir / 'predictions.json'
+
+            if not predictions_file.exists():
+                print(f"[YOLO] predictions.json not found at {predictions_file}, skipping image results")
+                print(f"[YOLO] Make sure save_json=True is set in training args")
+                sys.stdout.flush()
+                return
+
+            # Load predictions
+            with open(predictions_file, 'r') as f:
+                predictions = json.load(f)
+
+            print(f"[YOLO] Loaded {len(predictions)} predictions from JSON")
+            sys.stdout.flush()
+
+            # Group predictions by image_id
+            pred_by_image = defaultdict(list)
+            for pred in predictions:
+                image_id = pred['image_id']
+                pred_by_image[image_id].append({
+                    'bbox': pred['bbox'],  # [x, y, w, h] in absolute coordinates
+                    'class_id': pred['category_id'],
+                    'confidence': pred['score']
+                })
+
+            # Get image paths from validator's dataloader
+            if not hasattr(validator, 'dataloader') or not validator.dataloader:
+                print("[YOLO] No dataloader in validator")
+                sys.stdout.flush()
+                return
+
+            dataset = validator.dataloader.dataset
+            image_paths = []
+
+            # Extract image paths
+            if hasattr(dataset, 'im_files'):
+                image_paths = dataset.im_files
+            elif hasattr(dataset, 'img_files'):
+                image_paths = dataset.img_files
+
+            if not image_paths:
+                print("[YOLO] Could not extract image paths from dataset")
+                sys.stdout.flush()
+                return
+
+            print(f"[YOLO] Found {len(image_paths)} images in validation set")
+            sys.stdout.flush()
+
+            # Collect per-image results
+            image_results = []
+            dataset_path = Path(self.dataset_config.dataset_path)
+
+            for img_idx, img_path in enumerate(image_paths):
+                img_path = Path(img_path)
+
+                # Get ground truth boxes from label file
+                # YOLO label format: class_id x_center y_center width height (normalized)
+                label_path = self._get_yolo_label_path(img_path, dataset_path)
+                true_boxes = []
+
+                if label_path and label_path.exists():
+                    with open(label_path, 'r') as f:
+                        for line in f:
+                            parts = line.strip().split()
+                            if len(parts) >= 5:
+                                class_id = int(parts[0])
+                                # Convert normalized coordinates to absolute (will be done in frontend)
+                                # Store normalized for now
+                                true_boxes.append({
+                                    'class_id': class_id,
+                                    'bbox': [float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])],
+                                    'format': 'yolo'  # x_center, y_center, width, height (normalized)
+                                })
+
+                # Get predicted boxes
+                pred_boxes = pred_by_image.get(img_idx, [])
+
+                # Only save if there are boxes (true or predicted)
+                if true_boxes or pred_boxes:
+                    image_results.append({
+                        'image_index': img_idx,
+                        'image_path': str(img_path),
+                        'image_name': img_path.name,
+                        'true_boxes': true_boxes,
+                        'predicted_boxes': pred_boxes,
+                    })
+
+            print(f"[YOLO] Collected {len(image_results)} images with detection results")
+            sys.stdout.flush()
+
+            # Save to database using base adapter method
+            if image_results:
+                self._save_detection_image_results(
+                    validation_result_id,
+                    epoch,
+                    image_results,
+                    class_names
+                )
+
+        except Exception as e:
+            print(f"[YOLO] Error collecting image results: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.stdout.flush()
+
+    def _get_yolo_label_path(self, image_path: Path, dataset_path: Path) -> Path:
+        """
+        Convert image path to corresponding label path.
+
+        YOLO structure: images/val/xxx.jpg -> labels/val/xxx.txt
+        """
+        try:
+            # Get relative path from dataset root
+            rel_path = image_path.relative_to(dataset_path)
+
+            # Replace 'images' with 'labels' and change extension
+            label_rel = str(rel_path).replace('images', 'labels').replace(image_path.suffix, '.txt')
+            label_path = dataset_path / label_rel
+
+            return label_path
+        except Exception as e:
+            print(f"[YOLO] Error getting label path for {image_path}: {e}")
+            return None
+
+    def _save_detection_image_results(self, validation_result_id: int, epoch: int,
+                                     image_results: list, class_names: list):
+        """
+        Save detection image results to database in framework-independent format.
+
+        Args:
+            validation_result_id: Validation result ID
+            epoch: Epoch number
+            image_results: List of dicts with image_path, true_boxes, predicted_boxes
+            class_names: List of class names
+        """
+        import sqlite3
+        import json
+        from pathlib import Path
+        from datetime import datetime
+
+        try:
+            # Get database path
+            training_dir = Path(__file__).parent.parent
+            mvp_dir = training_dir.parent
+            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+            if not db_path.exists():
+                print(f"[WARNING] Database not found at {db_path}")
+                return
+
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+
+            records = []
+            for img_result in image_results:
+                # Determine primary class from boxes
+                true_label_id = None
+                predicted_label_id = None
+                confidence = None
+                is_correct = False
+
+                if img_result['true_boxes']:
+                    true_label_id = img_result['true_boxes'][0]['class_id']
+
+                if img_result['predicted_boxes']:
+                    # Get highest confidence prediction
+                    best_pred = max(img_result['predicted_boxes'], key=lambda x: x['confidence'])
+                    predicted_label_id = best_pred['class_id']
+                    confidence = best_pred['confidence']
+
+                    # Simple correctness: if any true box matches any predicted class
+                    true_classes = {box['class_id'] for box in img_result['true_boxes']}
+                    pred_classes = {box['class_id'] for box in img_result['predicted_boxes']}
+                    is_correct = bool(true_classes & pred_classes)
+
+                true_label = class_names[true_label_id] if true_label_id is not None and class_names and true_label_id < len(class_names) else None
+                predicted_label = class_names[predicted_label_id] if predicted_label_id is not None and class_names and predicted_label_id < len(class_names) else None
+
+                records.append((
+                    validation_result_id,
+                    self.job_id,
+                    epoch,
+                    img_result['image_path'],
+                    img_result['image_name'],
+                    img_result['image_index'],
+                    true_label,
+                    true_label_id,
+                    predicted_label,
+                    predicted_label_id,
+                    confidence,
+                    None,  # top5_predictions (not applicable for detection)
+                    json.dumps(img_result['true_boxes']),
+                    json.dumps(img_result['predicted_boxes']),
+                    None,  # true_mask_path
+                    None,  # predicted_mask_path
+                    None,  # true_keypoints
+                    None,  # predicted_keypoints
+                    is_correct,
+                    None,  # iou (will calculate if needed)
+                    None,  # oks
+                    None,  # extra_data
+                    datetime.utcnow().isoformat()
+                ))
+
+            # Batch insert
+            cursor.executemany(
+                """
+                INSERT INTO validation_image_results
+                (validation_result_id, job_id, epoch, image_path, image_name, image_index,
+                 true_label, true_label_id, predicted_label, predicted_label_id, confidence,
+                 top5_predictions, true_boxes, predicted_boxes, true_mask_path, predicted_mask_path,
+                 true_keypoints, predicted_keypoints, is_correct, iou, oks, extra_data, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                records
+            )
+
+            conn.commit()
+            conn.close()
+
+            print(f"[YOLO] Saved {len(records)} detection image results to database (epoch {epoch})")
+            sys.stdout.flush()
+
+        except Exception as e:
+            print(f"[WARNING] Failed to save detection image results: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.stdout.flush()
 
     def save_checkpoint(self, epoch: int, metrics: MetricsResult) -> str:
         """
