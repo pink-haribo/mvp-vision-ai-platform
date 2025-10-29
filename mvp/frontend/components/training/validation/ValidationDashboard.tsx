@@ -191,7 +191,7 @@ export const ValidationDashboard: React.FC<ValidationDashboardProps> = ({
             >
               {summary.epoch_metrics.map((epochData) => (
                 <option key={epochData.epoch} value={epochData.epoch}>
-                  Epoch {epochData.epoch} - {summary.best_metric_name}: {epochData.primary_metric?.toFixed(4)}
+                  Epoch {epochData.epoch}{epochData.epoch === summary.best_epoch ? ' ⭐' : ''} - {summary.best_metric_name}: {epochData.primary_metric?.toFixed(4)}
                 </option>
               ))}
             </select>

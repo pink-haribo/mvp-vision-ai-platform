@@ -312,6 +312,7 @@ async def get_validation_summary(
             "epoch": result.epoch,
             "primary_metric": result.primary_metric_value,
             "loss": result.overall_loss,
+            "checkpoint_path": result.checkpoint_path,  # Include checkpoint path for inference
         }
         # Add task-specific metrics (already deserialized by SQLAlchemy)
         if result.metrics:

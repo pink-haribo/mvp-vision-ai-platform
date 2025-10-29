@@ -33,18 +33,22 @@ interface UploadedImage {
   error?: string
 }
 
-interface Checkpoint {
+interface EpochMetric {
   epoch: number
-  path: string
-  is_best: boolean
+  primary_metric: number
+  loss: number
+  checkpoint_path?: string | null
+  [key: string]: any  // Allow additional task-specific metrics
 }
 
 export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   const [job, setJob] = useState<TrainingJob | null>(null)
   const [images, setImages] = useState<UploadedImage[]>([])
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null)
-  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
-  const [selectedCheckpoint, setSelectedCheckpoint] = useState<Checkpoint | null>(null)
+  const [epochMetrics, setEpochMetrics] = useState<EpochMetric[]>([])
+  const [selectedEpoch, setSelectedEpoch] = useState<EpochMetric | null>(null)
+  const [bestEpoch, setBestEpoch] = useState<number | null>(null)
+  const [bestMetricName, setBestMetricName] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -87,25 +91,30 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     fetchJob()
   }, [jobId])
 
-  // Fetch available checkpoints
+  // Fetch validation summary (includes checkpoint paths)
   useEffect(() => {
-    const fetchCheckpoints = async () => {
+    const fetchValidationSummary = async () => {
       try {
         const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${jobId}/checkpoints`
+          `${process.env.NEXT_PUBLIC_API_URL}/validation/jobs/${jobId}/summary`
         )
         if (response.ok) {
           const data = await response.json()
-          setCheckpoints(data.checkpoints || [])
-          // Auto-select best checkpoint
-          const best = data.checkpoints?.find((c: Checkpoint) => c.is_best)
-          if (best) setSelectedCheckpoint(best)
+          setEpochMetrics(data.epoch_metrics || [])
+          setBestEpoch(data.best_epoch)
+          setBestMetricName(data.best_metric_name)
+
+          // Auto-select best epoch
+          const bestEpochMetric = data.epoch_metrics?.find(
+            (m: EpochMetric) => m.epoch === data.best_epoch
+          )
+          if (bestEpochMetric) setSelectedEpoch(bestEpochMetric)
         }
       } catch (error) {
-        console.error('Error fetching checkpoints:', error)
+        console.error('Error fetching validation summary:', error)
       }
     }
-    if (job) fetchCheckpoints()
+    if (job) fetchValidationSummary()
   }, [job, jobId])
 
   // Cleanup session on component unmount
@@ -223,7 +232,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   }
 
   const runInference = async () => {
-    if (!selectedCheckpoint || images.length === 0) return
+    if (!selectedEpoch || !selectedEpoch.checkpoint_path || images.length === 0) return
 
     setIsRunning(true)
 
@@ -263,11 +272,11 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             ))
           }
 
-          // Step 2: Run inference with server path
+          // Step 2: Run inference with server path and checkpoint from validation results
           const response = await fetch(
             `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/quick?` + new URLSearchParams({
               training_job_id: jobId.toString(),
-              checkpoint_path: selectedCheckpoint.path,
+              checkpoint_path: selectedEpoch.checkpoint_path,
               image_path: serverPath,
               confidence_threshold: confidenceThreshold.toString(),
               iou_threshold: iouThreshold.toString(),
@@ -377,16 +386,16 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           </div>
 
           <div className="space-y-4">
-            {/* Checkpoint Selection */}
+            {/* Epoch Selection */}
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2">
-                체크포인트 선택
+                에폭 선택
               </label>
               <select
-                value={selectedCheckpoint?.epoch || ''}
+                value={selectedEpoch?.epoch || ''}
                 onChange={(e) => {
-                  const checkpoint = checkpoints.find(c => c.epoch === Number(e.target.value))
-                  setSelectedCheckpoint(checkpoint || null)
+                  const epoch = epochMetrics.find(m => m.epoch === Number(e.target.value))
+                  setSelectedEpoch(epoch || null)
                 }}
                 className={cn(
                   'w-full px-3 py-2 text-sm',
@@ -395,12 +404,19 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                   'bg-white'
                 )}
               >
-                {checkpoints.length === 0 && (
-                  <option value="">체크포인트 없음</option>
+                {epochMetrics.length === 0 && (
+                  <option value="">검증 결과 없음</option>
                 )}
-                {checkpoints.map(checkpoint => (
-                  <option key={checkpoint.epoch} value={checkpoint.epoch}>
-                    Epoch {checkpoint.epoch}{checkpoint.is_best ? ' (best)' : ''}
+                {epochMetrics.map(metric => (
+                  <option
+                    key={metric.epoch}
+                    value={metric.epoch}
+                    disabled={!metric.checkpoint_path}
+                  >
+                    Epoch {metric.epoch}
+                    {metric.epoch === bestEpoch ? ' ⭐' : ''}
+                    {bestMetricName && metric.primary_metric !== undefined ? ` - ${bestMetricName}: ${metric.primary_metric.toFixed(4)}` : ''}
+                    {!metric.checkpoint_path ? ' (체크포인트 없음)' : ''}
                   </option>
                 ))}
               </select>
@@ -480,7 +496,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             {/* Run Inference Button */}
             <button
               onClick={runInference}
-              disabled={!selectedCheckpoint || images.length === 0 || isRunning}
+              disabled={!selectedEpoch || !selectedEpoch.checkpoint_path || images.length === 0 || isRunning}
               className={cn(
                 'w-full px-4 py-2.5',
                 'bg-violet-600 hover:bg-violet-700',

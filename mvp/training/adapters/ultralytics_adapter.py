@@ -1057,9 +1057,19 @@ class UltralyticsAdapter(TrainingAdapter):
                             if hasattr(validation_metrics, 'detection') and validation_metrics.detection:
                                 validation_metrics.detection.pr_curves = {'image_path': pr_curve_path}
 
+                        # Get checkpoint path for this epoch
+                        checkpoint_path = None
+                        best_weights = os.path.join(self.output_dir, f'job_{self.job_id}', 'weights', 'best.pt')
+                        last_weights = os.path.join(self.output_dir, f'job_{self.job_id}', 'weights', 'last.pt')
+
+                        if os.path.exists(best_weights):
+                            checkpoint_path = best_weights
+                        elif os.path.exists(last_weights):
+                            checkpoint_path = last_weights
+
                         # Save to database
-                        validation_result_id = self._save_validation_result(epoch_num, validation_metrics)
-                        print(f"[YOLO Callback] Saved validation result ID: {validation_result_id}")
+                        validation_result_id = self._save_validation_result(epoch_num, validation_metrics, checkpoint_path)
+                        print(f"[YOLO Callback] Saved validation result ID: {validation_result_id}, checkpoint: {checkpoint_path}")
                         sys.stdout.flush()
 
                         # Save per-image detection results with bbox info

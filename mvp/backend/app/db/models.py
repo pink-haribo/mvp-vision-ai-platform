@@ -237,6 +237,9 @@ class ValidationResult(Base):
     sample_correct_images = Column(JSON, nullable=True)
     sample_incorrect_images = Column(JSON, nullable=True)
 
+    # Checkpoint path for this validation epoch
+    checkpoint_path = Column(String(500), nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships

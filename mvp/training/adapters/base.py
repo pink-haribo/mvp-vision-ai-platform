@@ -428,7 +428,12 @@ class TrainingAdapter(ABC):
         """
         pass
 
-    def _save_validation_result(self, epoch: int, validation_metrics: 'ValidationMetrics') -> Optional[int]:
+    def _save_validation_result(
+        self,
+        epoch: int,
+        validation_metrics: 'ValidationMetrics',
+        checkpoint_path: Optional[str] = None
+    ) -> Optional[int]:
         """
         Save validation result to database.
 
@@ -439,6 +444,7 @@ class TrainingAdapter(ABC):
         Args:
             epoch: Current epoch number (1-indexed)
             validation_metrics: ValidationMetrics object from ValidationMetricsCalculator
+            checkpoint_path: Optional path to the checkpoint file for this epoch
 
         Returns:
             Optional[int]: Validation result ID if saved successfully, None otherwise
@@ -451,7 +457,8 @@ class TrainingAdapter(ABC):
                 labels=all_labels,
                 class_names=self.class_names
             )
-            val_result_id = self._save_validation_result(epoch, val_metrics)
+            checkpoint_path = self.save_checkpoint(epoch, metrics)
+            val_result_id = self._save_validation_result(epoch, val_metrics, checkpoint_path)
         """
         try:
             import sqlite3
@@ -522,8 +529,8 @@ class TrainingAdapter(ABC):
                 INSERT INTO validation_results
                 (job_id, epoch, task_type, primary_metric_value, primary_metric_name,
                  overall_loss, metrics, per_class_metrics, confusion_matrix, pr_curves,
-                 class_names, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 class_names, checkpoint_path, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     self.job_id,
@@ -537,6 +544,7 @@ class TrainingAdapter(ABC):
                     confusion_matrix_json,
                     pr_curves_json,
                     class_names_json,
+                    checkpoint_path,
                     datetime.utcnow().isoformat()
                 )
             )

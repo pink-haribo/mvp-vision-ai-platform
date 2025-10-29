@@ -642,8 +642,18 @@ class TimmAdapter(TrainingAdapter):
             probabilities=all_probabilities
         )
 
+        # Get checkpoint path for this epoch
+        checkpoint_path = os.path.join(self.output_dir, f"checkpoint_epoch_{epoch}.pt")
+        if not os.path.exists(checkpoint_path):
+            # Fallback to best model path
+            best_path = os.path.join(self.output_dir, "best_model.pt")
+            if os.path.exists(best_path):
+                checkpoint_path = best_path
+            else:
+                checkpoint_path = None
+
         # Save validation result to database
-        validation_result_id = self._save_validation_result(epoch, validation_metrics)
+        validation_result_id = self._save_validation_result(epoch, validation_metrics, checkpoint_path)
 
         # Save per-image results to database
         if validation_result_id:
