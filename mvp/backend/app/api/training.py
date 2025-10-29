@@ -922,3 +922,99 @@ async def list_available_datasets():
             status_code=500,
             detail=f"Failed to list datasets: {str(e)}"
         )
+
+
+@router.get("/jobs/{job_id}/checkpoints")
+async def get_job_checkpoints(
+    job_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Get available checkpoints for a training job.
+
+    Returns a list of checkpoints with epoch numbers and file paths.
+    """
+    try:
+        # Get training job
+        job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Training job not found")
+
+        checkpoints = []
+
+        # Check if output directory exists
+        if not job.output_dir:
+            return {"checkpoints": []}
+
+        from pathlib import Path
+        output_path = Path(job.output_dir)
+
+        if not output_path.exists():
+            return {"checkpoints": []}
+
+        # Scan for checkpoint files
+        # Common patterns: best.pt, last.pt, epoch_*.pt, checkpoint_*.pth
+        checkpoint_files = []
+
+        # Look for .pt files (PyTorch/YOLO)
+        checkpoint_files.extend(list(output_path.glob("*.pt")))
+        # Look for .pth files (PyTorch)
+        checkpoint_files.extend(list(output_path.glob("*.pth")))
+        # Look in weights subdirectory (YOLO format)
+        weights_dir = output_path / "weights"
+        if weights_dir.exists():
+            checkpoint_files.extend(list(weights_dir.glob("*.pt")))
+
+        # Parse checkpoint information
+        for ckpt_file in checkpoint_files:
+            checkpoint_info = {
+                "path": str(ckpt_file.absolute()),
+                "filename": ckpt_file.name,
+                "is_best": False,
+                "epoch": None
+            }
+
+            # Determine if it's the best checkpoint
+            if ckpt_file.name in ["best.pt", "best.pth", "model_best.pth"]:
+                checkpoint_info["is_best"] = True
+                # Try to get epoch from metrics
+                metrics = db.query(models.TrainingMetric).filter(
+                    models.TrainingMetric.job_id == job_id
+                ).order_by(models.TrainingMetric.accuracy.desc()).first()
+                if metrics:
+                    checkpoint_info["epoch"] = metrics.epoch
+
+            # Try to extract epoch from filename
+            elif "epoch" in ckpt_file.name.lower():
+                import re
+                match = re.search(r'epoch[_-]?(\d+)', ckpt_file.name, re.IGNORECASE)
+                if match:
+                    checkpoint_info["epoch"] = int(match.group(1))
+
+            elif ckpt_file.name == "last.pt":
+                # Get last epoch from metrics
+                metrics = db.query(models.TrainingMetric).filter(
+                    models.TrainingMetric.job_id == job_id
+                ).order_by(models.TrainingMetric.epoch.desc()).first()
+                if metrics:
+                    checkpoint_info["epoch"] = metrics.epoch
+
+            checkpoints.append(checkpoint_info)
+
+        # Sort by epoch (None values at end)
+        checkpoints.sort(key=lambda x: (x["epoch"] is None, x["epoch"] or 0))
+
+        logger.info(f"[get-checkpoints] Found {len(checkpoints)} checkpoints for job {job_id}")
+
+        return {"checkpoints": checkpoints}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"[get-checkpoints] Error: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get checkpoints: {str(e)}"
+        )
