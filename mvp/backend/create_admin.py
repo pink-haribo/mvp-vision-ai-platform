@@ -50,7 +50,7 @@ def create_admin_user():
         db.commit()
         db.refresh(admin_user)
 
-        print("✅ Admin user created successfully!")
+        print("[OK] Admin user created successfully!")
         print(f"  Email: {admin_user.email}")
         print(f"  Password: admin123")
         print(f"  Role: {admin_user.system_role}")
@@ -70,12 +70,12 @@ def create_admin_user():
         db.commit()
         db.refresh(uncategorized)
 
-        print(f"\n✅ Default project created!")
+        print(f"\n[OK] Default project created!")
         print(f"  Project: {uncategorized.name}")
         print(f"  Project ID: {uncategorized.id}")
 
     except Exception as e:
-        print(f"❌ Error creating admin user: {e}")
+        print(f"[ERROR] Error creating admin user: {e}")
         db.rollback()
         raise
 
@@ -85,6 +85,6 @@ def create_admin_user():
 if __name__ == "__main__":
     print("Creating admin user...\n")
     create_admin_user()
-    print("\n✅ Setup complete! You can now login with:")
+    print("\n[SUCCESS] Setup complete! You can now login with:")
     print("   Email: admin@example.com")
     print("   Password: admin123")
