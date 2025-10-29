@@ -17,9 +17,33 @@ from datetime import datetime
 from app.db.database import get_db
 from app.db import models
 from app.schemas import test_inference as ti_schemas
+from app.utils.test_inference_runner import TestRunner, InferenceRunner
 
 
 router = APIRouter(prefix="/test_inference", tags=["test_inference"])
+
+
+# Background task functions
+def run_test_task(test_run_id: int):
+    """Background task to run test."""
+    from app.db.database import SessionLocal
+    db = SessionLocal()
+    try:
+        runner = TestRunner(db)
+        runner.run_test(test_run_id)
+    finally:
+        db.close()
+
+
+def run_inference_task(inference_job_id: int):
+    """Background task to run inference."""
+    from app.db.database import SessionLocal
+    db = SessionLocal()
+    try:
+        runner = InferenceRunner(db)
+        runner.run_inference(inference_job_id)
+    finally:
+        db.close()
 
 
 # ========== Test Endpoints ==========
@@ -85,8 +109,8 @@ async def create_test_run(
     db.commit()
     db.refresh(test_run)
 
-    # TODO: Launch background task to run test
-    # background_tasks.add_task(run_test_task, test_run.id, db)
+    # Launch background task to run test
+    background_tasks.add_task(run_test_task, test_run.id)
 
     return ti_schemas.TestRunResponse(**test_run.__dict__)
 
@@ -354,8 +378,8 @@ async def create_inference_job(
     db.commit()
     db.refresh(inference_job)
 
-    # TODO: Launch background task to run inference
-    # background_tasks.add_task(run_inference_task, inference_job.id, db)
+    # Launch background task to run inference
+    background_tasks.add_task(run_inference_task, inference_job.id)
 
     # Parse input_data back to dict for response
     response_dict = inference_job.__dict__.copy()

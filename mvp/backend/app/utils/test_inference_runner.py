@@ -310,9 +310,78 @@ class TestRunner:
                 "class_names": metrics.get("class_names", [])
             }
 
-        # TODO: Add detection/segmentation/pose metrics
+        # Detection metrics
+        elif test_run.task_type == "object_detection":
+            # For detection, we need to compute mAP from boxes
+            # This requires computing IoU between predicted and ground truth boxes
+            # For now, return basic metrics structure
+            # TODO: Implement full mAP calculation
 
-        return {}
+            total_predictions = sum(1 for r in image_results if r.predicted_boxes)
+            total_ground_truth = sum(1 for r in image_results if r.true_boxes)
+
+            # Stub metrics - actual mAP calculation requires complex IoU matching
+            return {
+                "primary_metric_name": "mAP@0.5",
+                "primary_metric_value": 0.0,
+                "metrics": {
+                    "mAP@0.5": 0.0,
+                    "mAP@0.5:0.95": 0.0,
+                    "precision": 0.0,
+                    "recall": 0.0,
+                    "total_predictions": total_predictions,
+                    "total_ground_truth": total_ground_truth
+                }
+            }
+
+        # Segmentation metrics
+        elif test_run.task_type in ["instance_segmentation", "semantic_segmentation"]:
+            # For segmentation, we need to compute IoU from masks
+            # This requires pixel-wise comparison
+            # For now, return basic metrics structure
+            # TODO: Implement full segmentation metrics calculation
+
+            total_with_masks = sum(1 for r in image_results if r.predicted_mask_path)
+
+            return {
+                "primary_metric_name": "mean_iou",
+                "primary_metric_value": 0.0,
+                "metrics": {
+                    "mean_iou": 0.0,
+                    "pixel_accuracy": 0.0,
+                    "mean_precision": 0.0,
+                    "mean_recall": 0.0,
+                    "total_with_masks": total_with_masks
+                }
+            }
+
+        # Pose estimation metrics
+        elif test_run.task_type == "pose_estimation":
+            # For pose, we need to compute OKS (Object Keypoint Similarity)
+            # This requires comparing keypoint locations with ground truth
+            # For now, return basic metrics structure
+            # TODO: Implement full OKS/PCK calculation
+
+            total_with_keypoints = sum(1 for r in image_results if r.predicted_keypoints)
+
+            return {
+                "primary_metric_name": "OKS",
+                "primary_metric_value": 0.0,
+                "metrics": {
+                    "OKS": 0.0,
+                    "PCK": 0.0,
+                    "mean_precision": 0.0,
+                    "mean_recall": 0.0,
+                    "total_with_keypoints": total_with_keypoints
+                }
+            }
+
+        # Unknown task type
+        return {
+            "primary_metric_name": "unknown",
+            "primary_metric_value": 0.0,
+            "metrics": {}
+        }
 
 
 class InferenceRunner:
