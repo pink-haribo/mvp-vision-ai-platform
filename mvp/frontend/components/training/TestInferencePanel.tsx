@@ -121,11 +121,49 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     if (!selectedCheckpoint || images.length === 0) return
 
     setIsRunning(true)
-    // TODO: Implement actual inference API call
-    // For now, just simulate
-    setTimeout(() => {
+
+    try {
+      // Run inference on each image
+      for (const image of images) {
+        // Update status to processing
+        setImages(prev => prev.map(img =>
+          img.id === image.id ? { ...img, status: 'processing' } : img
+        ))
+
+        try {
+          // Call quick inference API
+          const response = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/quick?` + new URLSearchParams({
+              training_job_id: jobId.toString(),
+              checkpoint_path: selectedCheckpoint.path,
+              image_path: image.preview, // TODO: Upload image to server first
+              confidence_threshold: confidenceThreshold.toString(),
+              iou_threshold: iouThreshold.toString(),
+              max_detections: maxDetections.toString(),
+              top_k: topK.toString()
+            }),
+            { method: 'POST' }
+          )
+
+          if (response.ok) {
+            const result = await response.json()
+            // Update image with result
+            setImages(prev => prev.map(img =>
+              img.id === image.id ? { ...img, status: 'completed', result } : img
+            ))
+          } else {
+            throw new Error('Inference failed')
+          }
+        } catch (error) {
+          console.error('Inference error:', error)
+          setImages(prev => prev.map(img =>
+            img.id === image.id ? { ...img, status: 'failed' } : img
+          ))
+        }
+      }
+    } finally {
       setIsRunning(false)
-    }, 2000)
+    }
   }
 
   const selectedImage = images.find(img => img.id === selectedImageId)
@@ -407,9 +445,139 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           <div className="col-span-4 bg-white rounded-lg border border-gray-200 p-6 overflow-y-auto">
             <h4 className="text-xs font-semibold text-gray-900 mb-3">추론 결과</h4>
             {selectedImage?.result ? (
-              <div className="space-y-4 text-sm">
-                {/* TODO: Render task-specific results */}
-                <p className="text-gray-500">결과가 여기에 표시됩니다</p>
+              <div className="space-y-4">
+                {/* Performance Metrics */}
+                <div className="pb-3 border-b border-gray-200">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-gray-500">추론 시간</span>
+                    <span className="font-medium text-gray-900">
+                      {selectedImage.result.inference_time_ms?.toFixed(1)}ms
+                    </span>
+                  </div>
+                  {selectedImage.result.preprocessing_time_ms > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-500">전처리</span>
+                      <span className="font-medium text-gray-700">
+                        {selectedImage.result.preprocessing_time_ms?.toFixed(1)}ms
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Classification Results */}
+                {selectedImage.result.task_type === 'image_classification' && (
+                  <div>
+                    <h5 className="text-xs font-semibold text-gray-900 mb-3">예측 결과</h5>
+                    <div className="space-y-2">
+                      {selectedImage.result.top5_predictions?.map((pred: any, idx: number) => (
+                        <div key={idx} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-medium text-gray-900">
+                              {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`} {pred.label}
+                            </span>
+                            <span className="text-gray-600">{(pred.confidence * 100).toFixed(1)}%</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-1.5">
+                            <div
+                              className={cn(
+                                'h-1.5 rounded-full',
+                                idx === 0 ? 'bg-violet-600' : 'bg-gray-400'
+                              )}
+                              style={{ width: `${pred.confidence * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Detection Results */}
+                {selectedImage.result.task_type === 'object_detection' && (
+                  <div>
+                    <h5 className="text-xs font-semibold text-gray-900 mb-3">
+                      탐지된 객체 ({selectedImage.result.num_detections}개)
+                    </h5>
+                    <div className="space-y-3">
+                      {selectedImage.result.predicted_boxes?.slice(0, 10).map((box: any, idx: number) => (
+                        <div key={idx} className="p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium text-gray-900">
+                              📦 Object #{idx + 1}
+                            </span>
+                            <span className="text-xs px-2 py-0.5 bg-violet-100 text-violet-700 rounded">
+                              {(box.confidence * 100).toFixed(1)}%
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-600 space-y-1">
+                            <div>Class: <span className="font-medium">{box.label}</span></div>
+                            <div className="text-xs text-gray-500">
+                              BBox: [{box.x1}, {box.y1}, {box.x2}, {box.y2}]
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {selectedImage.result.num_detections > 10 && (
+                        <p className="text-xs text-gray-500 text-center">
+                          ...and {selectedImage.result.num_detections - 10} more
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Segmentation Results */}
+                {(selectedImage.result.task_type === 'instance_segmentation' ||
+                  selectedImage.result.task_type === 'semantic_segmentation') && (
+                  <div>
+                    <h5 className="text-xs font-semibold text-gray-900 mb-3">
+                      분할된 인스턴스 ({selectedImage.result.num_instances}개)
+                    </h5>
+                    <div className="space-y-3">
+                      {selectedImage.result.predicted_boxes?.slice(0, 10).map((box: any, idx: number) => (
+                        <div key={idx} className="p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium text-gray-900">
+                              🎨 Instance #{idx + 1}
+                            </span>
+                            <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded">
+                              {(box.confidence * 100).toFixed(1)}%
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            Class: <span className="font-medium">{box.label}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Pose Estimation Results */}
+                {selectedImage.result.task_type === 'pose_estimation' && (
+                  <div>
+                    <h5 className="text-xs font-semibold text-gray-900 mb-3">
+                      탐지된 사람 ({selectedImage.result.num_persons}명)
+                    </h5>
+                    <div className="space-y-3">
+                      {selectedImage.result.predicted_keypoints?.slice(0, 5).map((person: any, idx: number) => (
+                        <div key={idx} className="p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium text-gray-900">
+                              🧍 Person #{idx + 1}
+                            </span>
+                            <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded">
+                              {person.keypoints?.length || 0} keypoints
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            Detected: {person.num_detected || 0}/17
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center text-gray-400 py-12">
