@@ -1844,9 +1844,26 @@ class UltralyticsAdapter(TrainingAdapter):
         if boxes is not None:
             for i in range(len(boxes)):
                 box = boxes[i]
+                class_id = int(box.cls.item())
+
+                # Get class name
+                if hasattr(self, 'class_names') and self.class_names and class_id < len(self.class_names):
+                    label = self.class_names[class_id]
+                else:
+                    label = str(class_id)
+
+                # Convert YOLO format (x_center, y_center, w, h) to xyxy format
+                xywh = box.xywh[0].cpu().tolist()
+                xyxy = box.xyxy[0].cpu().tolist()  # [x1, y1, x2, y2]
+
                 predicted_boxes.append({
-                    'class_id': int(box.cls.item()),
-                    'bbox': box.xywh[0].cpu().tolist(),  # [x_center, y_center, w, h]
+                    'class_id': class_id,
+                    'label': label,
+                    'bbox': xywh,  # Keep original YOLO format
+                    'x1': xyxy[0],
+                    'y1': xyxy[1],
+                    'x2': xyxy[2],
+                    'y2': xyxy[3],
                     'confidence': float(box.conf.item()),
                     'format': 'yolo'
                 })
@@ -1879,9 +1896,25 @@ class UltralyticsAdapter(TrainingAdapter):
         if boxes is not None:
             for i in range(len(boxes)):
                 box = boxes[i]
+                class_id = int(box.cls.item())
+
+                # Get class name
+                if hasattr(self, 'class_names') and self.class_names and class_id < len(self.class_names):
+                    label = self.class_names[class_id]
+                else:
+                    label = str(class_id)
+
+                xywh = box.xywh[0].cpu().tolist()
+                xyxy = box.xyxy[0].cpu().tolist()
+
                 predicted_boxes.append({
-                    'class_id': int(box.cls.item()),
-                    'bbox': box.xywh[0].cpu().tolist(),
+                    'class_id': class_id,
+                    'label': label,
+                    'bbox': xywh,
+                    'x1': xyxy[0],
+                    'y1': xyxy[1],
+                    'x2': xyxy[2],
+                    'y2': xyxy[3],
                     'confidence': float(box.conf.item()),
                     'format': 'yolo'
                 })

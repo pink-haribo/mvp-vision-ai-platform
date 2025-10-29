@@ -82,9 +82,11 @@ def run_inference(
     # Prepare model (creates self.model)
     adapter.prepare_model()
 
-    # Load class names from dataset (for classification)
+    # Load class names from dataset
+    import os
+    import yaml
+
     if task_type == "image_classification" and dataset_path:
-        import os
         train_dir = os.path.join(dataset_path, "train")
         if os.path.exists(train_dir):
             # Get class names from directory structure (ImageFolder format)
@@ -96,6 +98,19 @@ def run_inference(
             # Fallback: use numeric class names
             adapter.class_names = [str(i) for i in range(num_classes)]
             print(f"[WARNING] Train directory not found, using numeric class names")
+
+    elif task_type in ["object_detection", "instance_segmentation", "pose_estimation"]:
+        # For YOLO tasks, load class names from data.yaml
+        data_yaml_path = os.path.join(output_dir, "data.yaml")
+        if os.path.exists(data_yaml_path):
+            with open(data_yaml_path, 'r') as f:
+                data_config = yaml.safe_load(f)
+                adapter.class_names = data_config.get('names', [])
+                print(f"[INFO] Loaded {len(adapter.class_names)} class names from data.yaml")
+        else:
+            # Fallback: use numeric class names
+            adapter.class_names = [str(i) for i in range(num_classes)] if num_classes else []
+            print(f"[WARNING] data.yaml not found, using numeric class names")
 
     # Load checkpoint
     adapter.load_checkpoint(

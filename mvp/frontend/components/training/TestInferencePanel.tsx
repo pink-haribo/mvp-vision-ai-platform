@@ -63,6 +63,10 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Canvas ref for bbox visualization
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const imageRef = useRef<HTMLImageElement>(null)
+
   // Fetch job details
   useEffect(() => {
     const fetchJob = async () => {
@@ -117,6 +121,77 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
       })
     }
   }, [sessionId])
+
+  // Draw bboxes when image or results change
+  useEffect(() => {
+    if (selectedImage?.result && imageRef.current?.complete) {
+      drawBoundingBoxes()
+    }
+  }, [selectedImage])
+
+  const drawBoundingBoxes = () => {
+    const canvas = canvasRef.current
+    const image = imageRef.current
+    if (!canvas || !image || !image.complete) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Set canvas size to match displayed image size
+    const rect = image.getBoundingClientRect()
+    canvas.width = image.naturalWidth
+    canvas.height = image.naturalHeight
+    canvas.style.width = `${rect.width}px`
+    canvas.style.height = `${rect.height}px`
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    // Only draw for detection/segmentation tasks
+    if (!selectedImage?.result ||
+        (selectedImage.result.task_type !== 'object_detection' &&
+         selectedImage.result.task_type !== 'instance_segmentation')) {
+      return
+    }
+
+    const boxes = selectedImage.result.predicted_boxes || []
+
+    // Draw each bbox
+    ctx.lineWidth = 3
+    boxes.forEach((box: any) => {
+      // Use x1, y1, x2, y2 from backend
+      if (box.x1 !== undefined && box.x2 !== undefined) {
+        const x = box.x1
+        const y = box.y1
+        const w = box.x2 - box.x1
+        const h = box.y2 - box.y1
+
+        // Draw bbox
+        ctx.strokeStyle = '#EF4444'  // red
+        ctx.strokeRect(x, y, w, h)
+
+        // Draw label with confidence
+        if (box.label && box.confidence) {
+          const label = `${box.label} ${(box.confidence * 100).toFixed(1)}%`
+          ctx.font = 'bold 14px sans-serif'
+          const metrics = ctx.measureText(label)
+          const padding = 4
+
+          // Background
+          ctx.fillStyle = '#EF4444'
+          ctx.fillRect(x, y - 20, metrics.width + padding * 2, 20)
+
+          // Text
+          ctx.fillStyle = '#FFFFFF'
+          ctx.fillText(label, x + padding, y - 6)
+        }
+      }
+    })
+  }
+
+  const handleImageLoad = () => {
+    drawBoundingBoxes()
+  }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
@@ -475,12 +550,21 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           <div className="col-span-6 bg-white rounded-lg border border-gray-200 p-6">
             <h4 className="text-xs font-semibold text-gray-900 mb-3">이미지 뷰어</h4>
             {selectedImage ? (
-              <div className="flex items-center justify-center h-[calc(100%-2rem)]">
-                <img
-                  src={selectedImage.preview}
-                  alt={selectedImage.file.name}
-                  className="max-w-full max-h-full object-contain rounded"
-                />
+              <div className="flex items-center justify-center h-[calc(100%-2rem)] relative">
+                <div className="relative">
+                  <img
+                    ref={imageRef}
+                    src={selectedImage.preview}
+                    alt={selectedImage.file.name}
+                    className="max-w-full max-h-full object-contain rounded"
+                    onLoad={handleImageLoad}
+                  />
+                  <canvas
+                    ref={canvasRef}
+                    className="absolute top-0 left-0 pointer-events-none"
+                    style={{ maxWidth: '100%', maxHeight: '100%' }}
+                  />
+                </div>
               </div>
             ) : (
               <div className="flex items-center justify-center h-[calc(100%-2rem)] text-gray-400">
