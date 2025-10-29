@@ -846,9 +846,12 @@ async def quick_inference(
                 detail=f"Inference failed: {error_msg}"
             )
 
-        # Parse JSON output
+        # Parse JSON output (last line contains the JSON result)
         try:
-            result_dict = json.loads(result.stdout)
+            # Get last non-empty line (which should be the JSON output)
+            output_lines = result.stdout.strip().split('\n')
+            json_line = output_lines[-1]
+            result_dict = json.loads(json_line)
             return result_dict
         except json.JSONDecodeError as e:
             print(f"[ERROR] Failed to parse inference output: {result.stdout}")
