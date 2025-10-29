@@ -1680,3 +1680,284 @@ class UltralyticsAdapter(TrainingAdapter):
             return last_weights
         else:
             return f"{self.output_dir}/job_{self.job_id}/weights/"
+
+    # ========== Inference Methods ==========
+
+    def load_checkpoint(
+        self,
+        checkpoint_path: str,
+        inference_mode: bool = True,
+        device: Optional[str] = None
+    ) -> None:
+        """
+        Load checkpoint for inference or training resume.
+
+        For YOLO, this creates a new model instance with the checkpoint weights.
+
+        Args:
+            checkpoint_path: Path to checkpoint file (.pt)
+            inference_mode: If True, load for inference (eval mode)
+                           If False, load for training resume
+            device: Device to load model on ('cuda', 'cpu'), auto-detect if None
+        """
+        from ultralytics import YOLO
+
+        if not os.path.exists(checkpoint_path):
+            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+        print(f"\n{'='*80}")
+        print(f"LOADING CHECKPOINT (YOLO)")
+        print(f"{'='*80}")
+        print(f"[CHECKPOINT] Path: {checkpoint_path}")
+        print(f"[CHECKPOINT] Mode: {'Inference' if inference_mode else 'Training Resume'}")
+
+        # YOLO handles checkpoint loading internally
+        self.model = YOLO(checkpoint_path)
+
+        # Set device if specified
+        if device:
+            self.model.to(device)
+            print(f"[CHECKPOINT] Device: {device}")
+        else:
+            print(f"[CHECKPOINT] Device: {self.model.device}")
+
+        print(f"[CHECKPOINT] Model loaded successfully")
+        print(f"{'='*80}\n")
+
+    def preprocess_image(self, image_path: str):
+        """
+        Preprocess not needed for YOLO - handles internally.
+
+        Args:
+            image_path: Path to image file
+
+        Returns:
+            Image path as-is (YOLO processes internally)
+        """
+        return image_path
+
+    def infer_single(self, image_path: str) -> 'InferenceResult':
+        """
+        Run inference on single image with YOLO.
+
+        Args:
+            image_path: Path to image file
+
+        Returns:
+            InferenceResult with task-specific predictions
+        """
+        import time
+        from pathlib import Path
+        from .base import InferenceResult, TaskType
+
+        # YOLO inference
+        start_time = time.time()
+        results = self.model(image_path, verbose=False)
+        inference_time = (time.time() - start_time) * 1000
+
+        result = results[0]
+
+        # Extract predictions based on task
+        if self.task_type == TaskType.OBJECT_DETECTION:
+            return self._extract_detection_result(result, image_path, inference_time)
+        elif self.task_type == TaskType.INSTANCE_SEGMENTATION:
+            return self._extract_segmentation_result(result, image_path, inference_time)
+        elif self.task_type == TaskType.POSE_ESTIMATION:
+            return self._extract_pose_result(result, image_path, inference_time)
+        elif self.task_type == TaskType.IMAGE_CLASSIFICATION:
+            return self._extract_classification_result(result, image_path, inference_time)
+        else:
+            raise ValueError(f"Unsupported task type: {self.task_type}")
+
+    def _extract_classification_result(
+        self,
+        result,
+        image_path: str,
+        inference_time: float
+    ) -> 'InferenceResult':
+        """Extract classification predictions from YOLO result."""
+        from pathlib import Path
+        from .base import InferenceResult, TaskType
+
+        # Get probabilities
+        probs = result.probs
+
+        if probs is None:
+            raise ValueError("No classification predictions found")
+
+        # Top-1 prediction
+        top1_id = int(probs.top1)
+        confidence = float(probs.top1conf)
+
+        # Get class name
+        if hasattr(self, 'class_names') and self.class_names:
+            predicted_label = self.class_names[top1_id]
+        else:
+            predicted_label = str(top1_id)
+
+        # Top-5 predictions
+        top5_predictions = []
+        if hasattr(probs, 'top5'):
+            top5_ids = probs.top5
+            top5_conf = probs.top5conf
+
+            for i, (class_id, conf) in enumerate(zip(top5_ids, top5_conf)):
+                class_id = int(class_id)
+                if hasattr(self, 'class_names') and self.class_names:
+                    label = self.class_names[class_id]
+                else:
+                    label = str(class_id)
+
+                top5_predictions.append({
+                    'label_id': class_id,
+                    'label': label,
+                    'confidence': float(conf)
+                })
+
+        return InferenceResult(
+            image_path=image_path,
+            image_name=Path(image_path).name,
+            task_type=TaskType.IMAGE_CLASSIFICATION,
+            predicted_label=predicted_label,
+            predicted_label_id=top1_id,
+            confidence=confidence,
+            top5_predictions=top5_predictions,
+            inference_time_ms=inference_time,
+            preprocessing_time_ms=0.0,  # YOLO handles internally
+            postprocessing_time_ms=0.0
+        )
+
+    def _extract_detection_result(
+        self,
+        result,
+        image_path: str,
+        inference_time: float
+    ) -> 'InferenceResult':
+        """Extract detection predictions from YOLO result."""
+        from pathlib import Path
+        from .base import InferenceResult, TaskType
+
+        # Extract boxes
+        boxes = result.boxes
+        predicted_boxes = []
+
+        if boxes is not None:
+            for i in range(len(boxes)):
+                box = boxes[i]
+                predicted_boxes.append({
+                    'class_id': int(box.cls.item()),
+                    'bbox': box.xywh[0].cpu().tolist(),  # [x_center, y_center, w, h]
+                    'confidence': float(box.conf.item()),
+                    'format': 'yolo'
+                })
+
+        return InferenceResult(
+            image_path=image_path,
+            image_name=Path(image_path).name,
+            task_type=TaskType.OBJECT_DETECTION,
+            predicted_boxes=predicted_boxes,
+            inference_time_ms=inference_time,
+            preprocessing_time_ms=0.0,
+            postprocessing_time_ms=0.0
+        )
+
+    def _extract_segmentation_result(
+        self,
+        result,
+        image_path: str,
+        inference_time: float
+    ) -> 'InferenceResult':
+        """Extract segmentation predictions from YOLO result."""
+        from pathlib import Path
+        from .base import InferenceResult, TaskType
+
+        # Extract boxes and masks
+        boxes = result.boxes
+        masks = result.masks
+
+        predicted_boxes = []
+        if boxes is not None:
+            for i in range(len(boxes)):
+                box = boxes[i]
+                predicted_boxes.append({
+                    'class_id': int(box.cls.item()),
+                    'bbox': box.xywh[0].cpu().tolist(),
+                    'confidence': float(box.conf.item()),
+                    'format': 'yolo'
+                })
+
+        # Store mask if available
+        predicted_mask = None
+        if masks is not None and len(masks) > 0:
+            # masks.data is a tensor of shape (N, H, W)
+            predicted_mask = masks.data.cpu().numpy()
+
+        return InferenceResult(
+            image_path=image_path,
+            image_name=Path(image_path).name,
+            task_type=TaskType.INSTANCE_SEGMENTATION,
+            predicted_boxes=predicted_boxes,
+            predicted_mask=predicted_mask,
+            inference_time_ms=inference_time,
+            preprocessing_time_ms=0.0,
+            postprocessing_time_ms=0.0
+        )
+
+    def _extract_pose_result(
+        self,
+        result,
+        image_path: str,
+        inference_time: float
+    ) -> 'InferenceResult':
+        """Extract pose estimation predictions from YOLO result."""
+        from pathlib import Path
+        from .base import InferenceResult, TaskType
+
+        # Extract boxes and keypoints
+        boxes = result.boxes
+        keypoints = result.keypoints
+
+        predicted_boxes = []
+        if boxes is not None:
+            for i in range(len(boxes)):
+                box = boxes[i]
+                predicted_boxes.append({
+                    'class_id': int(box.cls.item()),
+                    'bbox': box.xywh[0].cpu().tolist(),
+                    'confidence': float(box.conf.item()),
+                    'format': 'yolo'
+                })
+
+        # Extract keypoints
+        predicted_keypoints = []
+        if keypoints is not None and len(keypoints) > 0:
+            # keypoints.xy is (N, num_keypoints, 2)
+            # keypoints.conf is (N, num_keypoints)
+            for i in range(len(keypoints)):
+                kpts_xy = keypoints.xy[i].cpu().numpy()  # (num_kpts, 2)
+                kpts_conf = keypoints.conf[i].cpu().numpy()  # (num_kpts,)
+
+                person_keypoints = []
+                for j, (xy, conf) in enumerate(zip(kpts_xy, kpts_conf)):
+                    person_keypoints.append({
+                        'keypoint_id': j,
+                        'x': float(xy[0]),
+                        'y': float(xy[1]),
+                        'confidence': float(conf)
+                    })
+
+                predicted_keypoints.append({
+                    'person_id': i,
+                    'keypoints': person_keypoints
+                })
+
+        return InferenceResult(
+            image_path=image_path,
+            image_name=Path(image_path).name,
+            task_type=TaskType.POSE_ESTIMATION,
+            predicted_boxes=predicted_boxes,
+            predicted_keypoints=predicted_keypoints,
+            inference_time_ms=inference_time,
+            preprocessing_time_ms=0.0,
+            postprocessing_time_ms=0.0
+        )

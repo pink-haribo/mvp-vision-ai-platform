@@ -724,39 +724,57 @@ class TimmAdapter(TrainingAdapter):
 
         return checkpoint_path
 
-    def load_checkpoint(self, checkpoint_path: str, resume_training: bool = True) -> int:
+    def load_checkpoint(
+        self,
+        checkpoint_path: str,
+        inference_mode: bool = True,
+        device: Optional[str] = None
+    ) -> None:
         """
-        Load model checkpoint.
+        Load checkpoint for inference or training resume.
 
         Args:
             checkpoint_path: Path to checkpoint file
-            resume_training: If True, restore optimizer and scheduler states for resuming training
-
-        Returns:
-            Epoch number from the checkpoint
+            inference_mode: If True, load for inference (eval mode, no optimizer)
+                           If False, load for training resume (restore full state)
+            device: Device to load model on ('cuda', 'cpu'), auto-detect if None
         """
         if not os.path.exists(checkpoint_path):
             raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+        # Determine device
+        if device is None:
+            device = self.device if hasattr(self, 'device') else ('cuda' if torch.cuda.is_available() else 'cpu')
 
         print(f"\n{'='*80}")
         print(f"LOADING CHECKPOINT")
         print(f"{'='*80}")
         print(f"[CHECKPOINT] Path: {checkpoint_path}")
+        print(f"[CHECKPOINT] Mode: {'Inference' if inference_mode else 'Training Resume'}")
+        print(f"[CHECKPOINT] Device: {device}")
 
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        checkpoint = torch.load(checkpoint_path, map_location=device)
 
         # Load model state
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        print(f"[CHECKPOINT] Restored model state from epoch {checkpoint['epoch']}")
+        if 'model_state_dict' in checkpoint:
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            print(f"[CHECKPOINT] Restored model state from epoch {checkpoint.get('epoch', 'unknown')}")
+        else:
+            # Handle checkpoints that are just state_dict (e.g., best_model.pt)
+            self.model.load_state_dict(checkpoint)
+            print(f"[CHECKPOINT] Restored model state (simple format)")
 
-        if resume_training:
-            # Load optimizer state
-            if 'optimizer_state_dict' in checkpoint:
+        # Set model to appropriate mode
+        if inference_mode:
+            self.model.eval()
+            print(f"[CHECKPOINT] Model set to eval mode")
+        else:
+            # Training resume - restore optimizer and scheduler
+            if hasattr(self, 'optimizer') and 'optimizer_state_dict' in checkpoint:
                 self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                 print(f"[CHECKPOINT] Restored optimizer state")
 
-            # Load scheduler state if it exists
-            if self.scheduler and 'scheduler_state_dict' in checkpoint:
+            if hasattr(self, 'scheduler') and self.scheduler and 'scheduler_state_dict' in checkpoint:
                 self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
                 print(f"[CHECKPOINT] Restored scheduler state")
 
@@ -764,8 +782,111 @@ class TimmAdapter(TrainingAdapter):
             if 'metrics' in checkpoint and 'best_val_accuracy' in checkpoint['metrics']:
                 self.best_val_acc = checkpoint['metrics']['best_val_accuracy']
                 print(f"[CHECKPOINT] Restored best validation accuracy: {self.best_val_acc:.2f}%")
-        else:
-            print("[CHECKPOINT] Only model weights loaded (optimizer and scheduler states not restored)")
+
+            print(f"[CHECKPOINT] Training state restored")
 
         print(f"{'='*80}\n")
-        return checkpoint['epoch']
+
+    def preprocess_image(self, image_path: str) -> torch.Tensor:
+        """
+        Preprocess single image for inference.
+
+        Args:
+            image_path: Path to image file
+
+        Returns:
+            Preprocessed tensor with shape (1, 3, H, W)
+        """
+        from PIL import Image
+
+        # Load image
+        image = Image.open(image_path).convert('RGB')
+
+        # Apply validation transforms
+        if not hasattr(self, 'val_transforms') or self.val_transforms is None:
+            self.val_transforms = self.build_val_transforms()
+
+        tensor = self.val_transforms(image)
+
+        # Add batch dimension
+        return tensor.unsqueeze(0)
+
+    def infer_single(self, image_path: str) -> 'InferenceResult':
+        """
+        Run inference on single image.
+
+        Args:
+            image_path: Path to image file
+
+        Returns:
+            InferenceResult with classification predictions
+        """
+        import time
+        from pathlib import Path
+        from .base import InferenceResult, TaskType
+
+        # Timing
+        start_time = time.time()
+
+        # Preprocess
+        input_tensor = self.preprocess_image(image_path)
+        device = next(self.model.parameters()).device
+        input_tensor = input_tensor.to(device)
+
+        preprocess_time = (time.time() - start_time) * 1000
+
+        # Inference
+        infer_start = time.time()
+        with torch.no_grad():
+            output = self.model(input_tensor)
+            probs = torch.softmax(output, dim=1)
+
+        inference_time = (time.time() - infer_start) * 1000
+
+        # Postprocessing
+        post_start = time.time()
+
+        # Top-1 prediction
+        confidence, pred_id = torch.max(probs, dim=1)
+        confidence = confidence.item()
+        pred_id = pred_id.item()
+
+        # Get class name
+        if hasattr(self, 'class_names') and self.class_names:
+            predicted_label = self.class_names[pred_id]
+        else:
+            predicted_label = str(pred_id)
+
+        # Top-5 predictions
+        num_classes = len(self.class_names) if hasattr(self, 'class_names') and self.class_names else output.size(1)
+        top_k = min(5, num_classes)
+        top5_probs, top5_ids = torch.topk(probs, top_k, dim=1)
+
+        top5_predictions = []
+        for i in range(top_k):
+            label_id = int(top5_ids[0, i].item())
+            if hasattr(self, 'class_names') and self.class_names:
+                label = self.class_names[label_id]
+            else:
+                label = str(label_id)
+
+            top5_predictions.append({
+                'label_id': label_id,
+                'label': label,
+                'confidence': float(top5_probs[0, i].item())
+            })
+
+        postprocess_time = (time.time() - post_start) * 1000
+
+        return InferenceResult(
+            image_path=image_path,
+            image_name=Path(image_path).name,
+            task_type=TaskType.IMAGE_CLASSIFICATION,
+            predicted_label=predicted_label,
+            predicted_label_id=pred_id,
+            confidence=confidence,
+            top5_predictions=top5_predictions,
+            inference_time_ms=inference_time,
+            preprocessing_time_ms=preprocess_time,
+            postprocessing_time_ms=postprocess_time
+        )

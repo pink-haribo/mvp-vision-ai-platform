@@ -160,6 +160,8 @@ class TrainingJob(Base):
     metrics = relationship("TrainingMetric", back_populates="job", cascade="all, delete-orphan")
     logs = relationship("TrainingLog", back_populates="job", cascade="all, delete-orphan")
     validation_results = relationship("ValidationResult", back_populates="job", cascade="all, delete-orphan")
+    test_runs = relationship("TestRun", back_populates="training_job", cascade="all, delete-orphan")
+    inference_jobs = relationship("InferenceJob", back_populates="training_job", cascade="all, delete-orphan")
 
 
 class TrainingMetric(Base):
@@ -293,4 +295,191 @@ class ValidationImageResult(Base):
 
     # Relationships
     validation_result = relationship("ValidationResult", back_populates="image_results")
+
+
+# ========== Test Run Models ==========
+
+class TestRun(Base):
+    """
+    Test run on a labeled dataset after training.
+
+    Similar to validation but runs on a separate test set for final evaluation.
+    """
+
+    __tablename__ = "test_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    training_job_id = Column(Integer, ForeignKey("training_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    checkpoint_path = Column(String(500), nullable=False)
+    dataset_path = Column(String(500), nullable=False)
+    dataset_split = Column(String(20), default="test")
+
+    # Status
+    status = Column(String(20), nullable=False, index=True)  # pending, running, completed, failed
+    error_message = Column(Text, nullable=True)
+
+    # Task info
+    task_type = Column(String(50), nullable=False)
+    primary_metric_name = Column(String(50), nullable=True)
+    primary_metric_value = Column(Float, nullable=True)
+
+    # Metrics (task-agnostic JSON)
+    overall_loss = Column(Float, nullable=True)
+    metrics = Column(JSON, nullable=True)
+    per_class_metrics = Column(JSON, nullable=True)
+    confusion_matrix = Column(JSON, nullable=True)
+
+    # Metadata
+    class_names = Column(JSON, nullable=True)
+    total_images = Column(Integer, default=0)
+    inference_time_ms = Column(Float, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    training_job = relationship("TrainingJob", back_populates="test_runs")
+    image_results = relationship("TestImageResult", back_populates="test_run", cascade="all, delete-orphan")
+
+
+class TestImageResult(Base):
+    """
+    Per-image test result with predictions and ground truth.
+
+    Similar to ValidationImageResult but for test set evaluation.
+    """
+
+    __tablename__ = "test_image_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    test_run_id = Column(Integer, ForeignKey("test_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Image information
+    image_path = Column(String(500), nullable=True)
+    image_name = Column(String(200), nullable=False)
+    image_index = Column(Integer, nullable=True)
+
+    # Classification fields
+    true_label = Column(String(100), nullable=True)
+    true_label_id = Column(Integer, nullable=True, index=True)
+    predicted_label = Column(String(100), nullable=True)
+    predicted_label_id = Column(Integer, nullable=True, index=True)
+    confidence = Column(Float, nullable=True)
+    top5_predictions = Column(JSON, nullable=True)
+
+    # Detection fields
+    true_boxes = Column(JSON, nullable=True)
+    predicted_boxes = Column(JSON, nullable=True)
+
+    # Segmentation fields
+    true_mask_path = Column(String(500), nullable=True)
+    predicted_mask_path = Column(String(500), nullable=True)
+
+    # Pose fields
+    true_keypoints = Column(JSON, nullable=True)
+    predicted_keypoints = Column(JSON, nullable=True)
+
+    # Metrics
+    is_correct = Column(Boolean, nullable=False, default=False, index=True)
+    iou = Column(Float, nullable=True)
+    oks = Column(Float, nullable=True)
+    inference_time_ms = Column(Float, nullable=True)
+
+    # Extra data
+    extra_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    test_run = relationship("TestRun", back_populates="image_results")
+
+
+# ========== Inference Models ==========
+
+class InferenceJob(Base):
+    """
+    Inference job on unlabeled images (production use case).
+
+    No ground truth, no metrics - only predictions and visualizations.
+    """
+
+    __tablename__ = "inference_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    training_job_id = Column(Integer, ForeignKey("training_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    checkpoint_path = Column(String(500), nullable=False)
+
+    # Input
+    inference_type = Column(String(20), nullable=False)  # single, batch, dataset
+    input_data = Column(JSON, nullable=True)
+
+    # Status
+    status = Column(String(20), nullable=False, index=True)
+    error_message = Column(Text, nullable=True)
+
+    # Task info
+    task_type = Column(String(50), nullable=False)
+
+    # Performance metrics
+    total_images = Column(Integer, default=0)
+    total_inference_time_ms = Column(Float, nullable=True)
+    avg_inference_time_ms = Column(Float, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    training_job = relationship("TrainingJob", back_populates="inference_jobs")
+    results = relationship("InferenceResult", back_populates="inference_job", cascade="all, delete-orphan")
+
+
+class InferenceResult(Base):
+    """
+    Per-image inference result (no ground truth).
+
+    Used for production inference on unlabeled images.
+    """
+
+    __tablename__ = "inference_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    inference_job_id = Column(Integer, ForeignKey("inference_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Image information
+    image_path = Column(String(500), nullable=False)
+    image_name = Column(String(200), nullable=False)
+    image_index = Column(Integer, nullable=True)
+
+    # Classification predictions
+    predicted_label = Column(String(100), nullable=True)
+    predicted_label_id = Column(Integer, nullable=True, index=True)
+    confidence = Column(Float, nullable=True)
+    top5_predictions = Column(JSON, nullable=True)
+
+    # Detection predictions
+    predicted_boxes = Column(JSON, nullable=True)
+
+    # Segmentation predictions
+    predicted_mask_path = Column(String(500), nullable=True)
+
+    # Pose predictions
+    predicted_keypoints = Column(JSON, nullable=True)
+
+    # Performance
+    inference_time_ms = Column(Float, nullable=False)
+    preprocessing_time_ms = Column(Float, default=0.0)
+    postprocessing_time_ms = Column(Float, default=0.0)
+
+    # Visualization
+    visualization_path = Column(String(500), nullable=True)
+
+    # Extra data
+    extra_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    inference_job = relationship("InferenceJob", back_populates="results")
     job = relationship("TrainingJob")

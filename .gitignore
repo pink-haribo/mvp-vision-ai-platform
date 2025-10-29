@@ -47,9 +47,9 @@ nul
 .pytest_cache/
 .coverage
 htmlcov/
-test_*.py
+tests/test_*.py
+tests/**/test_*.py
 test_*.json
-**/test_*.py
 **/test_*.json
 
 # Logs

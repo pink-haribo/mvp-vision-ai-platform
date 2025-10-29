@@ -296,6 +296,43 @@ class MetricsResult:
     metrics: Dict[str, float] = field(default_factory=dict)
 
 
+@dataclass
+class InferenceResult:
+    """
+    Single image inference result (task-agnostic).
+
+    Supports all task types with optional fields.
+    Adapters populate only relevant fields for their task.
+    """
+    image_path: str
+    image_name: str
+    task_type: TaskType
+
+    # Classification fields
+    predicted_label: Optional[str] = None
+    predicted_label_id: Optional[int] = None
+    confidence: Optional[float] = None
+    top5_predictions: Optional[List[Dict[str, Any]]] = None
+
+    # Detection fields
+    predicted_boxes: Optional[List[Dict[str, Any]]] = None
+
+    # Segmentation fields
+    predicted_mask: Optional[Any] = None  # np.ndarray or torch.Tensor
+    predicted_mask_path: Optional[str] = None
+
+    # Pose estimation fields
+    predicted_keypoints: Optional[List[Dict[str, Any]]] = None
+
+    # Performance metrics
+    inference_time_ms: float = 0.0
+    preprocessing_time_ms: float = 0.0
+    postprocessing_time_ms: float = 0.0
+
+    # Extra data for task-specific information
+    extra_data: Optional[Dict[str, Any]] = None
+
+
 class TrainingAdapter(ABC):
     """
     Base adapter for training frameworks.
@@ -680,6 +717,132 @@ class TrainingAdapter(ABC):
             str: Path to saved checkpoint
         """
         pass
+
+    # ========== Inference Methods ==========
+
+    @abstractmethod
+    def load_checkpoint(
+        self,
+        checkpoint_path: str,
+        inference_mode: bool = True,
+        device: Optional[str] = None
+    ) -> None:
+        """
+        Load checkpoint for inference or training resume.
+
+        This method loads model weights and optionally optimizer/scheduler state.
+        For inference, only model weights are loaded and model is set to eval mode.
+
+        Args:
+            checkpoint_path: Path to checkpoint file (.pth, .pt, etc.)
+            inference_mode: If True, load for inference (eval mode, no optimizer)
+                           If False, load for training resume (restore full state)
+            device: Device to load model on ('cuda', 'cpu'), auto-detect if None
+
+        Raises:
+            FileNotFoundError: If checkpoint file doesn't exist
+            RuntimeError: If checkpoint format is incompatible
+
+        Example:
+            # For inference
+            adapter.load_checkpoint('best.pth', inference_mode=True)
+
+            # For training resume
+            adapter.load_checkpoint('epoch_10.pth', inference_mode=False)
+        """
+        pass
+
+    @abstractmethod
+    def preprocess_image(self, image_path: str) -> Any:
+        """
+        Preprocess single image for inference.
+
+        Applies same preprocessing as validation (resize, normalize, etc.)
+        but for a single image without labels.
+
+        Args:
+            image_path: Path to image file
+
+        Returns:
+            Preprocessed tensor/array ready for model input
+            Format depends on framework (torch.Tensor, np.ndarray, etc.)
+
+        Example:
+            tensor = adapter.preprocess_image('image.jpg')
+            # Returns: torch.Tensor with shape (1, 3, H, W)
+        """
+        pass
+
+    @abstractmethod
+    def infer_single(self, image_path: str) -> InferenceResult:
+        """
+        Run inference on a single image.
+
+        Core inference method - label-agnostic.
+        Used by both TestRunner (with labels) and InferenceRunner (without labels).
+
+        Args:
+            image_path: Path to image file
+
+        Returns:
+            InferenceResult with task-specific predictions
+
+        Example:
+            # Classification
+            result = adapter.infer_single('cat.jpg')
+            # result.predicted_label = 'cat'
+            # result.confidence = 0.95
+
+            # Detection
+            result = adapter.infer_single('street.jpg')
+            # result.predicted_boxes = [
+            #     {'class_id': 0, 'bbox': [x, y, w, h], 'confidence': 0.9},
+            #     ...
+            # ]
+        """
+        pass
+
+    def infer_batch(
+        self,
+        image_paths: List[str],
+        batch_size: int = 32
+    ) -> List[InferenceResult]:
+        """
+        Run batch inference on multiple images.
+
+        Default implementation uses infer_single() in batches.
+        Subclasses can override for optimized batching (e.g., DataLoader).
+
+        Args:
+            image_paths: List of image file paths
+            batch_size: Batch size for inference (for progress display)
+
+        Returns:
+            List of InferenceResult, one per image
+
+        Example:
+            results = adapter.infer_batch(['img1.jpg', 'img2.jpg', 'img3.jpg'])
+            for result in results:
+                print(f"{result.image_name}: {result.predicted_label}")
+        """
+        results = []
+        total = len(image_paths)
+
+        for i in range(0, total, batch_size):
+            batch = image_paths[i:i+batch_size]
+            batch_end = min(i + batch_size, total)
+
+            print(f"[Inference] Processing images {i+1}-{batch_end}/{total}")
+
+            for img_path in batch:
+                try:
+                    result = self.infer_single(img_path)
+                    results.append(result)
+                except Exception as e:
+                    print(f"[WARNING] Failed to process {img_path}: {e}")
+                    # Continue with next image
+
+        return results
 
     # ========== Config Builder Methods ==========
 
