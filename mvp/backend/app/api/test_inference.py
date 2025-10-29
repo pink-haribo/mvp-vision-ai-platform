@@ -6,11 +6,13 @@ Provides endpoints for:
 - Inference: Running predictions on unlabeled data
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import json
+import shutil
+import uuid
 from pathlib import Path
 from datetime import datetime
 
@@ -689,6 +691,60 @@ async def get_inference_image(
 
 
 # ========== Quick Inference Endpoints (for UI) ==========
+
+@router.post("/inference/upload-image")
+async def upload_inference_image(
+    file: UploadFile = File(...),
+):
+    """
+    Upload an image for inference.
+
+    Saves the image to a temporary location and returns the server path.
+
+    Args:
+        file: Image file to upload
+
+    Returns:
+        Dict with server_path
+    """
+    try:
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith('image/'):
+            raise HTTPException(
+                status_code=400,
+                detail="File must be an image"
+            )
+
+        # Create temp directory for inference images
+        from app.core.config import settings
+        temp_dir = Path(settings.UPLOAD_DIR) / "inference_temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate unique filename
+        file_extension = Path(file.filename or "image.jpg").suffix
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        file_path = temp_dir / unique_filename
+
+        # Save file
+        with file_path.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        return {
+            "server_path": str(file_path.absolute()),
+            "filename": file.filename
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Image upload failed: {e}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload image: {str(e)}"
+        )
+
 
 @router.post("/inference/quick")
 async def quick_inference(

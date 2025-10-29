@@ -27,8 +27,10 @@ interface UploadedImage {
   id: string
   file: File
   preview: string
+  serverPath?: string  // Server path after upload
   status: 'pending' | 'processing' | 'completed' | 'failed'
   result?: any
+  error?: string
 }
 
 interface Checkpoint {
@@ -134,12 +136,39 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
         ))
 
         try {
-          // Call quick inference API
+          // Step 1: Upload image to server if not already uploaded
+          let serverPath = image.serverPath
+          if (!serverPath) {
+            const formData = new FormData()
+            formData.append('file', image.file)
+
+            const uploadResponse = await fetch(
+              `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/upload-image`,
+              {
+                method: 'POST',
+                body: formData
+              }
+            )
+
+            if (!uploadResponse.ok) {
+              throw new Error('Failed to upload image')
+            }
+
+            const uploadData = await uploadResponse.json()
+            serverPath = uploadData.server_path
+
+            // Store server path
+            setImages(prev => prev.map(img =>
+              img.id === image.id ? { ...img, serverPath } : img
+            ))
+          }
+
+          // Step 2: Run inference with server path
           const response = await fetch(
             `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/quick?` + new URLSearchParams({
               training_job_id: jobId.toString(),
               checkpoint_path: selectedCheckpoint.path,
-              image_path: image.preview, // TODO: Upload image to server first
+              image_path: serverPath,
               confidence_threshold: confidenceThreshold.toString(),
               iou_threshold: iouThreshold.toString(),
               max_detections: maxDetections.toString(),
@@ -155,12 +184,14 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
               img.id === image.id ? { ...img, status: 'completed', result } : img
             ))
           } else {
-            throw new Error('Inference failed')
+            const errorData = await response.json().catch(() => ({}))
+            throw new Error(errorData.detail || 'Inference failed')
           }
         } catch (error) {
           console.error('Inference error:', error)
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error'
           setImages(prev => prev.map(img =>
-            img.id === image.id ? { ...img, status: 'failed' } : img
+            img.id === image.id ? { ...img, status: 'failed', error: errorMessage } : img
           ))
         }
       }
@@ -410,6 +441,11 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                       {image.status === 'failed' && '✗'}
                     </span>
                   </div>
+                  {image.error && image.status === 'failed' && (
+                    <p className="text-xs text-red-600 mt-1 truncate" title={image.error}>
+                      {image.error}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
