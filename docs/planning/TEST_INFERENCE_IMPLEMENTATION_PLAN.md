@@ -140,82 +140,19 @@ class InferenceResult:
     postprocessing_time_ms: float = 0.0
 ```
 
-### 4. Test vs Inference: Separation of Concerns
+### 4. Separation of Concerns
 
-**Key Insight:** All major frameworks (TensorFlow, PyTorch, YOLO, HuggingFace) clearly separate `evaluate()` and `predict()`.
+**Test Run** (with ground truth):
+- Uses labeled dataset
+- Computes metrics (accuracy, mAP, IoU, etc.)
+- Generates confusion matrix, per-class metrics
+- Stores results in `test_runs` and `test_image_results` tables
 
-#### Industry Standard Pattern
-
-```python
-# TensorFlow/Keras
-model.evaluate(test_dataset)  # With labels → metrics
-model.predict(images)          # Without labels → predictions
-
-# Ultralytics YOLO
-model.val(data='coco.yaml')    # With labels → mAP, metrics
-model.predict('image.jpg')     # Without labels → boxes
-
-# HuggingFace
-trainer.evaluate(dataset)      # With labels → metrics
-pipeline(images)               # Without labels → predictions
-```
-
-#### Our Design: Hybrid Approach
-
-**Core Inference Engine (Shared):**
-```python
-class TrainingAdapter(ABC):
-    @abstractmethod
-    def infer_single(image_path) -> InferenceResult:
-        """Pure inference logic - label-agnostic."""
-        pass
-```
-
-**Use Case Runners (Separated):**
-```python
-class TestRunner:
-    """Test with LABELED data → compute metrics."""
-    def run_test(dataset_path):
-        # 1. Load labeled dataset
-        # 2. Run inference (using adapter.infer_single)
-        # 3. Compute metrics (compare with labels)
-        # 4. Save to test_runs table
-        pass
-
-class InferenceRunner:
-    """Inference with UNLABELED data → visualize."""
-    def run_inference(image_paths):
-        # 1. Run inference (using adapter.infer_single)
-        # 2. Generate visualizations
-        # 3. Save to inference_jobs table
-        pass
-```
-
-#### Comparison Table
-
-| Aspect | Test | Inference |
-|--------|------|-----------|
-| **Purpose** | Model evaluation | Production prediction |
-| **Input** | Labeled dataset | Unlabeled images |
-| **Output** | Metrics (quantitative) | Predictions (qualitative) |
-| **Ground Truth** | Required | Not needed |
-| **Use Case** | Post-training evaluation | Real-time service, batch processing |
-| **Database** | `test_runs` + metrics | `inference_jobs` + visualizations |
-| **UI Focus** | Confusion matrix, error analysis | Drag-and-drop, real-time feedback |
-
-#### Connection to Export System
-
-```
-Training (PyTorch) → Test (validate accuracy) → Export (ONNX/TensorRT) → Inference (production)
-                                                                           ↓
-                                                                      실시간 서비스
-                                                                      엣지 디바이스
-```
-
-**Key Points:**
-- Test uses **original PyTorch model** for accuracy validation
-- Exported model is used for **Inference only** (production deployment)
-- Compare accuracy before/after export (optional test with exported model)
+**Inference** (no ground truth):
+- Uses unlabeled images
+- No metrics computation
+- Only predictions and visualizations
+- Stores results in `inference_jobs` and `inference_results` tables
 
 ---
 

@@ -122,7 +122,31 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
                     "after": "Automated: 10,000 products/hour with 95% accuracy"
                 }
             }
-        ]
+        ],
+
+        # Training modes
+        "training_modes": {
+            "supported": ["full_training", "fine_tuning"],
+            "recommended": "fine_tuning",
+            "default": "fine_tuning",
+            "notes": "Fine-tuning is highly recommended for most use cases. Full training only for large-scale datasets (100K+ images).",
+            "requirements": {
+                "full_training": {
+                    "min_dataset_size": 100000,
+                    "min_images": "100K+",
+                    "gpu_recommendation": "1x A100 or 4x V100",
+                    "estimated_time": "3-7 days",
+                    "notes": "Only recommended for large-scale datasets. Requires significant computational resources."
+                },
+                "fine_tuning": {
+                    "min_dataset_size": 1000,
+                    "min_images": "1K-100K",
+                    "gpu_recommendation": "1x V100 or RTX 3090",
+                    "estimated_time": "2-24 hours",
+                    "notes": "Works well with limited data. Most cost-effective approach."
+                }
+            }
+        }
     },
 
     "tf_efficientnetv2_s.in1k": {

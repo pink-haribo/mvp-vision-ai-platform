@@ -359,6 +359,9 @@ class InferenceResult:
     # Pose estimation fields
     predicted_keypoints: Optional[List[Dict[str, Any]]] = None
 
+    # Super-resolution fields
+    upscaled_image_path: Optional[str] = None
+
     # Performance metrics
     inference_time_ms: float = 0.0
     preprocessing_time_ms: float = 0.0

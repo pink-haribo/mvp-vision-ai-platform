@@ -13,6 +13,8 @@ from typing import List, Optional
 import json
 import shutil
 import uuid
+import os
+import subprocess
 from pathlib import Path
 from datetime import datetime
 
@@ -756,8 +758,8 @@ async def upload_inference_image(
 @router.post("/inference/quick")
 async def quick_inference(
     training_job_id: int,
-    checkpoint_path: str,
     image_path: str,
+    checkpoint_path: Optional[str] = None,
     confidence_threshold: float = 0.25,
     iou_threshold: float = 0.45,
     max_detections: int = 100,
@@ -774,8 +776,8 @@ async def quick_inference(
 
     Args:
         training_job_id: Training job ID
-        checkpoint_path: Path to checkpoint file
         image_path: Path to image file
+        checkpoint_path: Optional path to checkpoint file. If None, uses pretrained weights.
         confidence_threshold: Confidence threshold for detection/segmentation
         iou_threshold: IoU threshold for NMS
         max_detections: Maximum number of detections
@@ -823,7 +825,6 @@ async def quick_inference(
             str(training_venv_python),
             str(inference_script),
             "--training_job_id", str(training_job_id),
-            "--checkpoint_path", checkpoint_path,
             "--image_path", image_path,
             "--framework", job.framework,
             "--model_name", job.model_name,
@@ -837,12 +838,30 @@ async def quick_inference(
             "--top_k", str(top_k)
         ]
 
+        # Add checkpoint_path only if provided (otherwise use pretrained)
+        if checkpoint_path:
+            # Convert Docker container path to host path if needed
+            # Docker uses /workspace/output, but we need the actual host path
+            if checkpoint_path.startswith('/workspace/output/'):
+                # Replace container path with host path
+                checkpoint_filename = checkpoint_path.replace('/workspace/output/', '')
+                host_checkpoint_path = os.path.join(job.output_dir, checkpoint_filename)
+                print(f"[INFO] Converted checkpoint path: {checkpoint_path} -> {host_checkpoint_path}")
+                cmd.extend(["--checkpoint_path", host_checkpoint_path])
+            else:
+                # Use path as-is (already host path)
+                cmd.extend(["--checkpoint_path", checkpoint_path])
+        else:
+            # Use pretrained weights - script will detect missing checkpoint_path
+            print(f"[INFO] Using pretrained weights for inference (no checkpoint provided)")
+            cmd.append("--use_pretrained")
+
         # Run inference subprocess
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=30  # 30 second timeout
+            timeout=120  # 120 second timeout (allow model download time)
         )
 
         if result.returncode != 0:
@@ -859,6 +878,22 @@ async def quick_inference(
             output_lines = result.stdout.strip().split('\n')
             json_line = output_lines[-1]
             result_dict = json.loads(json_line)
+
+            print(f"[DEBUG] Inference result keys: {result_dict.keys()}")
+            print(f"[DEBUG] Task type: {result_dict.get('task_type')}")
+            print(f"[DEBUG] Has upscaled_image_path: {result_dict.get('upscaled_image_path')}")
+
+            # Convert upscaled_image_path to URL if present (for super-resolution)
+            if result_dict.get('upscaled_image_path'):
+                upscaled_path = Path(result_dict['upscaled_image_path'])
+                filename = upscaled_path.name
+                # Convert to API URL (without /api/v1 prefix - frontend will add it)
+                result_dict['upscaled_image_url'] = f"/test_inference/result_image/{training_job_id}/{filename}"
+                print(f"[DEBUG] Generated upscaled_image_url: {result_dict['upscaled_image_url']}")
+            else:
+                print(f"[DEBUG] No upscaled_image_path found in result")
+
+            print(f"[DEBUG] Final result_dict keys: {result_dict.keys()}")
             return result_dict
         except json.JSONDecodeError as e:
             print(f"[ERROR] Failed to parse inference output: {result.stdout}")
@@ -870,7 +905,7 @@ async def quick_inference(
     except subprocess.TimeoutExpired:
         raise HTTPException(
             status_code=500,
-            detail="Inference timeout (30s)"
+            detail="Inference timeout (120s)"
         )
     except HTTPException:
         raise
@@ -928,3 +963,53 @@ async def cleanup_session(session_id: str):
             status_code=500,
             detail=f"Failed to clean up session: {str(e)}"
         )
+
+
+@router.get("/result_image/{training_job_id}/{filename}")
+async def get_result_image(
+    training_job_id: int,
+    filename: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Serve inference result images (e.g., upscaled images from super-resolution).
+
+    Args:
+        training_job_id: Training job ID
+        filename: Image filename
+        db: Database session
+
+    Returns:
+        FileResponse with the image
+    """
+    from fastapi.responses import FileResponse
+
+    # Get training job
+    job = db.query(models.TrainingJob).filter(
+        models.TrainingJob.id == training_job_id
+    ).first()
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Training job {training_job_id} not found")
+
+    # Construct image path
+    inference_results_dir = Path(job.output_dir) / "inference_results"
+    image_path = inference_results_dir / filename
+
+    # Security check: ensure the file is within inference_results directory
+    try:
+        image_path = image_path.resolve()
+        if not str(image_path).startswith(str(inference_results_dir.resolve())):
+            raise HTTPException(status_code=403, detail="Access denied")
+    except Exception:
+        raise HTTPException(status_code=403, detail="Invalid file path")
+
+    # Check if file exists
+    if not image_path.exists() or not image_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Image not found: {filename}")
+
+    return FileResponse(
+        path=str(image_path),
+        media_type="image/png",
+        filename=filename
+    )

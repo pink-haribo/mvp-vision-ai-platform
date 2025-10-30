@@ -211,12 +211,12 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
     # Super-Resolution
     # ========================================
 
-    "caidas/swin2sr-classicalsr-x2-64": {
+    "caidas/swin2SR-classical-sr-x2-64": {
         "display_name": "Swin2SR (2x Super-Resolution)",
         "description": "Image restoration and super-resolution - 2x upscaling with artifact removal",
         "framework": "huggingface",
         "task_type": "super_resolution",
-        "model_id": "caidas/swin2sr-classicalsr-x2-64",
+        "model_id": "caidas/swin2SR-classical-sr-x2-64",
         "params": "11.9M",
         "input_size": 512,
         "upscale_factor": 2,
@@ -287,12 +287,12 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
     # Additional Models (x4 upscaling variant)
     # ========================================
 
-    "caidas/swin2sr-classicalsr-x4-64": {
+    "caidas/swin2SR-classical-sr-x4-64": {
         "display_name": "Swin2SR (4x Super-Resolution)",
         "description": "Image restoration and super-resolution - 4x upscaling with artifact removal",
         "framework": "huggingface",
         "task_type": "super_resolution",
-        "model_id": "caidas/swin2sr-classicalsr-x4-64",
+        "model_id": "caidas/swin2SR-classical-sr-x4-64",
         "params": "11.9M",
         "input_size": 256,
         "upscale_factor": 4,

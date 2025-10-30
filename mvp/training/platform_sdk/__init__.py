@@ -10,6 +10,7 @@ from .base import (
     DatasetFormat,
     ConfigSchema,
     ConfigField,
+    InferenceResult,
 )
 
 __version__ = "0.1.0"
@@ -23,4 +24,5 @@ __all__ = [
     "DatasetFormat",
     "ConfigSchema",
     "ConfigField",
+    "InferenceResult",
 ]

@@ -80,7 +80,7 @@ export default function ModelGuideDrawer({
       setError(null)
 
       const response = await fetch(
-        `http://localhost:8000/api/v1/models/${framework}/${modelName}/guide`
+        `${process.env.NEXT_PUBLIC_API_URL}/models/${framework}/${modelName}/guide`
       )
 
       if (!response.ok) {

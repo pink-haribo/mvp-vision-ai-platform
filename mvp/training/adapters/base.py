@@ -16,6 +16,7 @@ class TaskType(Enum):
     SEMANTIC_SEGMENTATION = "semantic_segmentation"
     POSE_ESTIMATION = "pose_estimation"
     DEPTH_ESTIMATION = "depth_estimation"
+    SUPER_RESOLUTION = "super_resolution"
 
     # Vision-Language
     IMAGE_CAPTIONING = "image_captioning"
@@ -49,6 +50,7 @@ TASK_PRIMARY_METRICS = {
     TaskType.INSTANCE_SEGMENTATION: 'mAP50',
     TaskType.SEMANTIC_SEGMENTATION: 'miou',
     TaskType.POSE_ESTIMATION: 'pck',
+    TaskType.SUPER_RESOLUTION: 'psnr',
 }
 
 
@@ -150,6 +152,33 @@ TASK_STANDARD_METRICS = {
             format='percent',
             higher_is_better=True,
             description='Dice similarity coefficient'
+        ),
+        'train_loss': MetricDefinition(
+            label='Train Loss',
+            format='float',
+            higher_is_better=False,
+            description='Training loss'
+        ),
+        'val_loss': MetricDefinition(
+            label='Validation Loss',
+            format='float',
+            higher_is_better=False,
+            description='Validation loss'
+        ),
+    },
+
+    TaskType.SUPER_RESOLUTION: {
+        'psnr': MetricDefinition(
+            label='PSNR',
+            format='float',
+            higher_is_better=True,
+            description='Peak Signal-to-Noise Ratio in dB'
+        ),
+        'ssim': MetricDefinition(
+            label='SSIM',
+            format='float',
+            higher_is_better=True,
+            description='Structural Similarity Index'
         ),
         'train_loss': MetricDefinition(
             label='Train Loss',

@@ -628,12 +628,11 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
           </div>
         )}
 
-        {/* Tabs - Show after training starts */}
-        {job.status !== 'pending' && (
-          <>
-            {/* Tab Navigation - Sticky */}
-            <div className="sticky top-0 z-20 border-b border-gray-200 bg-white px-6 shadow-sm">
-              <div className="flex space-x-8">
+        {/* Tabs - Always show */}
+        <>
+          {/* Tab Navigation - Sticky */}
+          <div className="sticky top-0 z-20 border-b border-gray-200 bg-white px-6 shadow-sm">
+            <div className="flex space-x-8">
                 <button
                   onClick={() => setActiveTab('metrics')}
                   className={cn(
@@ -1082,7 +1081,6 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
               )}
             </div>
           </>
-        )}
       </div>
 
       {/* Resume Dialog */}

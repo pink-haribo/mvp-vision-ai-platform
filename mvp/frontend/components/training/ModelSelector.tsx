@@ -21,13 +21,16 @@ const FILTER_OPTIONS = {
   framework: [
     { value: 'timm', label: 'timm' },
     { value: 'ultralytics', label: 'Ultralytics' },
+    { value: 'huggingface', label: 'HuggingFace' },
   ],
   taskType: [
     { value: 'image_classification', label: '이미지 분류' },
     { value: 'object_detection', label: '객체 탐지' },
     { value: 'instance_segmentation', label: '인스턴스 분할' },
+    { value: 'semantic_segmentation', label: '시맨틱 분할' },
     { value: 'pose_estimation', label: '포즈 추정' },
     { value: 'zero_shot_detection', label: '제로샷 탐지' },
+    { value: 'super_resolution', label: '초해상화' },
   ],
 }
 

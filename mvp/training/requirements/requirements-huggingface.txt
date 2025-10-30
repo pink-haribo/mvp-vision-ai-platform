@@ -12,7 +12,7 @@
 transformers==4.48.0
 accelerate==0.25.0
 datasets==2.16.0
-huggingface-hub==0.20.2
+huggingface-hub>=0.24.0
 
 # ========== Vision Processing ==========
 opencv-python==4.8.1.78

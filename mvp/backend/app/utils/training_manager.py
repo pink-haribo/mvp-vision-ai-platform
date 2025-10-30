@@ -128,8 +128,28 @@ class TrainingManager:
         dataset_path = os.path.abspath(job.dataset_path)
         output_dir = os.path.abspath(job.output_dir)
 
-        # Ensure output directory exists
+        # Get DB path for volume mount
+        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .../mvp/backend
+        mvp_dir = os.path.dirname(backend_dir)  # .../mvp
+        project_root = os.path.dirname(mvp_dir)  # .../mvp-vision-ai-platform
+        db_file_path = os.path.join(project_root, "mvp", "data", "db", "vision_platform.db")
+        db_dir = os.path.dirname(db_file_path)
+
+        # Ensure directories exist
         os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(db_dir, exist_ok=True)
+
+        # Clean up any existing container with same name
+        container_name = f"training-job-{job_id}"
+        try:
+            print(f"[INFO] Cleaning up existing container: {container_name}")
+            subprocess.run(
+                ["docker", "rm", "-f", container_name],
+                capture_output=True,
+                timeout=10
+            )
+        except Exception as e:
+            print(f"[DEBUG] No existing container to remove: {e}")
 
         # Build Docker command
         docker_cmd = [
@@ -146,12 +166,15 @@ class TrainingManager:
         docker_cmd.extend([
             "-v", f"{dataset_path}:/workspace/dataset:ro",  # Read-only
             "-v", f"{output_dir}:/workspace/output:rw",     # Read-write
+            "-v", f"{db_file_path}:/opt/data/db/vision_platform.db:rw",  # Database file
         ])
 
         # Environment variables
         docker_cmd.extend([
             "-e", f"JOB_ID={job_id}",
             "-e", "PYTHONUNBUFFERED=1",
+            "-e", "MLFLOW_TRACKING_URI=http://localhost:5000",  # Use host's MLflow server (host network mode)
+            "-e", "DATABASE_URL=sqlite:////opt/data/db/vision_platform.db",  # Database path in container
         ])
 
         # Network (use host for MLflow tracking)
@@ -598,6 +621,26 @@ class TrainingManager:
         db = SessionLocal()
         try:
             process = self.processes[job_id]
+
+            # Stop Docker container first
+            container_name = f"training-job-{job_id}"
+            try:
+                print(f"[INFO] Stopping Docker container: {container_name}")
+                subprocess.run(
+                    ["docker", "stop", container_name],
+                    capture_output=True,
+                    timeout=30
+                )
+                print(f"[INFO] Removing Docker container: {container_name}")
+                subprocess.run(
+                    ["docker", "rm", "-f", container_name],
+                    capture_output=True,
+                    timeout=10
+                )
+            except Exception as e:
+                print(f"[WARNING] Failed to stop/remove Docker container: {e}")
+
+            # Terminate the subprocess
             process.terminate()
 
             # Wait for termination (with timeout)

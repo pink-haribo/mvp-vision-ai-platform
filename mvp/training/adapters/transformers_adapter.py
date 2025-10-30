@@ -134,7 +134,19 @@ class TransformersAdapter(TrainingAdapter):
 
     def _prepare_super_resolution_model(self):
         """Prepare model for super-resolution."""
-        raise NotImplementedError("Super-resolution not yet implemented in Phase 2")
+        from transformers import AutoImageProcessor, Swin2SRForImageSuperResolution
+
+        model_name = self.model_config.model_name
+
+        # Load processor
+        self.processor = AutoImageProcessor.from_pretrained(model_name)
+
+        # Load model
+        self.model = Swin2SRForImageSuperResolution.from_pretrained(model_name)
+
+        print(f"  - Processor: {model_name}")
+        print(f"  - Model: {type(self.model).__name__}")
+        print(f"  - Task: Super-Resolution")
 
     def prepare_dataset(self) -> None:
         """
@@ -446,7 +458,8 @@ class TransformersAdapter(TrainingAdapter):
         os.makedirs(checkpoint_dir, exist_ok=True)
 
         self.model.save_pretrained(checkpoint_dir)
-        self.processor.save_pretrained(checkpoint_dir)
+        if self.processor is not None:
+            self.processor.save_pretrained(checkpoint_dir)
 
         print(f"[CHECKPOINT] Saved to {checkpoint_dir}")
 
@@ -455,31 +468,68 @@ class TransformersAdapter(TrainingAdapter):
             best_dir = os.path.join(self.output_dir, "best_model")
             os.makedirs(best_dir, exist_ok=True)
             self.model.save_pretrained(best_dir)
-            self.processor.save_pretrained(best_dir)
+            if self.processor is not None:
+                self.processor.save_pretrained(best_dir)
             print(f"[CHECKPOINT] Best model saved to {best_dir}")
 
         return checkpoint_dir
 
-    def load_checkpoint(self, checkpoint_path: str) -> None:
+    def load_checkpoint(self, checkpoint_path: str, inference_mode: bool = False) -> None:
         """
         Load model checkpoint.
 
         Args:
             checkpoint_path: Path to checkpoint directory
+            inference_mode: Whether loading for inference (affects error handling)
         """
         from transformers import AutoModelForImageClassification, AutoImageProcessor
 
         print(f"[CHECKPOINT] Loading from {checkpoint_path}")
 
         self.model = AutoModelForImageClassification.from_pretrained(checkpoint_path)
-        self.processor = AutoImageProcessor.from_pretrained(checkpoint_path)
+
+        try:
+            self.processor = AutoImageProcessor.from_pretrained(checkpoint_path)
+        except Exception as e:
+            print(f"[WARNING] Could not load processor: {e}")
+            if not inference_mode:
+                raise
+            # For inference mode, try to use existing processor or transform
+            if hasattr(self, 'processor') and self.processor is not None:
+                print(f"[INFO] Using existing processor")
+            elif hasattr(self, 'transform'):
+                print(f"[INFO] Using manual transforms")
+            else:
+                print(f"[WARNING] No processor or transform available")
 
         device = self.training_config.device
         self.model = self.model.to(device)
 
         print(f"[CHECKPOINT] Loaded successfully")
 
-    def inference(self, image_path: str) -> InferenceResult:
+    def preprocess_image(self, image_path: str) -> Dict[str, torch.Tensor]:
+        """
+        Preprocess single image for inference.
+
+        Args:
+            image_path: Path to image file
+
+        Returns:
+            Preprocessed inputs dict with tensors
+        """
+        # Load image
+        image = Image.open(image_path).convert("RGB")
+
+        # Process using HF processor
+        inputs = self.processor(image, return_tensors="pt")
+
+        # Move to device
+        device = next(self.model.parameters()).device
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        return inputs
+
+    def infer_single(self, image_path: str) -> InferenceResult:
         """
         Run inference on a single image.
 
@@ -489,6 +539,17 @@ class TransformersAdapter(TrainingAdapter):
         Returns:
             InferenceResult with predictions
         """
+        task_type = self.model_config.task_type
+
+        if task_type == TaskType.IMAGE_CLASSIFICATION:
+            return self._infer_classification(image_path)
+        elif task_type == TaskType.SUPER_RESOLUTION:
+            return self._infer_super_resolution(image_path)
+        else:
+            raise ValueError(f"Unsupported task type for inference: {task_type}")
+
+    def _infer_classification(self, image_path: str) -> InferenceResult:
+        """Run inference for image classification."""
         import time
 
         # Load image
@@ -541,6 +602,82 @@ class TransformersAdapter(TrainingAdapter):
             preprocessing_time_ms=preprocessing_time,
             postprocessing_time_ms=postprocessing_time,
         )
+
+    def _infer_super_resolution(self, image_path: str) -> InferenceResult:
+        """Run inference for super-resolution."""
+        import time
+
+        # Load image
+        image = Image.open(image_path).convert("RGB")
+        original_size = image.size
+
+        # Preprocess
+        start_time = time.time()
+        inputs = self.processor(image, return_tensors="pt")
+        preprocessing_time = (time.time() - start_time) * 1000
+
+        # Move to device
+        device = next(self.model.parameters()).device
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        # Inference
+        self.model.eval()
+        start_time = time.time()
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        inference_time = (time.time() - start_time) * 1000
+
+        # Post-process (following official HuggingFace documentation)
+        start_time = time.time()
+
+        # Get reconstruction from output
+        output = outputs.reconstruction.data.squeeze().float().cpu().clamp_(0, 1).numpy()
+        # Move channel axis from first to last (CHW -> HWC)
+        output = np.moveaxis(output, source=0, destination=-1)
+        # Convert to uint8
+        output = (output * 255.0).round().astype(np.uint8)
+
+        # Create PIL Image
+        upscaled_image = Image.fromarray(output)
+        upscaled_size = upscaled_image.size
+
+        # Save upscaled image
+        inference_results_dir = os.path.join(self.output_dir, "inference_results")
+        os.makedirs(inference_results_dir, exist_ok=True)
+
+        # Generate output filename: original_name_upscaled.ext
+        base_name = os.path.splitext(os.path.basename(image_path))[0]
+        output_filename = f"{base_name}_upscaled.png"
+        upscaled_image_path = os.path.join(inference_results_dir, output_filename)
+        upscaled_image.save(upscaled_image_path)
+
+        postprocessing_time = (time.time() - start_time) * 1000
+
+        return InferenceResult(
+            image_path=image_path,
+            image_name=os.path.basename(image_path),
+            task_type=TaskType.SUPER_RESOLUTION,
+            predicted_label=f"Upscaled from {original_size} to {upscaled_size}",
+            confidence=1.0,  # Super-resolution doesn't have confidence
+            upscaled_image_path=upscaled_image_path,
+            inference_time_ms=inference_time,
+            preprocessing_time_ms=preprocessing_time,
+            postprocessing_time_ms=postprocessing_time,
+        )
+
+    def inference(self, image_path: str) -> InferenceResult:
+        """
+        Run inference on a single image.
+
+        This is an alias for infer_single() for backward compatibility.
+
+        Args:
+            image_path: Path to input image
+
+        Returns:
+            InferenceResult with predictions
+        """
+        return self.infer_single(image_path)
 
 
 class MLflowCallback:

@@ -17,7 +17,6 @@ sys.path.insert(0, str(project_root))
 
 def run_inference(
     training_job_id: int,
-    checkpoint_path: str,
     image_path: str,
     framework: str,
     model_name: str,
@@ -25,13 +24,15 @@ def run_inference(
     num_classes: int,
     dataset_path: str,
     output_dir: str,
+    checkpoint_path: str = None,
+    use_pretrained: bool = False,
     confidence_threshold: float = 0.25,
     iou_threshold: float = 0.45,
     max_detections: int = 100,
     top_k: int = 5
 ):
     """Run inference on a single image."""
-    from training.adapters.base import TaskType, ModelConfig, DatasetConfig, TrainingConfig, DatasetFormat
+    from platform_sdk import TaskType, ModelConfig, DatasetConfig, TrainingConfig, DatasetFormat
 
     # Create config objects
     model_config = ModelConfig(
@@ -76,6 +77,15 @@ def run_inference(
             output_dir=output_dir,
             job_id=training_job_id
         )
+    elif framework == "huggingface":
+        from training.adapters.transformers_adapter import TransformersAdapter
+        adapter = TransformersAdapter(
+            model_config=model_config,
+            dataset_config=dataset_config,
+            training_config=training_config,
+            output_dir=output_dir,
+            job_id=training_job_id
+        )
     else:
         raise ValueError(f"Unsupported framework: {framework}")
 
@@ -112,11 +122,19 @@ def run_inference(
             adapter.class_names = [str(i) for i in range(num_classes)] if num_classes else []
             print(f"[WARNING] data.yaml not found, using numeric class names")
 
-    # Load checkpoint
-    adapter.load_checkpoint(
-        checkpoint_path=checkpoint_path,
-        inference_mode=True
-    )
+    # Load checkpoint if provided, otherwise use pretrained weights
+    if checkpoint_path and not use_pretrained:
+        print(f"[INFO] Loading checkpoint from: {checkpoint_path}")
+        adapter.load_checkpoint(
+            checkpoint_path=checkpoint_path,
+            inference_mode=True
+        )
+    else:
+        print(f"[INFO] Using pretrained weights (no checkpoint loaded)")
+        # Model already has pretrained weights from prepare_model()
+        # Just set to eval mode
+        if hasattr(adapter.model, 'eval'):
+            adapter.model.eval()
 
     # Run inference
     results = adapter.infer_batch([image_path])
@@ -156,13 +174,19 @@ def run_inference(
         result_dict["predicted_keypoints"] = result.predicted_keypoints or []
         result_dict["num_persons"] = len(result.predicted_keypoints) if result.predicted_keypoints else 0
 
+    elif result.task_type == TaskType.SUPER_RESOLUTION:
+        result_dict["predicted_label"] = result.predicted_label
+        result_dict["confidence"] = result.confidence
+        result_dict["upscaled_image_path"] = result.upscaled_image_path
+
     return result_dict
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run quick inference")
     parser.add_argument("--training_job_id", type=int, required=True)
-    parser.add_argument("--checkpoint_path", type=str, required=True)
+    parser.add_argument("--checkpoint_path", type=str, default=None, help="Path to checkpoint file (optional, uses pretrained if not provided)")
+    parser.add_argument("--use_pretrained", action="store_true", help="Use pretrained weights instead of checkpoint")
     parser.add_argument("--image_path", type=str, required=True)
     parser.add_argument("--framework", type=str, required=True)
     parser.add_argument("--model_name", type=str, required=True)
@@ -180,7 +204,6 @@ if __name__ == "__main__":
     try:
         result = run_inference(
             training_job_id=args.training_job_id,
-            checkpoint_path=args.checkpoint_path,
             image_path=args.image_path,
             framework=args.framework,
             model_name=args.model_name,
@@ -188,6 +211,8 @@ if __name__ == "__main__":
             num_classes=args.num_classes,
             dataset_path=args.dataset_path,
             output_dir=args.output_dir,
+            checkpoint_path=args.checkpoint_path,
+            use_pretrained=args.use_pretrained,
             confidence_threshold=args.confidence_threshold,
             iou_threshold=args.iou_threshold,
             max_detections=args.max_detections,

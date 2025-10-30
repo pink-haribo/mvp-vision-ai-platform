@@ -359,12 +359,29 @@ async def get_validation_image(
     if not image_result.image_path:
         raise HTTPException(status_code=404, detail=f"Image path not available for result {image_result_id}")
 
+    # Get training job to get dataset_path
+    job = db.query(models.TrainingJob).filter(
+        models.TrainingJob.id == image_result.job_id
+    ).first()
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Training job {image_result.job_id} not found")
+
+    # Convert Docker container path to host path if needed
+    image_path_str = image_result.image_path
+    if image_path_str.startswith('/workspace/dataset/'):
+        # Replace container path with host path
+        relative_path = image_path_str.replace('/workspace/dataset/', '')
+        image_path = Path(job.dataset_path) / relative_path
+        print(f"[INFO] Converted image path: {image_path_str} -> {image_path}")
+    else:
+        image_path = Path(image_path_str)
+
     # Check if file exists
-    image_path = Path(image_result.image_path)
     if not image_path.exists():
         raise HTTPException(
             status_code=404,
-            detail=f"Image file not found: {image_result.image_path}"
+            detail=f"Image file not found: {image_path}"
         )
 
     # Determine media type based on extension
