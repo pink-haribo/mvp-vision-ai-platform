@@ -30,7 +30,7 @@ if [ ! -d "$PROJECT_ROOT/training" ]; then
 fi
 
 # Build base image
-echo -e "\n${GREEN}[1/3] Building base image...${NC}"
+echo -e "\n${GREEN}[1/4] Building base image...${NC}"
 docker build \
     -f "$SCRIPT_DIR/Dockerfile.base" \
     -t vision-platform-base:latest \
@@ -42,7 +42,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # Build timm image
-echo -e "\n${GREEN}[2/3] Building timm image...${NC}"
+echo -e "\n${GREEN}[2/4] Building timm image...${NC}"
 docker build \
     -f "$SCRIPT_DIR/Dockerfile.timm" \
     -t vision-platform-timm:latest \
@@ -54,7 +54,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # Build ultralytics image
-echo -e "\n${GREEN}[3/3] Building ultralytics image...${NC}"
+echo -e "\n${GREEN}[3/4] Building ultralytics image...${NC}"
 docker build \
     -f "$SCRIPT_DIR/Dockerfile.ultralytics" \
     -t vision-platform-ultralytics:latest \
@@ -62,6 +62,18 @@ docker build \
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}✗ ultralytics image build failed${NC}"
+    exit 1
+fi
+
+# Build huggingface image
+echo -e "\n${GREEN}[4/4] Building huggingface image...${NC}"
+docker build \
+    -f "$SCRIPT_DIR/Dockerfile.huggingface" \
+    -t vision-platform-huggingface:latest \
+    "$PROJECT_ROOT"
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}✗ huggingface image build failed${NC}"
     exit 1
 fi
 
@@ -79,6 +91,7 @@ echo -e "\n${BLUE}Image sizes:${NC}"
 docker images vision-platform-base:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
 docker images vision-platform-timm:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
 docker images vision-platform-ultralytics:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+docker images vision-platform-huggingface:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
 
 echo -e "\n${GREEN}Ready to use!${NC}"
 echo -e "${YELLOW}Test with: docker run --rm vision-platform-ultralytics:latest python -c 'from ultralytics import YOLOWorld; print(\"OK\")'${NC}"

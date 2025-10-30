@@ -27,6 +27,7 @@ class TrainingManager:
     IMAGE_MAP = {
         "timm": "vision-platform-timm:latest",
         "ultralytics": "vision-platform-ultralytics:latest",
+        "huggingface": "vision-platform-huggingface:latest",
     }
 
     def __init__(self, db: Session, execution_mode: Optional[ExecutionMode] = None):
