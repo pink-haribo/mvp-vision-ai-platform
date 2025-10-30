@@ -5,7 +5,7 @@ import sys
 import yaml
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
-from .base import TrainingAdapter, MetricsResult, TaskType, DatasetFormat, ConfigSchema, ConfigField
+from platform_sdk import TrainingAdapter, MetricsResult, TaskType, DatasetFormat, ConfigSchema, ConfigField
 
 
 class UltralyticsAdapter(TrainingAdapter):

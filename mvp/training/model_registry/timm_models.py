@@ -125,7 +125,7 @@ TIMM_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
         ]
     },
 
-    "efficientnetv2_s": {
+    "tf_efficientnetv2_s.in1k": {
         "display_name": "EfficientNetV2-Small",
         "description": "Modern efficient CNN - Best accuracy/speed trade-off with fast training",
         "params": "21.5M",

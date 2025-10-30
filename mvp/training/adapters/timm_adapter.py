@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from typing import List, Optional, Dict, Any
 
-from .base import TrainingAdapter, MetricsResult, TaskType, DatasetFormat, ConfigSchema, ConfigField
+from platform_sdk import TrainingAdapter, MetricsResult, TaskType, DatasetFormat, ConfigSchema, ConfigField
 
 
 class TimmAdapter(TrainingAdapter):

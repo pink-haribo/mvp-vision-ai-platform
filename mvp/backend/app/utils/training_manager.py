@@ -1,10 +1,11 @@
-"""Training process manager using subprocess."""
+"""Training process manager with Docker and subprocess support."""
 
 import json
 import os
 import subprocess
 import threading
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -13,27 +14,237 @@ from app.db import models
 from app.utils.metrics import update_training_metrics, clear_training_metrics, active_training_jobs
 
 
-class TrainingManager:
-    """Manage training subprocess and collect metrics."""
+class ExecutionMode(Enum):
+    """Training execution mode."""
+    SUBPROCESS = "subprocess"  # Local subprocess (MVP compatible)
+    DOCKER = "docker"          # Docker container
 
-    def __init__(self, db: Session):
+
+class TrainingManager:
+    """Manage training execution (subprocess or Docker)."""
+
+    # Docker image mapping
+    IMAGE_MAP = {
+        "timm": "vision-platform-timm:latest",
+        "ultralytics": "vision-platform-ultralytics:latest",
+    }
+
+    def __init__(self, db: Session, execution_mode: Optional[ExecutionMode] = None):
         """
         Initialize training manager.
 
         Args:
             db: Database session
+            execution_mode: Execution mode (auto-detect if None)
         """
         self.db = db
         self.processes = {}  # job_id -> process
 
+        # Auto-detect execution mode if not specified
+        if execution_mode is None:
+            execution_mode = self._detect_execution_mode()
+
+        self.execution_mode = execution_mode
+        print(f"[TrainingManager] Execution mode: {self.execution_mode.value}")
+
+    def _detect_execution_mode(self) -> ExecutionMode:
+        """
+        Auto-detect best execution mode.
+
+        Returns:
+            ExecutionMode.DOCKER if Docker available, else SUBPROCESS
+        """
+        # Check environment variable first
+        env_mode = os.getenv("TRAINING_EXECUTION_MODE", "auto").lower()
+
+        if env_mode == "subprocess":
+            return ExecutionMode.SUBPROCESS
+        elif env_mode == "docker":
+            return ExecutionMode.DOCKER
+
+        # Auto-detect: check if Docker is available
+        try:
+            result = subprocess.run(
+                ["docker", "version"],
+                capture_output=True,
+                check=True,
+                timeout=5
+            )
+            print("[TrainingManager] Docker detected, using Docker mode")
+            return ExecutionMode.DOCKER
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            print("[TrainingManager] Docker not available, using subprocess mode")
+            return ExecutionMode.SUBPROCESS
+
     def start_training(self, job_id: int, checkpoint_path: Optional[str] = None, resume: bool = False) -> bool:
         """
-        Start training for a job.
+        Start training using configured execution mode.
 
         Args:
             job_id: Training job ID
             checkpoint_path: Optional path to checkpoint to load
             resume: If True, resume training from checkpoint (restore optimizer/scheduler state)
+
+        Returns:
+            True if training started successfully
+        """
+        if self.execution_mode == ExecutionMode.SUBPROCESS:
+            return self._start_training_subprocess(job_id, checkpoint_path, resume)
+        elif self.execution_mode == ExecutionMode.DOCKER:
+            return self._start_training_docker(job_id, checkpoint_path, resume)
+        else:
+            raise ValueError(f"Unsupported execution mode: {self.execution_mode}")
+
+    def _start_training_docker(self, job_id: int, checkpoint_path: Optional[str] = None, resume: bool = False) -> bool:
+        """
+        Start training in Docker container.
+
+        Args:
+            job_id: Training job ID
+            checkpoint_path: Optional checkpoint path
+            resume: If True, resume from checkpoint
+
+        Returns:
+            True if training started successfully
+        """
+        # Get job from database
+        job = self.db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+        if not job:
+            return False
+
+        if job.status != "pending":
+            return False
+
+        # Select Docker image
+        image = self.IMAGE_MAP.get(job.framework)
+        if not image:
+            job.status = "failed"
+            job.error_message = f"No Docker image for framework: {job.framework}"
+            self.db.commit()
+            return False
+
+        # Get absolute paths
+        dataset_path = os.path.abspath(job.dataset_path)
+        output_dir = os.path.abspath(job.output_dir)
+
+        # Ensure output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Build Docker command
+        docker_cmd = [
+            "docker", "run",
+            "--rm",  # Remove container when done
+            "--name", f"training-job-{job_id}",
+        ]
+
+        # Add GPU support if available (Linux only)
+        if os.name != 'nt':  # Not Windows
+            docker_cmd.extend(["--gpus", "all"])
+
+        # Volume mounts
+        docker_cmd.extend([
+            "-v", f"{dataset_path}:/workspace/dataset:ro",  # Read-only
+            "-v", f"{output_dir}:/workspace/output:rw",     # Read-write
+        ])
+
+        # Environment variables
+        docker_cmd.extend([
+            "-e", f"JOB_ID={job_id}",
+            "-e", "PYTHONUNBUFFERED=1",
+        ])
+
+        # Network (use host for MLflow tracking)
+        docker_cmd.extend(["--network", "host"])
+
+        # Image
+        docker_cmd.append(image)
+
+        # Training command
+        docker_cmd.extend([
+            "python", "/opt/vision-platform/train.py",
+            "--framework", job.framework,
+            "--task_type", job.task_type,
+            "--model_name", job.model_name,
+            "--dataset_path", "/workspace/dataset",
+            "--dataset_format", job.dataset_format,
+            "--output_dir", "/workspace/output",
+            "--epochs", str(job.epochs),
+            "--batch_size", str(job.batch_size),
+            "--learning_rate", str(job.learning_rate),
+            "--job_id", str(job_id),
+        ])
+
+        # Add num_classes if set
+        if job.num_classes is not None:
+            docker_cmd.extend(["--num_classes", str(job.num_classes)])
+
+        # Add checkpoint args
+        if checkpoint_path:
+            docker_cmd.extend(["--checkpoint_path", checkpoint_path])
+            if resume:
+                docker_cmd.append("--resume")
+
+        try:
+            print(f"[DEBUG] Docker command: {' '.join(docker_cmd)}")
+
+            # Prepare environment
+            env = os.environ.copy()
+            env['PYTHONUNBUFFERED'] = '1'
+
+            # Start container
+            process = subprocess.Popen(
+                docker_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                encoding='utf-8',
+                errors='replace',
+                env=env,
+            )
+
+            # Store process
+            self.processes[job_id] = process
+
+            # Update job status
+            job.status = "running"
+            job.started_at = datetime.utcnow()
+            job.process_id = process.pid
+            self.db.commit()
+
+            # Update Prometheus metrics
+            active_training_jobs.inc()
+            update_training_metrics(
+                job_id=job.id,
+                model_name=job.model_name,
+                dataset_name=os.path.basename(job.dataset_path),
+                status="running",
+            )
+
+            # Start monitoring thread (same as subprocess)
+            monitor_thread = threading.Thread(
+                target=self._monitor_training,
+                args=(job_id, process),
+                daemon=True,
+            )
+            monitor_thread.start()
+
+            return True
+
+        except Exception as e:
+            job.status = "failed"
+            job.error_message = f"Failed to start Docker training: {str(e)}"
+            self.db.commit()
+            return False
+
+    def _start_training_subprocess(self, job_id: int, checkpoint_path: Optional[str] = None, resume: bool = False) -> bool:
+        """
+        Start training using subprocess (existing MVP implementation).
+
+        Args:
+            job_id: Training job ID
+            checkpoint_path: Optional checkpoint path
+            resume: If True, resume from checkpoint
 
         Returns:
             True if training started successfully

@@ -1,0 +1,14 @@
+# ============================================
+# Vision Platform - Ultralytics Framework
+# Includes YOLO models (v5, v8, v11, YOLO-World)
+# ============================================
+
+# Include base requirements
+-r requirements-base.txt
+
+# Ultralytics YOLO
+# NOTE: Version 8.3.0+ required for YOLOWorld support
+# This fixes the ImportError: cannot import name 'YOLOWorld'
+ultralytics>=8.3.0
+
+# Note: torch/torchvision automatically installed by ultralytics

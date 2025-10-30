@@ -13,15 +13,14 @@ sys.stderr.reconfigure(line_buffering=True)
 # Add training directory to path
 sys.path.insert(0, os.path.dirname(__file__))
 
-from adapters.base import (
+from platform_sdk import (
     ModelConfig,
     DatasetConfig,
     TrainingConfig,
     TaskType,
     DatasetFormat
 )
-from adapters.timm_adapter import TimmAdapter
-from adapters.ultralytics_adapter import UltralyticsAdapter
+from adapters import ADAPTER_REGISTRY, TimmAdapter, UltralyticsAdapter
 
 # Configure MLflow tracking URI
 # Use MLflow server instead of local file storage
@@ -29,13 +28,6 @@ os.environ.setdefault("MLFLOW_TRACKING_URI", "http://localhost:5000")
 os.environ.setdefault("MLFLOW_S3_ENDPOINT_URL", "http://localhost:9000")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "minioadmin")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "minioadmin")
-
-# Adapter registry
-ADAPTER_REGISTRY = {
-    'timm': TimmAdapter,
-    'ultralytics': UltralyticsAdapter,
-    # 'transformers': TransformersAdapter,  # TODO: Implement
-}
 
 
 def parse_args():
