@@ -861,6 +861,7 @@ async def quick_inference(
             cmd,
             capture_output=True,
             text=True,
+            encoding='utf-8',  # Fix Windows cp949 encoding issue
             timeout=120  # 120 second timeout (allow model download time)
         )
 
