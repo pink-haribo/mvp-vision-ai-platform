@@ -1415,6 +1415,49 @@ class UltralyticsAdapter(TrainingAdapter):
                 if callbacks:
                     callbacks.on_epoch_end(epoch - 1, metrics_dict)  # epoch is 1-indexed in CSV
 
+                # Save validation results to database
+                # Create ValidationMetrics using ValidationMetricsCalculator
+                try:
+                    from ..validators.metrics import ValidationMetricsCalculator, TaskType
+
+                    # Determine task type from model config
+                    task_map = {
+                        'detect': TaskType.DETECTION,
+                        'segment': TaskType.INSTANCE_SEGMENTATION,
+                        'pose': TaskType.POSE,
+                        'classify': TaskType.CLASSIFICATION,
+                    }
+                    task_type = task_map.get(self.task_type, TaskType.DETECTION)
+
+                    # For detection tasks, pass pre-computed YOLO metrics
+                    validation_metrics = ValidationMetricsCalculator.compute_metrics(
+                        task_type=task_type,
+                        predictions=None,  # Not needed, metrics pre-computed
+                        labels=None,  # Not needed, metrics pre-computed
+                        class_names=self.class_names if hasattr(self, 'class_names') else None,
+                        loss=val_loss,
+                        map_50=mAP50,
+                        map_50_95=mAP50_95,
+                        precision=precision,
+                        recall=recall,
+                    )
+
+                    # Save to validation_results table
+                    # Note: checkpoint_path would be set if we had checkpoint saving per epoch
+                    val_result_id = self._save_validation_result(
+                        epoch=epoch,  # Use 1-indexed epoch for database
+                        validation_metrics=validation_metrics,
+                        checkpoint_path=None  # YOLO saves checkpoints internally
+                    )
+
+                    if val_result_id:
+                        print(f"[YOLO] Saved validation result {val_result_id} for epoch {epoch}")
+                        sys.stdout.flush()
+
+                except Exception as e:
+                    print(f"[YOLO] Warning: Failed to save validation result for epoch {epoch}: {e}")
+                    sys.stdout.flush()
+
                 # Create MetricsResult for our system
                 metrics = MetricsResult(
                     epoch=epoch - 1,  # Convert to 0-indexed
@@ -1441,16 +1484,15 @@ class UltralyticsAdapter(TrainingAdapter):
         """
         Not used - YOLO handles validation internally.
 
-        TODO: Integrate validation result saving into _convert_yolo_results()
-        by calling self._save_validation_result() for each epoch.
-
         YOLO automatically computes detection metrics (mAP, precision, recall)
-        and saves them to results.csv. We should parse those results and save
-        them to the validation_results table using ValidationMetricsCalculator
-        or by directly creating ValidationResult entries.
+        and saves them to results.csv. The _convert_yolo_results() method
+        parses these results and saves them to the validation_results table
+        using ValidationMetricsCalculator.
 
-        For now, YOLO validation metrics are only logged to TrainingMetric table
-        via callbacks in _convert_yolo_results().
+        Validation results are:
+        - Logged to TrainingMetric table via callbacks
+        - Saved to validation_results table via _save_validation_result()
+        - Reported to MLflow via callbacks
         """
         pass
 
@@ -1810,10 +1852,26 @@ class UltralyticsAdapter(TrainingAdapter):
 
         # YOLO inference
         start_time = time.time()
-        results = self.model(image_path, verbose=False)
+        print(f"[DEBUG] Running YOLO inference on {image_path}")
+        print(f"[DEBUG] Model: {self.model}")
+        print(f"[DEBUG] Task type: {self.task_type}")
+
+        try:
+            results = self.model(image_path, verbose=False)
+            print(f"[DEBUG] Results type: {type(results)}, length: {len(results) if results else 0}")
+        except Exception as e:
+            print(f"[ERROR] YOLO inference failed: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
         inference_time = (time.time() - start_time) * 1000
 
+        if not results or len(results) == 0:
+            raise RuntimeError(f"YOLO returned empty results for {image_path}")
+
         result = results[0]
+        print(f"[DEBUG] Result object: {result}")
 
         # Extract predictions based on task
         if self.task_type == TaskType.OBJECT_DETECTION:

@@ -395,12 +395,46 @@ class TransformersAdapter(TrainingAdapter):
         # For classification, HF Trainer doesn't compute accuracy by default
         # We need to compute it manually
         if self.model_config.task_type == TaskType.IMAGE_CLASSIFICATION:
-            accuracy = self._compute_classification_accuracy()
+            # Compute accuracy and get all predictions/labels
+            accuracy, all_predictions, all_labels = self._compute_classification_metrics()
             print(f"[VAL] Loss: {val_loss:.4f}, Accuracy: {accuracy:.2f}%")
 
             # Log to MLflow
             mlflow.log_metric("val_loss", val_loss, step=epoch)
             mlflow.log_metric("accuracy", accuracy, step=epoch)
+
+            # Save validation results to database using ValidationMetricsCalculator
+            try:
+                from ..validators.metrics import ValidationMetricsCalculator, TaskType as ValidTaskType
+                import numpy as np
+
+                # Convert predictions and labels to numpy arrays
+                preds_array = np.array(all_predictions)
+                labels_array = np.array(all_labels)
+
+                # Compute full validation metrics
+                validation_metrics = ValidationMetricsCalculator.compute_metrics(
+                    task_type=ValidTaskType.CLASSIFICATION,
+                    predictions=preds_array,
+                    labels=labels_array,
+                    class_names=self.class_names if hasattr(self, 'class_names') else None,
+                    loss=val_loss,
+                )
+
+                # Save to validation_results table
+                val_result_id = self._save_validation_result(
+                    epoch=epoch,
+                    validation_metrics=validation_metrics,
+                    checkpoint_path=None  # Will be set when checkpoint is saved
+                )
+
+                if val_result_id:
+                    print(f"[HF] Saved validation result {val_result_id} for epoch {epoch}")
+
+            except Exception as e:
+                print(f"[HF] Warning: Failed to save validation result for epoch {epoch}: {e}")
+                import traceback
+                traceback.print_exc()
 
             return MetricsResult(
                 epoch=epoch,
@@ -424,10 +458,22 @@ class TransformersAdapter(TrainingAdapter):
             )
 
     def _compute_classification_accuracy(self) -> float:
-        """Compute classification accuracy on validation set."""
+        """Compute classification accuracy on validation set (legacy method)."""
+        accuracy, _, _ = self._compute_classification_metrics()
+        return accuracy
+
+    def _compute_classification_metrics(self):
+        """
+        Compute classification metrics on validation set.
+
+        Returns:
+            Tuple of (accuracy, all_predictions, all_labels)
+        """
         self.model.eval()
         correct = 0
         total = 0
+        all_predictions = []
+        all_labels = []
 
         device = next(self.model.parameters()).device
 
@@ -441,13 +487,17 @@ class TransformersAdapter(TrainingAdapter):
                 outputs = self.model(pixel_values)
                 predictions = outputs.logits.argmax(dim=-1).cpu().item()
 
+                # Collect predictions and labels
+                all_predictions.append(predictions)
+                all_labels.append(labels)
+
                 # Count correct
                 if predictions == labels:
                     correct += 1
                 total += 1
 
         accuracy = (correct / total) * 100.0
-        return accuracy
+        return accuracy, all_predictions, all_labels
 
     def save_checkpoint(self, epoch: int, is_best: bool = False) -> str:
         """
