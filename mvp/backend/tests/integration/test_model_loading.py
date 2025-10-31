@@ -60,6 +60,7 @@ class TestModelRegistry:
             "pose_estimation",
             "obb_detection",
             "zero_shot_detection",
+            "zero_shot_segmentation",  # SAM2
             "super_resolution"
         ]
 
@@ -82,30 +83,7 @@ class TestModelRegistry:
 class TestModelWeightPaths:
     """Test that model weight paths are correctly constructed."""
 
-    def test_yolov8_weight_paths(self, client):
-        """Test that YOLOv8 models have correct weight file names."""
-        response = client.get("/api/v1/models/list?framework=ultralytics")
-        models = response.json()
-
-        yolov8_models = [m for m in models if m["model_name"].startswith("yolov8")]
-
-        expected_patterns = {
-            "yolov8n": "yolov8n.pt",
-            "yolov8s": "yolov8s.pt",
-            "yolov8m": "yolov8m.pt",
-            "yolov8l": "yolov8l.pt",
-            "yolov8x": "yolov8x.pt",
-            "yolov8n-seg": "yolov8n-seg.pt",
-            "yolov8s-seg": "yolov8s-seg.pt",
-            "yolov8n-pose": "yolov8n-pose.pt",
-        }
-
-        for model in yolov8_models:
-            model_name = model["model_name"]
-            if model_name in expected_patterns:
-                # This will be used when we add weight_file_name to model metadata
-                # For now, just check the pattern is consistent
-                assert model_name in expected_patterns
+    # YOLOv8 models removed from active registry - all tests use YOLO11 variants now
 
     def test_yolo11_weight_paths(self, client):
         """Test that YOLO11 models have correct weight file names."""
@@ -114,18 +92,18 @@ class TestModelWeightPaths:
 
         yolo11_models = [m for m in models if m["model_name"].startswith("yolo11")]
 
+        # Active YOLO11 models in registry
         expected_patterns = {
             "yolo11n": "yolo11n.pt",
-            "yolo11s": "yolo11s.pt",
-            "yolo11m": "yolo11m.pt",
-            "yolo11l": "yolo11l.pt",
-            "yolo11x": "yolo11x.pt",
+            "yolo11n-seg": "yolo11n-seg.pt",
+            "yolo11n-pose": "yolo11n-pose.pt",
         }
 
         for model in yolo11_models:
             model_name = model["model_name"]
-            if model_name in expected_patterns:
-                assert model_name in expected_patterns
+            # All YOLO11 models in registry should be in expected patterns
+            assert model_name in expected_patterns, \
+                f"Unexpected YOLO11 model: {model_name}"
 
 
 @pytest.mark.slow
@@ -136,35 +114,50 @@ class TestModelWeightPaths:
 class TestModelLoading:
     """Test actual model loading (slow tests, require model downloads)."""
 
-    def test_yolov8n_can_load(self):
-        """Test that yolov8n model can be loaded."""
-        from ultralytics import YOLO
-
-        # This will download the model if not cached
-        model = YOLO("yolov8n.pt")
-
-        assert model is not None
-        assert hasattr(model, "model")
-        assert model.model is not None
-
     def test_yolo11n_can_load(self):
         """Test that yolo11n model can be loaded."""
         from ultralytics import YOLO
 
+        # This will download the model if not cached
         model = YOLO("yolo11n.pt")
 
         assert model is not None
         assert hasattr(model, "model")
         assert model.model is not None
+        assert model.task == "detect"
 
-    def test_yolov8n_seg_can_load(self):
-        """Test that yolov8n-seg model can be loaded."""
+    def test_yolo11n_seg_can_load(self):
+        """Test that yolo11n-seg model can be loaded."""
         from ultralytics import YOLO
 
-        model = YOLO("yolov8n-seg.pt")
+        model = YOLO("yolo11n-seg.pt")
 
         assert model is not None
+        assert hasattr(model, "model")
+        assert model.model is not None
         assert model.task == "segment"
+
+    def test_yolo11n_pose_can_load(self):
+        """Test that yolo11n-pose model can be loaded."""
+        from ultralytics import YOLO
+
+        model = YOLO("yolo11n-pose.pt")
+
+        assert model is not None
+        assert hasattr(model, "model")
+        assert model.model is not None
+        assert model.task == "pose"
+
+    def test_sam2_can_load(self):
+        """Test that SAM2 model can be loaded."""
+        from ultralytics import SAM
+
+        # SAM2 uses different loading pattern
+        model = SAM("sam2_t.pt")
+
+        assert model is not None
+        assert hasattr(model, "model")
+        assert model.model is not None
 
     def test_invalid_model_raises_error(self):
         """Test that loading invalid model name raises error."""

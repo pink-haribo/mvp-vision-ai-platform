@@ -16,8 +16,9 @@ COPY training/requirements/requirements-timm.txt /tmp/
 RUN pip install --no-cache-dir -r /tmp/requirements-timm.txt && \
     rm /tmp/requirements-timm.txt /tmp/requirements-base.txt
 
-# Copy timm adapter
+# Copy timm adapter and base
 COPY training/adapters/__init__.py /opt/vision-platform/adapters/
+COPY training/adapters/base.py /opt/vision-platform/adapters/
 COPY training/adapters/timm_adapter.py /opt/vision-platform/adapters/
 
 # Copy timm model registry

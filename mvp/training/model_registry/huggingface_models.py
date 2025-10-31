@@ -16,71 +16,71 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
     # Image Classification
     # ========================================
 
-    "google/vit-base-patch16-224": {
-        "display_name": "Vision Transformer (ViT) Base",
-        "description": "Transformer-based image classification - Attention-based global context (86M params)",
-        "framework": "huggingface",
-        "task_types": ["image_classification"],
-        "model_id": "google/vit-base-patch16-224",
-        "params": "86M",
-        "input_size": 224,
-        "pretrained_available": True,
-        "recommended_batch_size": 32,
-        "recommended_lr": 3e-4,
-        "tags": ["p1", "transformer", "attention", "imagenet", "2021", "classification"],
-        "priority": 1,
+    # # "google/vit-base-patch16-224": {
+    # #     "display_name": "Vision Transformer (ViT) Base",
+    # #     "description": "Transformer-based image classification - Attention-based global context (86M params)",
+    # #     "framework": "huggingface",
+    # #     "task_types": ["image_classification"],
+    # #     "model_id": "google/vit-base-patch16-224",
+    # #     "params": "86M",
+    # #     "input_size": 224,
+    # #     "pretrained_available": True,
+    # #     "recommended_batch_size": 32,
+    # #     "recommended_lr": 3e-4,
+    # #     "tags": ["p1", "transformer", "attention", "imagenet", "2021", "classification"],
+    # #     "priority": 1,
 
-        # 🆕 Phase 1: Model metadata
-        "status": "active",
-        "inference_only": False,
-        "recommended": True,  # P1 transformer model
-        "performance_tier": "accurate",  # High accuracy
+    # #     # 🆕 Phase 1: Model metadata
+    # #     "status": "active",
+    # #     "inference_only": False,
+    # #     "recommended": True,  # P1 transformer model
+    # #     "performance_tier": "accurate",  # High accuracy
 
-        "architecture": {
-            "type": "Vision Transformer",
-            "patch_size": 16,
-            "hidden_size": 768,
-            "num_layers": 12,
-            "num_heads": 12,
-        },
+    # #     "architecture": {
+    # #         "type": "Vision Transformer",
+    # #         "patch_size": 16,
+    # #         "hidden_size": 768,
+    # #         "num_layers": 12,
+    # #         "num_heads": 12,
+    # #     },
 
-        "performance": {
-            "imagenet_top1": "81.3%",
-            "imagenet_top5": "96.5%",
-            "inference_speed": "~50 images/sec (V100)",
-        },
+    # #     "performance": {
+    # #         "imagenet_top1": "81.3%",
+    # #         "imagenet_top5": "96.5%",
+    # #         "inference_speed": "~50 images/sec (V100)",
+    # #     },
 
-        "training_tips": {
-            "optimizer": "AdamW",
-            "lr": "3e-4",
-            "warmup": "10k steps",
-            "batch_size": "32-64 (depends on GPU)",
-            "epochs": "30-100 (fine-tuning)",
-        },
+    # #     "training_tips": {
+    # #         "optimizer": "AdamW",
+    # #         "lr": "3e-4",
+    # #         "warmup": "10k steps",
+    # #         "batch_size": "32-64 (depends on GPU)",
+    # #         "epochs": "30-100 (fine-tuning)",
+    # #     },
 
-        "use_cases": [
-            {
-                "title": "Fine-grained Image Classification",
-                "description": "Classify images with global context understanding using attention mechanisms",
-                "industry": "E-commerce, Medical Imaging, Agriculture",
-                "dataset": "Custom ImageNet-style dataset",
-                "metrics": {
-                    "before": "ResNet-50: 76.1% accuracy",
-                    "after": "ViT-Base: 81.3% accuracy with attention visualization"
-                }
-            },
-            {
-                "title": "Product Categorization",
-                "description": "Automatic product category assignment for e-commerce",
-                "industry": "E-commerce",
-                "dataset": "Product images with categories",
-                "metrics": {
-                    "before": "Manual tagging: 1,000 products/day",
-                    "after": "Automated: 100,000 products/day with 95% accuracy"
-                }
-            }
-        ]
-    },
+    # #     "use_cases": [
+    # #         {
+    # #             "title": "Fine-grained Image Classification",
+    # #             "description": "Classify images with global context understanding using attention mechanisms",
+    # #             "industry": "E-commerce, Medical Imaging, Agriculture",
+    # #             "dataset": "Custom ImageNet-style dataset",
+    # #             "metrics": {
+    # #                 "before": "ResNet-50: 76.1% accuracy",
+    # #                 "after": "ViT-Base: 81.3% accuracy with attention visualization"
+    # #             }
+    # #         },
+    # #         {
+    # #             "title": "Product Categorization",
+    # #             "description": "Automatic product category assignment for e-commerce",
+    # #             "industry": "E-commerce",
+    # #             "dataset": "Product images with categories",
+    # #             "metrics": {
+    # #                 "before": "Manual tagging: 1,000 products/day",
+    # #                 "after": "Automated: 100,000 products/day with 95% accuracy"
+    # #             }
+    # #         }
+    # #     ]
+    # # },
 
     # ========================================
     # Object Detection
@@ -305,63 +305,63 @@ HUGGINGFACE_MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
     # Additional Models (x4 upscaling variant)
     # ========================================
 
-    "caidas/swin2SR-classical-sr-x4-64": {
-        "display_name": "Swin2SR 4x",
-        "description": "Image restoration and super-resolution - 4x upscaling with artifact removal",
-        "framework": "huggingface",
-        "task_types": ["super_resolution"],
-        "model_id": "caidas/swin2SR-classical-sr-x4-64",
-        "params": "11.9M",
-        "input_size": 256,
-        "upscale_factor": 4,
-        "pretrained_available": True,
-        "recommended_batch_size": 16,
-        "recommended_lr": 2e-4,
-        "tags": ["p1", "super-resolution", "restoration", "swin", "2022", "4x"],
-        "priority": 1,
+    # "caidas/swin2SR-classical-sr-x4-64": {
+    #     "display_name": "Swin2SR 4x",
+    #     "description": "Image restoration and super-resolution - 4x upscaling with artifact removal",
+    #     "framework": "huggingface",
+    #     "task_types": ["super_resolution"],
+    #     "model_id": "caidas/swin2SR-classical-sr-x4-64",
+    #     "params": "11.9M",
+    #     "input_size": 256,
+    #     "upscale_factor": 4,
+    #     "pretrained_available": True,
+    #     "recommended_batch_size": 16,
+    #     "recommended_lr": 2e-4,
+    #     "tags": ["p1", "super-resolution", "restoration", "swin", "2022", "4x"],
+    #     "priority": 1,
 
-        # 🆕 Phase 1: Model metadata
-        "status": "experimental",  # experimental + inference_only
-        "inference_only": True,  # Image tool only (no training)
-        "recommended": True,  # Recommended for high-quality upscaling
-        "performance_tier": "accurate",  # High quality 4x upscaling
+    #     # 🆕 Phase 1: Model metadata
+    #     "status": "experimental",  # experimental + inference_only
+    #     "inference_only": True,  # Image tool only (no training)
+    #     "recommended": True,  # Recommended for high-quality upscaling
+    #     "performance_tier": "accurate",  # High quality 4x upscaling
 
-        "architecture": {
-            "type": "Swin Transformer V2",
-            "window_size": 8,
-            "features": ["Residual Swin Transformer Blocks", "Continuous position bias"],
-            "innovation": "Training stability improvements from SwinV2",
-        },
+    #     "architecture": {
+    #         "type": "Swin Transformer V2",
+    #         "window_size": 8,
+    #         "features": ["Residual Swin Transformer Blocks", "Continuous position bias"],
+    #         "innovation": "Training stability improvements from SwinV2",
+    #     },
 
-        "performance": {
-            "psnr": "30.77 dB (Set5 dataset, 4x upscaling)",
-            "ssim": "0.8812",
-            "inference_speed": "~15 images/sec (256x256 → 1024x1024 on V100)",
-        },
+    #     "performance": {
+    #         "psnr": "30.77 dB (Set5 dataset, 4x upscaling)",
+    #         "ssim": "0.8812",
+    #         "inference_speed": "~15 images/sec (256x256 → 1024x1024 on V100)",
+    #     },
 
-        "training_tips": {
-            "optimizer": "Adam",
-            "lr": "2e-4",
-            "warmup": "Not typically used",
-            "batch_size": "16-32",
-            "epochs": "500-1000",
-            "loss": "L1 pixel loss",
-            "dataset_format": "HR-LR paired images (DIV2K style)",
-        },
+    #     "training_tips": {
+    #         "optimizer": "Adam",
+    #         "lr": "2e-4",
+    #         "warmup": "Not typically used",
+    #         "batch_size": "16-32",
+    #         "epochs": "500-1000",
+    #         "loss": "L1 pixel loss",
+    #         "dataset_format": "HR-LR paired images (DIV2K style)",
+    #     },
 
-        "use_cases": [
-            {
-                "title": "Legacy Document Digitization",
-                "description": "Restore and upscale scanned documents from low-resolution sources",
-                "industry": "Archives, Libraries",
-                "dataset": "Historical document pairs",
-                "metrics": {
-                    "before": "Original scans: 300 DPI, hard to read",
-                    "after": "Enhanced to 1200 DPI equivalent with OCR accuracy +25%"
-                }
-            }
-        ]
-    },
+    #     "use_cases": [
+    #         {
+    #             "title": "Legacy Document Digitization",
+    #             "description": "Restore and upscale scanned documents from low-resolution sources",
+    #             "industry": "Archives, Libraries",
+    #             "dataset": "Historical document pairs",
+    #             "metrics": {
+    #                 "before": "Original scans: 300 DPI, hard to read",
+    #                 "after": "Enhanced to 1200 DPI equivalent with OCR accuracy +25%"
+    #             }
+    #         }
+    #     ]
+    # },
 }
 
 

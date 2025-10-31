@@ -16,8 +16,9 @@ COPY training/requirements/requirements-ultralytics.txt /tmp/
 RUN pip install --no-cache-dir -r /tmp/requirements-ultralytics.txt && \
     rm /tmp/requirements-ultralytics.txt /tmp/requirements-base.txt
 
-# Copy ultralytics adapter
+# Copy ultralytics adapter and base
 COPY training/adapters/__init__.py /opt/vision-platform/adapters/
+COPY training/adapters/base.py /opt/vision-platform/adapters/
 COPY training/adapters/ultralytics_adapter.py /opt/vision-platform/adapters/
 
 # Copy ultralytics model registry
