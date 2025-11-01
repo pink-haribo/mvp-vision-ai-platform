@@ -60,26 +60,13 @@ export const TaskSpecificVisualization: React.FC<TaskSpecificVisualizationProps>
 
     case 'instance_segmentation':
     case 'semantic_segmentation':
+      // Use DetectionMetricsView which supports both detection and segmentation
+      // It automatically shows separate Box/Mask metrics when task_type is segmentation
       return (
-        <div className="bg-gray-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">
-            Segmentation Metrics
-          </h3>
-          <div className="text-gray-400">
-            Segmentation metrics visualization coming soon.
-          </div>
-          {/* TODO: Implement SegmentationMetricsView */}
-          <div className="mt-4 space-y-2">
-            <div className="text-sm">
-              <span className="text-gray-400">Mean IoU:</span>{' '}
-              <span className="text-white">{validationResult.metrics?.mean_iou || 'N/A'}</span>
-            </div>
-            <div className="text-sm">
-              <span className="text-gray-400">Pixel Accuracy:</span>{' '}
-              <span className="text-white">{validationResult.metrics?.pixel_accuracy || 'N/A'}</span>
-            </div>
-          </div>
-        </div>
+        <DetectionMetricsView
+          validationResult={validationResult}
+          jobId={jobId}
+        />
       );
 
     case 'pose_estimation':

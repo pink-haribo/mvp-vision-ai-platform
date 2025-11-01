@@ -884,6 +884,22 @@ async def quick_inference(
             print(f"[DEBUG] Task type: {result_dict.get('task_type')}")
             print(f"[DEBUG] Has upscaled_image_path: {result_dict.get('upscaled_image_path')}")
 
+            # Debug segmentation results
+            if result_dict.get('task_type') in ['instance_segmentation', 'semantic_segmentation']:
+                predicted_boxes = result_dict.get('predicted_boxes', [])
+                predicted_masks = result_dict.get('predicted_masks', [])
+                print(f"[DEBUG SEG] predicted_boxes length: {len(predicted_boxes)}")
+                print(f"[DEBUG SEG] predicted_masks length: {len(predicted_masks)}")
+                if predicted_boxes:
+                    print(f"[DEBUG SEG] First box sample: {predicted_boxes[0]}")
+                if predicted_masks:
+                    print(f"[DEBUG SEG] First mask sample: {predicted_masks[0]}")
+
+            # Print subprocess stderr for debugging
+            if result.stderr:
+                print(f"[DEBUG] Subprocess stderr output:")
+                print(result.stderr)
+
             # Convert upscaled_image_path to URL if present (for super-resolution)
             if result_dict.get('upscaled_image_path'):
                 upscaled_path = Path(result_dict['upscaled_image_path'])

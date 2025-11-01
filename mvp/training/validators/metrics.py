@@ -15,16 +15,12 @@ from sklearn.metrics import (
     confusion_matrix as sklearn_confusion_matrix,
     top_k_accuracy_score,
 )
+import sys
+from pathlib import Path
 
-
-class TaskType(Enum):
-    """Supported computer vision task types."""
-
-    CLASSIFICATION = "image_classification"
-    DETECTION = "object_detection"
-    INSTANCE_SEGMENTATION = "instance_segmentation"
-    SEMANTIC_SEGMENTATION = "semantic_segmentation"
-    POSE = "pose_estimation"
+# Add parent directory to path to import TaskType from adapters.base
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from adapters.base import TaskType
 
 
 @dataclass
@@ -229,7 +225,7 @@ class ValidationMetricsCalculator:
         Examples:
             # Classification
             metrics = ValidationMetricsCalculator.compute_metrics(
-                task_type=TaskType.CLASSIFICATION,
+                task_type=TaskType.IMAGE_CLASSIFICATION,
                 predictions=pred_labels,
                 labels=true_labels,
                 class_names=["cat", "dog", "bird"]
@@ -237,34 +233,47 @@ class ValidationMetricsCalculator:
 
             # Detection
             metrics = ValidationMetricsCalculator.compute_metrics(
-                task_type=TaskType.DETECTION,
+                task_type=TaskType.OBJECT_DETECTION,
                 predictions=pred_boxes,
                 labels=true_boxes,
                 class_names=["person", "car"]
             )
         """
-        if task_type == TaskType.CLASSIFICATION:
+        # Use string comparison for cross-module enum compatibility
+        task_type_value = task_type.value if hasattr(task_type, 'value') else str(task_type)
+
+        if task_type_value == "image_classification":
             return ValidationMetricsCalculator._compute_classification(
                 predictions, labels, class_names, loss, **kwargs
             )
-        elif task_type == TaskType.DETECTION:
+        elif task_type_value == "object_detection":
             return ValidationMetricsCalculator._compute_detection(
                 predictions, labels, class_names, loss, **kwargs
             )
-        elif task_type == TaskType.INSTANCE_SEGMENTATION:
+        elif task_type_value == "instance_segmentation":
+            # YOLO-style instance segmentation: pre-computed detection metrics with Box/Mask separation
+            # If predictions is None and map_50 is provided, use detection metrics
+            if predictions is None and 'map_50' in kwargs:
+                val_metrics = ValidationMetricsCalculator._compute_detection(
+                    predictions, labels, class_names, loss, **kwargs
+                )
+                # Override task_type to instance_segmentation for proper UI display
+                val_metrics.task_type = task_type
+                return val_metrics
+            # Otherwise use pixel-wise segmentation metrics
             return ValidationMetricsCalculator._compute_segmentation(
                 predictions, labels, class_names, loss, is_instance=True, **kwargs
             )
-        elif task_type == TaskType.SEMANTIC_SEGMENTATION:
+        elif task_type_value == "semantic_segmentation":
             return ValidationMetricsCalculator._compute_segmentation(
                 predictions, labels, class_names, loss, is_instance=False, **kwargs
             )
-        elif task_type == TaskType.POSE:
+        elif task_type_value == "pose_estimation":
             return ValidationMetricsCalculator._compute_pose(
                 predictions, labels, class_names, loss, **kwargs
             )
         else:
-            raise ValueError(f"Unsupported task type: {task_type}")
+            raise ValueError(f"Unsupported task type: {task_type} (value: {task_type_value})")
 
     @staticmethod
     def _compute_classification(
@@ -332,7 +341,7 @@ class ValidationMetricsCalculator:
 
         # Wrap in ValidationMetrics
         return ValidationMetrics(
-            task_type=TaskType.CLASSIFICATION,
+            task_type=TaskType.IMAGE_CLASSIFICATION,
             primary_metric_name="accuracy",
             primary_metric_value=accuracy,
             overall_loss=loss,
@@ -374,7 +383,7 @@ class ValidationMetricsCalculator:
         )
 
         return ValidationMetrics(
-            task_type=TaskType.DETECTION,
+            task_type=TaskType.OBJECT_DETECTION,
             primary_metric_name="mAP@0.5",
             primary_metric_value=map_50,
             overall_loss=loss,
@@ -456,7 +465,7 @@ class ValidationMetricsCalculator:
         )
 
         return ValidationMetrics(
-            task_type=TaskType.POSE,
+            task_type=TaskType.POSE_ESTIMATION,
             primary_metric_name="OKS",
             primary_metric_value=0.0,
             overall_loss=loss,

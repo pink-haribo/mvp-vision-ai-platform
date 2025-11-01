@@ -348,8 +348,9 @@ class InferenceResult:
     predicted_boxes: Optional[List[Dict[str, Any]]] = None
 
     # Segmentation fields
-    predicted_mask: Optional[Any] = None  # np.ndarray or torch.Tensor
+    predicted_mask: Optional[Any] = None  # np.ndarray or torch.Tensor (deprecated)
     predicted_mask_path: Optional[str] = None
+    predicted_masks: Optional[List[Dict[str, Any]]] = None  # List of polygon masks
 
     # Pose estimation fields
     predicted_keypoints: Optional[List[Dict[str, Any]]] = None
@@ -515,7 +516,29 @@ class TrainingAdapter(ABC):
             overall_loss = validation_metrics.overall_loss
 
             # Prepare task-specific fields
-            metrics_json = json.dumps(task_metrics.to_dict())
+            metrics_dict = task_metrics.to_dict()
+
+            # Merge extra metrics if present (e.g., Box/Mask metrics for segmentation)
+            import sys
+            print(f"[_save_validation_result DEBUG] Checking for _extra_metrics...")
+            sys.stdout.flush()
+            print(f"[_save_validation_result DEBUG] hasattr: {hasattr(validation_metrics, '_extra_metrics')}")
+            sys.stdout.flush()
+            if hasattr(validation_metrics, '_extra_metrics'):
+                print(f"[_save_validation_result DEBUG] _extra_metrics value: {validation_metrics._extra_metrics}")
+                sys.stdout.flush()
+
+            if hasattr(validation_metrics, '_extra_metrics') and validation_metrics._extra_metrics:
+                print(f"[_save_validation_result DEBUG] Merging {len(validation_metrics._extra_metrics)} extra metrics")
+                sys.stdout.flush()
+                metrics_dict.update(validation_metrics._extra_metrics)
+                print(f"[_save_validation_result DEBUG] After merge: {len(metrics_dict)} total keys")
+                sys.stdout.flush()
+            else:
+                print(f"[_save_validation_result DEBUG] No _extra_metrics to merge")
+                sys.stdout.flush()
+
+            metrics_json = json.dumps(metrics_dict)
             per_class_metrics_json = None
             confusion_matrix_json = None
             pr_curves_json = None
@@ -1615,10 +1638,12 @@ class TrainingCallbacks:
             print(f"[Callbacks] Warning: MLflow run not started, call on_train_begin() first")
             return
 
-        # Log to MLflow
+        # Log to MLflow (sanitize metric names)
         for key, value in metrics.items():
             if isinstance(value, (int, float)):
-                mlflow.log_metric(key, value, step=epoch)
+                # Sanitize metric name: replace invalid chars with underscores
+                sanitized_key = key.replace('(', '_').replace(')', '_').replace(' ', '_')
+                mlflow.log_metric(sanitized_key, value, step=epoch)
 
         # Log to database
         # Extract common metrics

@@ -466,6 +466,18 @@ class UltralyticsAdapter(TrainingAdapter):
         self.data_yaml = self._create_data_yaml()
         print(f"Dataset config created: {self.data_yaml}")
 
+        # Load class names from data.yaml for callbacks
+        try:
+            with open(self.data_yaml, 'r') as f:
+                data_config = yaml.safe_load(f)
+                if 'names' in data_config:
+                    self.class_names = data_config['names']
+                    print(f"[prepare_dataset] Loaded {len(self.class_names)} class names from data.yaml")
+                    sys.stdout.flush()
+        except Exception as e:
+            print(f"[prepare_dataset] WARNING: Failed to load class names from data.yaml: {e}")
+            sys.stdout.flush()
+
     def _clear_yolo_cache(self):
         """Clear YOLO cache files in the dataset directory."""
         from pathlib import Path
@@ -873,14 +885,8 @@ class UltralyticsAdapter(TrainingAdapter):
 
         # Build YOLO training arguments from advanced config
         try:
-            print("[YOLO] Building training arguments...")
             train_args = self._build_yolo_train_args()
-            print(f"[YOLO] Training args built: {list(train_args.keys())}")
-
-            # Print actual values for debugging
-            print("[YOLO] Training arguments values:")
-            for key, value in train_args.items():
-                print(f"  {key}: {value}")
+            print(f"[YOLO] Training configuration ready ({len(train_args)} parameters)")
             sys.stdout.flush()
         except Exception as e:
             print(f"[YOLO] ERROR building training args: {e}")
@@ -976,15 +982,21 @@ class UltralyticsAdapter(TrainingAdapter):
                 # Validation metrics from trainer.metrics
                 if hasattr(trainer, 'metrics') and trainer.metrics:
                     # trainer.metrics is a dict with keys like:
-                    # 'metrics/precision(B)', 'metrics/recall(B)', 'metrics/mAP50(B)', etc.
+                    # 'metrics/precision(B)', 'metrics/recall(B)', 'metrics/mAP50(B)', 'metrics/mAP50(M)', etc.
                     val_metrics = trainer.metrics
 
                     # Extract validation losses and metrics
                     for key, value in val_metrics.items():
                         if isinstance(value, (int, float)):
-                            # Clean up metric names
-                            clean_key = key.replace('metrics/', '').replace('(B)', '')
+                            # Clean up metric names but preserve (B) and (M) suffixes
+                            clean_key = key.replace('metrics/', '')
                             metrics_dict[clean_key] = value
+
+                            # Also add without suffix for backward compatibility (use Box metrics)
+                            if '(B)' in clean_key:
+                                base_key = clean_key.replace('(B)', '')
+                                if base_key not in metrics_dict:  # Don't overwrite
+                                    metrics_dict[base_key] = value
 
                 # Calculate total losses
                 train_loss = sum(v for k, v in metrics_dict.items() if k.startswith('train/') and 'loss' in k)
@@ -1009,8 +1021,9 @@ class UltralyticsAdapter(TrainingAdapter):
                 sys.stdout.flush()
                 callbacks.on_epoch_end(epoch_num, metrics_dict, checkpoint_path)
 
-                # Save validation results to database
-                if hasattr(trainer, 'metrics') and trainer.metrics:
+                # Save validation results to database (use metrics_dict which has all metrics)
+                # Note: trainer.metrics may be None when val=False, but metrics_dict has training metrics
+                if True:  # Always try to save, use metrics_dict instead of trainer.metrics
                     try:
                         # Add parent directory to sys.path for imports
                         from pathlib import Path
@@ -1035,10 +1048,19 @@ class UltralyticsAdapter(TrainingAdapter):
                             validator = trainer.validator
 
                             # Get class names from validator
-                            if hasattr(validator, 'names'):
+                            if hasattr(validator, 'names') and validator.names is not None:
                                 class_names = list(validator.names.values())
                                 print(f"[YOLO Callback] Found {len(class_names)} classes: {class_names}")
                                 sys.stdout.flush()
+                            else:
+                                # Validation disabled, use class_names from adapter
+                                if hasattr(self, 'class_names') and self.class_names:
+                                    class_names = self.class_names
+                                    print(f"[YOLO Callback] Using adapter class_names: {len(class_names)} classes")
+                                    sys.stdout.flush()
+                                else:
+                                    print(f"[YOLO Callback] No class_names available (validation disabled)")
+                                    sys.stdout.flush()
 
                             # Get per-class AP from validator results
                             if hasattr(validator, 'metrics') and validator.metrics is not None:
@@ -1190,7 +1212,7 @@ class UltralyticsAdapter(TrainingAdapter):
 
                         # Create ValidationMetrics using calculator
                         validation_metrics = ValidationMetricsCalculator.compute_metrics(
-                            task_type=TaskType.DETECTION,
+                            task_type=self.task_type,
                             predictions=None,  # YOLO pre-computes metrics
                             labels=None,
                             class_names=class_names,
@@ -1200,6 +1222,35 @@ class UltralyticsAdapter(TrainingAdapter):
                             precision=precision,
                             recall=recall
                         )
+
+                        # Add Box/Mask metrics as extra_metrics for segmentation tasks
+                        # Use string comparison to avoid enum identity issues
+                        task_type_value = self.task_type.value if hasattr(self.task_type, 'value') else str(self.task_type)
+                        print(f"[YOLO Callback DEBUG] task_type_value = '{task_type_value}', checking for instance_segmentation")
+                        sys.stdout.flush()
+
+                        if task_type_value == "instance_segmentation":
+                            print(f"[YOLO Callback DEBUG] Instance segmentation detected, extracting Box/Mask metrics")
+                            sys.stdout.flush()
+                            extra_metrics = {}
+                            # Use metrics_dict that was already extracted from trainer.metrics
+                            for key, value in metrics_dict.items():
+                                # Include all metrics with (B) or (M) suffix
+                                if '(B)' in key or '(M)' in key:
+                                    extra_metrics[key] = float(value) if isinstance(value, (int, float)) else 0.0
+
+                            if extra_metrics:
+                                validation_metrics._extra_metrics = extra_metrics
+                                print(f"[YOLO Callback] ✓ Added {len(extra_metrics)} Box/Mask metrics to validation result")
+                                print(f"[YOLO Callback] Box/Mask keys: {list(extra_metrics.keys())}")
+                                sys.stdout.flush()
+                            else:
+                                print(f"[YOLO Callback WARNING] No Box/Mask metrics found in metrics_dict")
+                                print(f"[YOLO Callback] metrics_dict keys: {list(metrics_dict.keys())}")
+                                sys.stdout.flush()
+                        else:
+                            print(f"[YOLO Callback DEBUG] Not instance_segmentation (task_type='{task_type_value}'), skipping Box/Mask extraction")
+                            sys.stdout.flush()
 
                         # Override per_class_metrics if we extracted them
                         if per_class_metrics:
@@ -1379,10 +1430,12 @@ class UltralyticsAdapter(TrainingAdapter):
             'project': os.path.abspath(self.output_dir),  # Use absolute path
             'name': f'job_{self.job_id}',
             'exist_ok': True,
-            'verbose': True,
+            'verbose': False,  # Reduce YOLO verbosity
             'workers': 0,  # Disable multiprocessing to avoid output issues
-            'plots': True,  # Enable plotting for PR curves
-            'save_json': True,  # Save predictions to JSON for per-image analysis
+            'plots': False,  # Disable plots to skip final validation
+            'save': True,  # Save checkpoints
+            'save_period': -1,  # Only save last and best
+            'val': False,  # Disable validation during training
         }
 
         adv_config = self.training_config.advanced_config
@@ -1518,19 +1571,29 @@ class UltralyticsAdapter(TrainingAdapter):
 
                 # Extract metrics
                 train_box_loss = float(row.get('train/box_loss', 0))
+                train_seg_loss = float(row.get('train/seg_loss', 0))
                 train_cls_loss = float(row.get('train/cls_loss', 0))
                 train_dfl_loss = float(row.get('train/dfl_loss', 0))
                 val_box_loss = float(row.get('val/box_loss', 0))
+                val_seg_loss = float(row.get('val/seg_loss', 0))
                 val_cls_loss = float(row.get('val/cls_loss', 0))
                 val_dfl_loss = float(row.get('val/dfl_loss', 0))
-                precision = float(row.get('metrics/precision(B)', 0))
-                recall = float(row.get('metrics/recall(B)', 0))
-                mAP50 = float(row.get('metrics/mAP50(B)', 0))
-                mAP50_95 = float(row.get('metrics/mAP50-95(B)', 0))
 
-                # Calculate total losses
-                train_loss = train_box_loss + train_cls_loss + train_dfl_loss
-                val_loss = val_box_loss + val_cls_loss + val_dfl_loss
+                # Extract Box metrics
+                precision_box = float(row.get('metrics/precision(B)', 0))
+                recall_box = float(row.get('metrics/recall(B)', 0))
+                mAP50_box = float(row.get('metrics/mAP50(B)', 0))
+                mAP50_95_box = float(row.get('metrics/mAP50-95(B)', 0))
+
+                # Extract Mask metrics (for segmentation tasks)
+                precision_mask = float(row.get('metrics/precision(M)', 0))
+                recall_mask = float(row.get('metrics/recall(M)', 0))
+                mAP50_mask = float(row.get('metrics/mAP50(M)', 0))
+                mAP50_95_mask = float(row.get('metrics/mAP50-95(M)', 0))
+
+                # Calculate total losses (include seg_loss if present)
+                train_loss = train_box_loss + train_cls_loss + train_dfl_loss + train_seg_loss
+                val_loss = val_box_loss + val_cls_loss + val_dfl_loss + val_seg_loss
 
                 # Create metrics dict for callbacks
                 metrics_dict = {
@@ -1542,11 +1605,27 @@ class UltralyticsAdapter(TrainingAdapter):
                     'val_box_loss': val_box_loss,
                     'val_cls_loss': val_cls_loss,
                     'val_dfl_loss': val_dfl_loss,
-                    'precision': precision,
-                    'recall': recall,
-                    'mAP50': mAP50,
-                    'mAP50-95': mAP50_95,
+                    # Box metrics (use generic names for backward compatibility)
+                    'precision': precision_box,
+                    'recall': recall_box,
+                    'mAP50': mAP50_box,
+                    'mAP50-95': mAP50_95_box,
+                    # Box metrics (explicit names for segmentation UI)
+                    'precision(B)': precision_box,
+                    'recall(B)': recall_box,
+                    'mAP50(B)': mAP50_box,
+                    'mAP50-95(B)': mAP50_95_box,
+                    # Mask metrics (for segmentation)
+                    'precision(M)': precision_mask,
+                    'recall(M)': recall_mask,
+                    'mAP50(M)': mAP50_mask,
+                    'mAP50-95(M)': mAP50_95_mask,
                 }
+
+                # Add segmentation loss if present
+                if train_seg_loss > 0 or val_seg_loss > 0:
+                    metrics_dict['train_seg_loss'] = train_seg_loss
+                    metrics_dict['val_seg_loss'] = val_seg_loss
 
                 # Report to callbacks for unified metric collection
                 # Callbacks will handle both MLflow and database logging
@@ -1558,27 +1637,43 @@ class UltralyticsAdapter(TrainingAdapter):
                 try:
                     from ..validators.metrics import ValidationMetricsCalculator, TaskType
 
-                    # Determine task type from model config
-                    task_map = {
-                        'detect': TaskType.DETECTION,
-                        'segment': TaskType.INSTANCE_SEGMENTATION,
-                        'pose': TaskType.POSE,
-                        'classify': TaskType.CLASSIFICATION,
-                    }
-                    task_type = task_map.get(self.task_type, TaskType.DETECTION)
+                    # Use self.task_type directly (it's already a TaskType enum)
+                    # self.task_type is set in base adapter from TrainingJob.task_type
+                    task_type = self.task_type
 
-                    # For detection tasks, pass pre-computed YOLO metrics
+                    # For detection/segmentation tasks, pass pre-computed YOLO metrics
+                    # Note: We use Box metrics for the main metrics (for backward compatibility)
+                    # Mask metrics will be added separately to the metrics dict
                     validation_metrics = ValidationMetricsCalculator.compute_metrics(
                         task_type=task_type,
                         predictions=None,  # Not needed, metrics pre-computed
                         labels=None,  # Not needed, metrics pre-computed
                         class_names=self.class_names if hasattr(self, 'class_names') else None,
                         loss=val_loss,
-                        map_50=mAP50,
-                        map_50_95=mAP50_95,
-                        precision=precision,
-                        recall=recall,
+                        map_50=mAP50_box,
+                        map_50_95=mAP50_95_box,
+                        precision=precision_box,
+                        recall=recall_box,
                     )
+
+                    # Add Box and Mask metrics to the detection metrics dict
+                    # This allows the UI to display both Box and Mask metrics separately
+                    if hasattr(validation_metrics, 'detection') and validation_metrics.detection:
+                        # Update the detection metrics dict with explicit Box/Mask metrics
+                        detection_dict = validation_metrics.detection.to_dict()
+                        # Add Box metrics (explicit names)
+                        detection_dict['precision(B)'] = precision_box
+                        detection_dict['recall(B)'] = recall_box
+                        detection_dict['mAP50(B)'] = mAP50_box
+                        detection_dict['mAP50-95(B)'] = mAP50_95_box
+                        # Add Mask metrics (for segmentation)
+                        detection_dict['precision(M)'] = precision_mask
+                        detection_dict['recall(M)'] = recall_mask
+                        detection_dict['mAP50(M)'] = mAP50_mask
+                        detection_dict['mAP50-95(M)'] = mAP50_95_mask
+                        # Update the detection metrics object
+                        # Store in a way that will be serialized to JSON
+                        validation_metrics._extra_metrics = detection_dict
 
                     # Save to validation_results table
                     # Note: checkpoint_path would be set if we had checkpoint saving per epoch
@@ -2225,18 +2320,39 @@ class UltralyticsAdapter(TrainingAdapter):
                     'format': 'yolo'
                 })
 
-        # Store mask if available
-        predicted_mask = None
+        # Extract mask polygons if available
+        predicted_masks = []
+        print(f"[DEBUG SEG] masks is not None: {masks is not None}", file=sys.stderr)
+        if masks is not None:
+            print(f"[DEBUG SEG] len(masks): {len(masks)}", file=sys.stderr)
+
         if masks is not None and len(masks) > 0:
-            # masks.data is a tensor of shape (N, H, W)
-            predicted_mask = masks.data.cpu().numpy()
+            print(f"[DEBUG SEG] masks has xy: {hasattr(masks, 'xy')}", file=sys.stderr)
+            print(f"[DEBUG SEG] masks.xy is not None: {masks.xy is not None}", file=sys.stderr)
+
+            # Convert masks to polygon format
+            for i in range(len(masks)):
+                if hasattr(masks, 'xy') and masks.xy is not None:
+                    # Get polygon coordinates (list of [x, y] points)
+                    polygon = masks.xy[i]
+                    print(f"[DEBUG SEG] Mask {i}: polygon points = {len(polygon) if polygon is not None else 0}", file=sys.stderr)
+
+                    if polygon is not None and len(polygon) > 0:
+                        predicted_masks.append({
+                            'instance_id': i,
+                            'class_id': predicted_boxes[i]['class_id'] if i < len(predicted_boxes) else 0,
+                            'polygon': polygon.tolist(),  # Convert numpy array to list
+                            'confidence': predicted_boxes[i]['confidence'] if i < len(predicted_boxes) else 0.0
+                        })
+
+        print(f"[DEBUG SEG] Total predicted_masks: {len(predicted_masks)}", file=sys.stderr)
 
         return InferenceResult(
             image_path=image_path,
             image_name=Path(image_path).name,
             task_type=TaskType.INSTANCE_SEGMENTATION,
             predicted_boxes=predicted_boxes,
-            predicted_mask=predicted_mask,
+            predicted_masks=predicted_masks if predicted_masks else None,
             inference_time_ms=inference_time,
             preprocessing_time_ms=0.0,
             postprocessing_time_ms=0.0

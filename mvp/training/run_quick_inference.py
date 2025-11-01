@@ -188,7 +188,8 @@ def run_inference(
 
     elif task_type_str in ['instance_segmentation', 'semantic_segmentation']:
         result_dict["predicted_boxes"] = result.predicted_boxes or []
-        result_dict["predicted_mask_path"] = result.predicted_mask_path
+        result_dict["predicted_masks"] = result.predicted_masks or []  # Polygon contours
+        result_dict["predicted_mask_path"] = result.predicted_mask_path  # Legacy field (optional)
         result_dict["num_instances"] = len(result.predicted_boxes) if result.predicted_boxes else 0
 
     elif task_type_str == 'pose_estimation':

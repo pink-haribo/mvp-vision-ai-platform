@@ -67,8 +67,9 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   const [maxDetections, setMaxDetections] = useState(100)
   const [topK, setTopK] = useState(5)
 
-  // Bbox visualization settings
-  const [showBboxes, setShowBboxes] = useState(true)
+  // Visualization settings
+  const [showMasks, setShowMasks] = useState(true)
+  const [showBoxes, setShowBoxes] = useState(false)
 
   // Canvas ref for bbox visualization
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -158,7 +159,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     if (selectedImage?.result && imageRef.current?.complete) {
       drawBoundingBoxes()
     }
-  }, [images, selectedImageId, showBboxes])
+  }, [images, selectedImageId, showMasks, showBoxes])
 
   const drawBoundingBoxes = () => {
     const canvas = canvasRef.current
@@ -182,11 +183,6 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    // Don't draw if bboxes are hidden
-    if (!showBboxes) {
-      return
-    }
-
     // Only draw for detection/segmentation tasks
     if (!selectedImage?.result ||
         (selectedImage.result.task_type !== 'object_detection' &&
@@ -195,10 +191,65 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     }
 
     const boxes = selectedImage.result.predicted_boxes || []
+    const masks = selectedImage.result.predicted_masks || []
 
-    // Draw each bbox
-    ctx.lineWidth = 3
-    boxes.forEach((box: any) => {
+    console.log('[CANVAS] task_type:', selectedImage.result.task_type)
+    console.log('[CANVAS] masks array:', masks)
+    console.log('[CANVAS] masks.length:', masks.length)
+    console.log('[CANVAS] showMasks:', showMasks)
+    console.log('[CANVAS] showBoxes:', showBoxes)
+    console.log('[CANVAS] canvas size:', canvas.width, 'x', canvas.height)
+
+    // Draw masks first (if segmentation task and showMasks is enabled)
+    if (showMasks && selectedImage.result.task_type === 'instance_segmentation' && masks.length > 0) {
+      console.log('[CANVAS] Drawing masks...')
+      masks.forEach((mask: any, idx: number) => {
+        console.log(`[CANVAS] Mask ${idx}:`, mask)
+        console.log(`[CANVAS] Mask ${idx} polygon length:`, mask.polygon?.length)
+        if (mask.polygon && mask.polygon.length > 0) {
+          console.log(`[CANVAS] Drawing polygon for mask ${idx} with ${mask.polygon.length} points`)
+
+          // Use different colors for each instance (cycle through palette)
+          const colors = [
+            { fill: 'rgba(168, 85, 247, 0.4)', stroke: '#A855F7' },  // Purple
+            { fill: 'rgba(34, 197, 94, 0.4)', stroke: '#22C55E' },   // Green
+            { fill: 'rgba(59, 130, 246, 0.4)', stroke: '#3B82F6' },  // Blue
+            { fill: 'rgba(251, 146, 60, 0.4)', stroke: '#FB923C' },  // Orange
+            { fill: 'rgba(236, 72, 153, 0.4)', stroke: '#EC4899' },  // Pink
+          ]
+          const color = colors[idx % colors.length]
+
+          // Draw filled polygon with transparency
+          ctx.fillStyle = color.fill
+          ctx.strokeStyle = color.stroke
+          ctx.lineWidth = 3
+
+          ctx.beginPath()
+          const firstPoint = mask.polygon[0]
+          console.log('[CANVAS] First point:', firstPoint)
+          ctx.moveTo(firstPoint[0], firstPoint[1])
+
+          mask.polygon.forEach((point: number[]) => {
+            ctx.lineTo(point[0], point[1])
+          })
+
+          ctx.closePath()
+          ctx.fill()
+          ctx.stroke()
+          console.log(`[CANVAS] Mask ${idx} drawn successfully with color:`, color.stroke)
+        } else {
+          console.log(`[CANVAS] Mask ${idx} has no polygon data`)
+        }
+      })
+    } else {
+      console.log('[CANVAS] NOT drawing masks. Reason:',
+        selectedImage.result.task_type !== 'instance_segmentation' ? 'not segmentation task' : 'no masks')
+    }
+
+    // Draw bboxes (if showBoxes is enabled)
+    if (showBoxes) {
+      ctx.lineWidth = 3
+      boxes.forEach((box: any) => {
       // Use x1, y1, x2, y2 from backend
       if (box.x1 !== undefined && box.x2 !== undefined) {
         const x = box.x1
@@ -226,7 +277,8 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           ctx.fillText(label, x + padding, y - 6)
         }
       }
-    })
+      })
+    }
   }
 
   const handleImageLoad = () => {
@@ -434,6 +486,36 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
 
   return (
     <div className="space-y-6">
+      {/* Task Type Header */}
+      <div className="bg-gradient-to-r from-violet-50 to-purple-50 rounded-lg border border-violet-200 p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              "px-3 py-1 rounded-full text-xs font-semibold",
+              job.task_type === 'instance_segmentation'
+                ? "bg-purple-500 text-white"
+                : job.task_type === 'object_detection'
+                ? "bg-blue-500 text-white"
+                : "bg-green-500 text-white"
+            )}>
+              {job.task_type === 'instance_segmentation' ? '🎭 Instance Segmentation' :
+               job.task_type === 'object_detection' ? '📦 Object Detection' :
+               '🖼️ Image Classification'}
+            </div>
+            <span className="text-sm text-gray-700">
+              {job.task_type === 'instance_segmentation'
+                ? 'Mask와 Bounding Box를 함께 예측합니다'
+                : job.task_type === 'object_detection'
+                ? 'Bounding Box를 예측합니다'
+                : 'Class와 Confidence를 예측합니다'}
+            </span>
+          </div>
+          <div className="text-xs text-gray-500">
+            Model: <span className="font-mono text-violet-600">{job.model_name}</span>
+          </div>
+        </div>
+      </div>
+
       {/* Upload and Settings Section */}
       <div className="grid grid-cols-2 gap-6">
         {/* Image Upload - Using unified component */}
@@ -700,12 +782,23 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                       <h5 className="text-xs font-semibold text-gray-900">
                         탐지된 객체 ({selectedImage.result.num_detections || 0}개)
                       </h5>
+                      {selectedImage.result.task_type === 'instance_segmentation' && (
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showMasks}
+                            onChange={(e) => setShowMasks(e.target.checked)}
+                            className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                          />
+                          <span className="text-xs text-gray-600">Mask 표시</span>
+                        </label>
+                      )}
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={showBboxes}
-                          onChange={(e) => setShowBboxes(e.target.checked)}
-                          className="w-4 h-4 text-violet-600 border-gray-300 rounded focus:ring-violet-500"
+                          checked={showBoxes}
+                          onChange={(e) => setShowBoxes(e.target.checked)}
+                          className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
                         />
                         <span className="text-xs text-gray-600">BBox 표시</span>
                       </label>
@@ -753,12 +846,23 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                       <h5 className="text-xs font-semibold text-gray-900">
                         분할된 인스턴스 ({selectedImage.result.num_instances || 0}개)
                       </h5>
+                      {selectedImage.result.task_type === 'instance_segmentation' && (
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showMasks}
+                            onChange={(e) => setShowMasks(e.target.checked)}
+                            className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                          />
+                          <span className="text-xs text-gray-600">Mask 표시</span>
+                        </label>
+                      )}
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={showBboxes}
-                          onChange={(e) => setShowBboxes(e.target.checked)}
-                          className="w-4 h-4 text-violet-600 border-gray-300 rounded focus:ring-violet-500"
+                          checked={showBoxes}
+                          onChange={(e) => setShowBoxes(e.target.checked)}
+                          className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
                         />
                         <span className="text-xs text-gray-600">BBox 표시</span>
                       </label>
