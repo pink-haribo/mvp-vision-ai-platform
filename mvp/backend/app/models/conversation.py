@@ -18,6 +18,9 @@ class ConversationState(str, Enum):
 
     State transitions:
     initial → gathering_config → selecting_project → creating_project/confirming → complete
+    initial → analyzing_dataset → selecting_model → gathering_config
+    initial → running_inference
+    initial → monitoring_training
     """
 
     INITIAL = "initial"
@@ -40,6 +43,28 @@ class ConversationState(str, Enum):
 
     ERROR = "error"
     """오류 상태 - 복구 필요"""
+
+    # Phase 1 추가 States
+    ANALYZING_DATASET = "analyzing_dataset"
+    """데이터셋 분석 중"""
+
+    SELECTING_MODEL = "selecting_model"
+    """모델 선택 중"""
+
+    COMPARING_MODELS = "comparing_models"
+    """모델 비교 중"""
+
+    MONITORING_TRAINING = "monitoring_training"
+    """학습 모니터링 중"""
+
+    RUNNING_INFERENCE = "running_inference"
+    """추론 실행 중"""
+
+    VIEWING_RESULTS = "viewing_results"
+    """결과 조회 중"""
+
+    IDLE = "idle"
+    """대기 중 - 다음 작업 대기"""
 
 
 class ActionType(str, Enum):
@@ -75,6 +100,66 @@ class ActionType(str, Enum):
 
     ERROR = "error"
     """오류 발생"""
+
+    # Phase 1 추가 Actions - Dataset
+    ANALYZE_DATASET = "analyze_dataset"
+    """데이터셋 분석 실행"""
+
+    SHOW_DATASET_ANALYSIS = "show_dataset_analysis"
+    """데이터셋 분석 결과 표시"""
+
+    LIST_DATASETS = "list_datasets"
+    """사용 가능한 데이터셋 목록 표시"""
+
+    # Phase 1 추가 Actions - Model
+    SEARCH_MODELS = "search_models"
+    """모델 검색"""
+
+    SHOW_MODEL_INFO = "show_model_info"
+    """모델 상세 정보 표시"""
+
+    COMPARE_MODELS = "compare_models"
+    """모델 비교"""
+
+    RECOMMEND_MODELS = "recommend_models"
+    """모델 추천"""
+
+    # Phase 1 추가 Actions - Training Control
+    STOP_TRAINING = "stop_training"
+    """학습 중지"""
+
+    RESUME_TRAINING = "resume_training"
+    """학습 재개"""
+
+    SHOW_TRAINING_STATUS = "show_training_status"
+    """학습 상태 표시"""
+
+    LIST_TRAINING_JOBS = "list_training_jobs"
+    """학습 작업 목록 표시"""
+
+    # Phase 1 추가 Actions - Inference
+    START_QUICK_INFERENCE = "start_quick_inference"
+    """빠른 추론 시작"""
+
+    START_BATCH_INFERENCE = "start_batch_inference"
+    """배치 추론 시작"""
+
+    SHOW_INFERENCE_RESULTS = "show_inference_results"
+    """추론 결과 표시"""
+
+    # Phase 1 추가 Actions - Results
+    SHOW_VALIDATION_RESULTS = "show_validation_results"
+    """검증 결과 표시"""
+
+    SHOW_CONFUSION_MATRIX = "show_confusion_matrix"
+    """Confusion Matrix 표시"""
+
+    # Phase 1 추가 Actions - General
+    SHOW_HELP = "show_help"
+    """도움말 표시"""
+
+    RESET_CONVERSATION = "reset_conversation"
+    """대화 초기화"""
 
 
 # ========== Action Schemas ==========

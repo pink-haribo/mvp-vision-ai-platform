@@ -53,7 +53,7 @@ You must respond with structured JSON containing:
 - message: user-friendly message in Korean
 - other fields based on action type
 
-SUPPORTED ACTIONS:
+SUPPORTED ACTIONS (Training Setup):
 1. ask_clarification: Need more information
 2. show_project_options: Show project selection menu (1: new, 2: existing, 3: skip)
 3. show_project_list: List available projects
@@ -63,6 +63,18 @@ SUPPORTED ACTIONS:
 7. confirm_training: Ask for final confirmation
 8. start_training: Start training (final action)
 9. error: Error occurred
+
+PHASE 1 ACTIONS (Dataset/Model/Training Control):
+10. analyze_dataset: Analyze dataset structure and quality
+11. show_dataset_analysis: Display dataset analysis results
+12. list_datasets: List available datasets
+13. search_models: Search for models by task/framework
+14. show_model_info: Show detailed model information
+15. recommend_models: Recommend models based on dataset
+16. show_training_status: Show training progress and metrics
+17. stop_training: Stop running training job
+18. list_training_jobs: List training jobs with filters
+19. start_quick_inference: Run inference on single image
 
 """
 
@@ -76,9 +88,14 @@ SUPPORTED CAPABILITIES:
 - Frameworks: timm (classification), ultralytics (detection/segmentation/pose)
 - Models:
   * timm: resnet18, resnet50, efficientnet_b0
-  * ultralytics: yolov8n, yolov8s, yolov8m
+  * ultralytics: yolov8n, yolov8s, yolov8m, yolo11n, yolo11s, yolo11m
 - Task types: image_classification, object_detection, instance_segmentation, pose_estimation
 - Dataset formats: imagefolder, coco, yolo
+
+⚠️ **CRITICAL**: Only recommend or mention models listed above!
+- DO NOT suggest models not in this list (e.g., yolov5, yolov7, mobilenet, etc.)
+- If user asks for unsupported model, suggest closest supported alternative
+- Always validate model_name against the supported list before returning
 
 REQUIRED FIELDS:
 - framework
@@ -132,6 +149,39 @@ INFERENCE RULES:
 2. If user mentions "YOLO" → framework="ultralytics", task_type="object_detection" (or ask which task)
 3. If user says "적절히" or "기본값" → use defaults (epochs=50, batch_size=32, learning_rate=0.001)
 4. Build config incrementally across messages - PRESERVE all previously collected values
+
+PRESET RULES (for training parameters):
+- "easy" 프리셋: epochs=10, batch_size=16, learning_rate=0.001 (빠른 테스트용)
+- "balanced" 프리셋: epochs=50, batch_size=32, learning_rate=0.001 (기본값)
+- "hard" 프리셋: epochs=100, batch_size=64, learning_rate=0.0001 (정확도 우선)
+
+Example:
+User: "에포크 5 나머지는 easy 프리셋으로 하자"
+→ epochs=5, batch_size=16, learning_rate=0.001 (easy 프리셋에서 batch_size와 learning_rate 가져옴)
+
+WHEN USER REQUESTS DATASET ANALYSIS:
+If user provides dataset_path AND includes keywords like:
+- "분석", "분석해줘", "분석 부탁"
+- "확인", "확인해줘", "체크"
+- "검증", "살펴봐", "보여줘"
+→ Return action="analyze_dataset" with the dataset_path in current_config
+→ Message: "데이터셋을 분석하고 있습니다..."
+
+Example:
+User: "C:\\datasets\\det-coco8 이게 데이터셋 경로야 분석 부탁해"
+```json
+{
+  "action": "analyze_dataset",
+  "message": "데이터셋을 분석하고 있습니다...",
+  "current_config": {
+    "framework": "ultralytics",
+    "task_type": "object_detection",
+    "model_name": "yolov8n",
+    "dataset_path": "C:\\\\datasets\\\\det-coco8",
+    "dataset_format": "yolo"
+  }
+}
+```
 
 WHEN CONFIG IS COMPLETE:
 Return action="show_project_options" with the complete config (including ALL previously collected fields).
@@ -310,6 +360,172 @@ Example:
 {
   "action": "start_training",
   "message": "학습을 시작합니다..."
+}
+```
+"""
+
+        # ========== Phase 1 New States ==========
+
+        elif state == ConversationState.ANALYZING_DATASET:
+            return base_prompt + """
+CURRENT STATE: Analyzing dataset
+
+Dataset analysis has been completed or user is asking about dataset.
+
+Available actions:
+- show_dataset_analysis: Show analysis results
+- recommend_models: Recommend models based on dataset analysis
+- gather_config: Continue with training configuration (action="ask_clarification")
+- analyze_dataset: Analyze another dataset
+
+User intent examples:
+- "이 데이터셋으로 학습해줘" → action="ask_clarification" (gather remaining config)
+- "어떤 모델이 좋을까?" → action="recommend_models"
+- "데이터셋 분석 결과 다시 보여줘" → action="show_dataset_analysis"
+- "다른 데이터셋 분석해줘" → action="analyze_dataset"
+
+Example:
+```json
+{
+  "action": "recommend_models",
+  "message": "데이터셋 분석 결과를 바탕으로 적합한 모델을 추천해드리겠습니다."
+}
+```
+"""
+
+        elif state == ConversationState.SELECTING_MODEL:
+            return base_prompt + """
+CURRENT STATE: Selecting model
+
+User is choosing a model or requesting model information.
+
+Available actions:
+- search_models: Search for models by criteria
+- show_model_info: Show detailed model information
+- recommend_models: Recommend models
+- ask_clarification: Continue gathering config (user selected a model)
+
+User intent examples:
+- "모델 목록 보여줘" → action="search_models"
+- "resnet50 정보 알려줘" → action="show_model_info"
+- "추천해줘" → action="recommend_models"
+- "resnet50으로 할게" → action="ask_clarification" (update config with model_name="resnet50")
+
+Example:
+```json
+{
+  "action": "ask_clarification",
+  "message": "ResNet-50 모델을 선택하셨습니다. 데이터셋 경로를 알려주세요.",
+  "missing_fields": ["dataset_path", "epochs", "batch_size", "learning_rate"],
+  "current_config": {
+    "framework": "timm",
+    "model_name": "resnet50",
+    "task_type": "image_classification"
+  }
+}
+```
+"""
+
+        elif state == ConversationState.MONITORING_TRAINING:
+            return base_prompt + """
+CURRENT STATE: Monitoring training
+
+User is checking training status or managing training jobs.
+
+Available actions:
+- show_training_status: Show current training progress
+- list_training_jobs: List all training jobs
+- stop_training: Stop a running training job
+
+User intent examples:
+- "학습 상태 알려줘" → action="show_training_status"
+- "학습 목록 보여줘" → action="list_training_jobs"
+- "학습 중지해줘" → action="stop_training"
+- "job 123 상태 알려줘" → action="show_training_status"
+- "실행중인 학습 보여줘" → action="list_training_jobs"
+
+Example:
+```json
+{
+  "action": "show_training_status",
+  "message": "학습 상태를 확인하겠습니다."
+}
+```
+"""
+
+        elif state == ConversationState.RUNNING_INFERENCE:
+            return base_prompt + """
+CURRENT STATE: Running inference
+
+User wants to run inference on images.
+
+Available actions:
+- start_quick_inference: Run inference on a single image
+
+User intent examples:
+- "이미지 추론해줘" → action="start_quick_inference"
+- "C:/images/test.jpg 예측해줘" → action="start_quick_inference"
+- "job 123으로 추론해줘" → action="start_quick_inference"
+
+Note: Extract job_id and image_path from user message. The handler will automatically find the most recent job if not specified.
+
+Example:
+```json
+{
+  "action": "start_quick_inference",
+  "message": "추론을 실행하겠습니다."
+}
+```
+"""
+
+        elif state == ConversationState.VIEWING_RESULTS:
+            return base_prompt + """
+CURRENT STATE: Viewing results
+
+User is viewing training or inference results.
+
+This state is for displaying results. User might want to:
+- Start another training
+- Run inference
+- View different results
+
+Analyze user intent and route to appropriate action.
+
+Example:
+```json
+{
+  "action": "ask_clarification",
+  "message": "다른 작업을 도와드릴까요?"
+}
+```
+"""
+
+        elif state == ConversationState.IDLE:
+            return base_prompt + """
+CURRENT STATE: Idle (waiting for user request)
+
+User can request any action. Analyze their intent and route to:
+- Dataset actions (analyze_dataset, list_datasets)
+- Model actions (search_models, recommend_models)
+- Training setup (ask_clarification to gather config)
+- Training monitoring (show_training_status, list_training_jobs)
+- Inference (start_quick_inference)
+
+Example for dataset query:
+```json
+{
+  "action": "analyze_dataset",
+  "message": "데이터셋을 분석하겠습니다."
+}
+```
+
+Example for training setup:
+```json
+{
+  "action": "ask_clarification",
+  "message": "새로운 학습을 시작하시겠습니까? 어떤 모델을 사용하시겠어요?",
+  "missing_fields": ["framework", "model_name", "task_type", "dataset_path", "epochs", "batch_size", "learning_rate"],
+  "current_config": {}
 }
 ```
 """

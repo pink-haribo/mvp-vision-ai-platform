@@ -55,3 +55,12 @@ class ChatResponse(BaseModel):
     user_message: MessageResponse
     assistant_message: MessageResponse
     parsed_intent: Optional[dict] = None
+
+    # Phase 1: Enhanced fields for LLM control
+    dataset_analysis: Optional[dict] = None
+    model_recommendations: Optional[list] = None
+    model_search_results: Optional[list] = None
+    training_status: Optional[dict] = None
+    inference_results: Optional[dict] = None
+    available_datasets: Optional[list] = None
+    recommended_models: Optional[list] = None

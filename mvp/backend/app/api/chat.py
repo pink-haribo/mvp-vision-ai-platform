@@ -104,6 +104,31 @@ async def get_capabilities():
                 "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
                 "supported": True
             },
+            # Ultralytics YOLOv11 models
+            {
+                "name": "yolo11n",
+                "display_name": "YOLO11 Nano",
+                "description": "Latest lightweight YOLO model",
+                "framework": "ultralytics",
+                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
+                "supported": True
+            },
+            {
+                "name": "yolo11s",
+                "display_name": "YOLO11 Small",
+                "description": "Latest small YOLO model",
+                "framework": "ultralytics",
+                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
+                "supported": True
+            },
+            {
+                "name": "yolo11m",
+                "display_name": "YOLO11 Medium",
+                "description": "Latest medium YOLO model",
+                "framework": "ultralytics",
+                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
+                "supported": True
+            },
             # HuggingFace Transformers models
             {
                 "name": "google/vit-base-patch16-224",
@@ -467,6 +492,20 @@ async def send_message(request: chat.ChatRequest, db: DBSession = Depends(get_db
                         "notes": training_job.notes,
                     }
                 }
+
+        # Phase 1: Populate action-specific fields from ConversationManager result
+        if result.get("dataset_analysis"):
+            response.dataset_analysis = result["dataset_analysis"]
+        if result.get("model_search_results"):
+            response.model_search_results = result["model_search_results"]
+        if result.get("recommended_models"):
+            response.model_recommendations = result["recommended_models"]
+        if result.get("available_datasets"):
+            response.available_datasets = result["available_datasets"]
+        if result.get("training_status"):
+            response.training_status = result["training_status"]
+        if result.get("inference_results"):
+            response.inference_results = result["inference_results"]
 
         logger.debug(f"Response sent for session {session_id}")
         return response

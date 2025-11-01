@@ -73,6 +73,12 @@ export default function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Phase 1: State for action-specific data
+  const [datasetAnalysis, setDatasetAnalysis] = useState<any>(null)
+  const [modelRecommendations, setModelRecommendations] = useState<any[]>([])
+  const [trainingStatus, setTrainingStatus] = useState<any>(null)
+  const [inferenceResults, setInferenceResults] = useState<any>(null)
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
@@ -144,6 +150,20 @@ export default function ChatPanel({
 
       // Clear input
       setInput('')
+
+      // Phase 1: Update action-specific state from response
+      if (data.dataset_analysis) {
+        setDatasetAnalysis(data.dataset_analysis)
+      }
+      if (data.model_recommendations || data.model_search_results) {
+        setModelRecommendations(data.model_recommendations || data.model_search_results || [])
+      }
+      if (data.training_status) {
+        setTrainingStatus(data.training_status)
+      }
+      if (data.inference_results) {
+        setInferenceResults(data.inference_results)
+      }
 
       // If project was selected via chat, notify parent to show project detail
       if (data.selected_project_id) {
@@ -443,6 +463,155 @@ export default function ChatPanel({
             </div>
           </div>
         ))}
+
+        {/* Phase 1: Dataset Analysis Card */}
+        {datasetAnalysis && (
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">📊 데이터셋 분석 결과</h3>
+            <div className="space-y-2 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-white rounded p-2">
+                  <div className="text-gray-600">경로</div>
+                  <div className="font-medium text-gray-900 break-all">{datasetAnalysis.path}</div>
+                </div>
+                <div className="bg-white rounded p-2">
+                  <div className="text-gray-600">형식</div>
+                  <div className="font-medium text-gray-900">{datasetAnalysis.format}</div>
+                </div>
+                <div className="bg-white rounded p-2">
+                  <div className="text-gray-600">총 이미지</div>
+                  <div className="font-medium text-gray-900">{datasetAnalysis.total_images?.toLocaleString()}개</div>
+                </div>
+                <div className="bg-white rounded p-2">
+                  <div className="text-gray-600">클래스 수</div>
+                  <div className="font-medium text-gray-900">{datasetAnalysis.num_classes}개</div>
+                </div>
+              </div>
+              {datasetAnalysis.classes && datasetAnalysis.classes.length > 0 && (
+                <div className="bg-white rounded p-2">
+                  <div className="text-gray-600 mb-1">클래스 목록</div>
+                  <div className="flex flex-wrap gap-1">
+                    {datasetAnalysis.classes.map((cls: string, idx: number) => (
+                      <span key={idx} className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs">
+                        {cls}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Phase 1: Model Recommendations Card */}
+        {modelRecommendations && modelRecommendations.length > 0 && (
+          <div className="bg-gradient-to-br from-violet-50 to-purple-50 rounded-lg p-4 border border-violet-200">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">🤖 추천 모델</h3>
+            <div className="space-y-2">
+              {modelRecommendations.map((model: any, idx: number) => (
+                <div key={idx} className="bg-white rounded p-3 text-xs">
+                  <div className="flex items-start justify-between mb-1">
+                    <div className="font-medium text-gray-900">{model.name}</div>
+                    <span className="px-2 py-0.5 bg-violet-100 text-violet-800 rounded text-xs">
+                      {model.framework}
+                    </span>
+                  </div>
+                  {model.description && (
+                    <div className="text-gray-600 mb-1">{model.description}</div>
+                  )}
+                  {model.task_types && (
+                    <div className="flex flex-wrap gap-1">
+                      {model.task_types.map((task: string, taskIdx: number) => (
+                        <span key={taskIdx} className="px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">
+                          {task}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Phase 1: Training Status Card */}
+        {trainingStatus && (
+          <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-4 border border-emerald-200">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">🔥 학습 상태</h3>
+            <div className="space-y-2 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-white rounded p-2">
+                  <div className="text-gray-600">Job ID</div>
+                  <div className="font-medium text-gray-900">#{trainingStatus.job_id}</div>
+                </div>
+                <div className="bg-white rounded p-2">
+                  <div className="text-gray-600">모델</div>
+                  <div className="font-medium text-gray-900">{trainingStatus.model}</div>
+                </div>
+                <div className="bg-white rounded p-2">
+                  <div className="text-gray-600">상태</div>
+                  <div className={cn(
+                    "font-medium",
+                    trainingStatus.status === 'running' ? 'text-emerald-600' :
+                    trainingStatus.status === 'completed' ? 'text-blue-600' :
+                    trainingStatus.status === 'failed' ? 'text-red-600' : 'text-gray-600'
+                  )}>
+                    {trainingStatus.status}
+                  </div>
+                </div>
+                <div className="bg-white rounded p-2">
+                  <div className="text-gray-600">진행률</div>
+                  <div className="font-medium text-gray-900">
+                    {trainingStatus.current_epoch}/{trainingStatus.total_epochs} ({trainingStatus.progress_percent?.toFixed(1)}%)
+                  </div>
+                </div>
+              </div>
+              {trainingStatus.latest_metrics && (
+                <div className="bg-white rounded p-2">
+                  <div className="text-gray-600 mb-1">최근 메트릭</div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {Object.entries(trainingStatus.latest_metrics).map(([key, value]: [string, any]) => (
+                      <div key={key}>
+                        <span className="text-gray-600">{key}: </span>
+                        <span className="font-medium">{typeof value === 'number' ? value.toFixed(4) : value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Phase 1: Inference Results Card */}
+        {inferenceResults && (
+          <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-lg p-4 border border-amber-200">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">🎯 추론 결과</h3>
+            <div className="space-y-2 text-xs">
+              {inferenceResults.image_path && (
+                <div className="bg-white rounded p-2">
+                  <div className="text-gray-600">이미지 경로</div>
+                  <div className="font-medium text-gray-900 break-all">{inferenceResults.image_path}</div>
+                </div>
+              )}
+              {inferenceResults.predictions && inferenceResults.predictions.length > 0 && (
+                <div className="bg-white rounded p-2">
+                  <div className="text-gray-600 mb-2">예측 결과</div>
+                  <div className="space-y-1">
+                    {inferenceResults.predictions.map((pred: any, idx: number) => (
+                      <div key={idx} className="flex items-center justify-between p-1.5 bg-gray-50 rounded">
+                        <span className="font-medium">{pred.class || pred.label}</span>
+                        <span className="text-amber-600 font-semibold">
+                          {(pred.confidence * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         <div ref={messagesEndRef} />
       </div>
