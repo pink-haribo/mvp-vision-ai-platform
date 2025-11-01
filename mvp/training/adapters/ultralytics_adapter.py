@@ -2009,17 +2009,20 @@ class UltralyticsAdapter(TrainingAdapter):
 
         # YOLO inference
         start_time = time.time()
-        print(f"[DEBUG] Running YOLO inference on {image_path}")
-        print(f"[DEBUG] Model: {self.model}")
-        print(f"[DEBUG] Task type: {self.task_type}")
+        print(f"[DEBUG] Running YOLO inference on {image_path}", file=sys.stderr)
+        print(f"[DEBUG] Model: {self.model}", file=sys.stderr)
+        print(f"[DEBUG] Task type: {self.task_type}", file=sys.stderr)
+        print(f"[DEBUG] Image path exists: {Path(image_path).exists()}", file=sys.stderr)
 
         try:
+            print(f"[DEBUG] Calling self.model('{image_path}', verbose=False)...", file=sys.stderr)
             results = self.model(image_path, verbose=False)
-            print(f"[DEBUG] Results type: {type(results)}, length: {len(results) if results else 0}")
+            print(f"[DEBUG] YOLO call completed", file=sys.stderr)
+            print(f"[DEBUG] Results type: {type(results)}, length: {len(results) if results else 0}", file=sys.stderr)
         except Exception as e:
-            print(f"[ERROR] YOLO inference failed: {e}")
+            print(f"[ERROR] YOLO inference failed: {e}", file=sys.stderr)
             import traceback
-            traceback.print_exc()
+            traceback.print_exc(file=sys.stderr)
             raise
 
         inference_time = (time.time() - start_time) * 1000
@@ -2028,19 +2031,32 @@ class UltralyticsAdapter(TrainingAdapter):
             raise RuntimeError(f"YOLO returned empty results for {image_path}")
 
         result = results[0]
-        print(f"[DEBUG] Result object: {result}")
+        print(f"[DEBUG] Result object: {result}", file=sys.stderr)
+        print(f"[DEBUG] Result boxes: {result.boxes if hasattr(result, 'boxes') else 'N/A'}", file=sys.stderr)
 
         # Extract predictions based on task
-        if self.task_type == TaskType.OBJECT_DETECTION:
+        print(f"[DEBUG] About to extract predictions for task: {self.task_type}", file=sys.stderr)
+        print(f"[DEBUG] self.task_type type: {type(self.task_type)}", file=sys.stderr)
+
+        # Convert task_type to string for comparison (handles both enum and string cases)
+        task_type_str = self.task_type.value if hasattr(self.task_type, 'value') else str(self.task_type)
+        print(f"[DEBUG] task_type_str: {task_type_str}", file=sys.stderr)
+
+        if task_type_str == 'object_detection':
+            print(f"[DEBUG] Calling _extract_detection_result", file=sys.stderr)
             return self._extract_detection_result(result, image_path, inference_time)
-        elif self.task_type == TaskType.INSTANCE_SEGMENTATION:
+        elif task_type_str == 'instance_segmentation':
+            print(f"[DEBUG] Calling _extract_segmentation_result", file=sys.stderr)
             return self._extract_segmentation_result(result, image_path, inference_time)
-        elif self.task_type == TaskType.POSE_ESTIMATION:
+        elif task_type_str == 'pose_estimation':
+            print(f"[DEBUG] Calling _extract_pose_result", file=sys.stderr)
             return self._extract_pose_result(result, image_path, inference_time)
-        elif self.task_type == TaskType.IMAGE_CLASSIFICATION:
+        elif task_type_str == 'image_classification':
+            print(f"[DEBUG] Calling _extract_classification_result", file=sys.stderr)
             return self._extract_classification_result(result, image_path, inference_time)
         else:
-            raise ValueError(f"Unsupported task type: {self.task_type}")
+            print(f"[ERROR] Unsupported task type: {task_type_str}", file=sys.stderr)
+            raise ValueError(f"Unsupported task type: {task_type_str}")
 
     def _extract_classification_result(
         self,
@@ -2110,11 +2126,18 @@ class UltralyticsAdapter(TrainingAdapter):
         from pathlib import Path
         from .base import InferenceResult, TaskType
 
+        print(f"[DEBUG] _extract_detection_result called", file=sys.stderr)
+
         # Extract boxes
         boxes = result.boxes
         predicted_boxes = []
 
-        if boxes is not None:
+        print(f"[DEBUG] boxes: {boxes}", file=sys.stderr)
+        print(f"[DEBUG] boxes is not None: {boxes is not None}", file=sys.stderr)
+        print(f"[DEBUG] len(boxes): {len(boxes) if boxes is not None else 'N/A'}", file=sys.stderr)
+
+        if boxes is not None and len(boxes) > 0:
+            print(f"[DEBUG] Processing {len(boxes)} boxes", file=sys.stderr)
             for i in range(len(boxes)):
                 box = boxes[i]
                 class_id = int(box.cls.item())
@@ -2140,8 +2163,13 @@ class UltralyticsAdapter(TrainingAdapter):
                     'confidence': float(box.conf.item()),
                     'format': 'yolo'
                 })
+        else:
+            print(f"[DEBUG] No boxes detected (boxes is None or empty)", file=sys.stderr)
 
-        return InferenceResult(
+        print(f"[DEBUG] predicted_boxes count: {len(predicted_boxes)}", file=sys.stderr)
+        print(f"[DEBUG] Creating InferenceResult...", file=sys.stderr)
+
+        inf_result = InferenceResult(
             image_path=image_path,
             image_name=Path(image_path).name,
             task_type=TaskType.OBJECT_DETECTION,
@@ -2150,6 +2178,11 @@ class UltralyticsAdapter(TrainingAdapter):
             preprocessing_time_ms=0.0,
             postprocessing_time_ms=0.0
         )
+
+        print(f"[DEBUG] InferenceResult created: {inf_result}", file=sys.stderr)
+        print(f"[DEBUG] Returning from _extract_detection_result", file=sys.stderr)
+
+        return inf_result
 
     def _extract_segmentation_result(
         self,

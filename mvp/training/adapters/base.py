@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional, Union
 from dataclasses import dataclass, field
 from enum import Enum
 import json
+import sys
 
 
 class TaskType(Enum):
@@ -876,7 +877,9 @@ class TrainingAdapter(ABC):
                     result = self.infer_single(img_path)
                     results.append(result)
                 except Exception as e:
-                    print(f"[WARNING] Failed to process {img_path}: {e}")
+                    print(f"[ERROR] Failed to process {img_path}: {e}", file=sys.stderr)
+                    import traceback
+                    traceback.print_exc(file=sys.stderr)
                     # Continue with next image
 
         return results

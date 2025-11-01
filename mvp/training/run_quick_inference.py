@@ -137,7 +137,16 @@ def run_inference(
             adapter.model.eval()
 
     # Run inference
+    print(f"[DEBUG] About to call adapter.infer_batch(['{image_path}'])", file=sys.stderr)
+    print(f"[DEBUG] Adapter type: {type(adapter)}", file=sys.stderr)
+    print(f"[DEBUG] Adapter.model: {adapter.model}", file=sys.stderr)
+    print(f"[DEBUG] Task type: {task_type}", file=sys.stderr)
+
     results = adapter.infer_batch([image_path])
+
+    print(f"[DEBUG] infer_batch returned, results type: {type(results)}", file=sys.stderr)
+    print(f"[DEBUG] results length: {len(results) if results else 0}", file=sys.stderr)
+    print(f"[DEBUG] results: {results}", file=sys.stderr)
 
     if not results or len(results) == 0:
         raise RuntimeError("Inference failed - no results returned")

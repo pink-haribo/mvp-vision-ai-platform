@@ -67,6 +67,9 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   const [maxDetections, setMaxDetections] = useState(100)
   const [topK, setTopK] = useState(5)
 
+  // Bbox visualization settings
+  const [showBboxes, setShowBboxes] = useState(true)
+
   // Canvas ref for bbox visualization
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
@@ -149,13 +152,13 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     }
   }, [sessionId])
 
-  // Draw bboxes when image or results change
+  // Draw bboxes when image, results, or visibility changes
   useEffect(() => {
     const selectedImage = images.find(img => img.id === selectedImageId)
     if (selectedImage?.result && imageRef.current?.complete) {
       drawBoundingBoxes()
     }
-  }, [images, selectedImageId])
+  }, [images, selectedImageId, showBboxes])
 
   const drawBoundingBoxes = () => {
     const canvas = canvasRef.current
@@ -178,6 +181,11 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
 
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    // Don't draw if bboxes are hidden
+    if (!showBboxes) {
+      return
+    }
 
     // Only draw for detection/segmentation tasks
     if (!selectedImage?.result ||
@@ -688,9 +696,26 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                 {/* Detection Results */}
                 {selectedImage.result.task_type === 'object_detection' && (
                   <div>
-                    <h5 className="text-xs font-semibold text-gray-900 mb-3">
-                      탐지된 객체 ({selectedImage.result.num_detections}개)
-                    </h5>
+                    <div className="flex items-center justify-between mb-3">
+                      <h5 className="text-xs font-semibold text-gray-900">
+                        탐지된 객체 ({selectedImage.result.num_detections || 0}개)
+                      </h5>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={showBboxes}
+                          onChange={(e) => setShowBboxes(e.target.checked)}
+                          className="w-4 h-4 text-violet-600 border-gray-300 rounded focus:ring-violet-500"
+                        />
+                        <span className="text-xs text-gray-600">BBox 표시</span>
+                      </label>
+                    </div>
+                    {selectedImage.result.num_detections === 0 ? (
+                      <div className="p-4 bg-gray-50 rounded-lg text-center">
+                        <p className="text-xs text-gray-500">검출된 객체가 없습니다</p>
+                        <p className="text-xs text-gray-400 mt-1">Confidence threshold를 낮춰보세요</p>
+                      </div>
+                    ) : (
                     <div className="space-y-3">
                       {selectedImage.result.predicted_boxes?.slice(0, 10).map((box: any, idx: number) => (
                         <div key={idx} className="p-3 bg-gray-50 rounded-lg">
@@ -716,6 +741,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                         </p>
                       )}
                     </div>
+                    )}
                   </div>
                 )}
 
@@ -723,9 +749,26 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                 {(selectedImage.result.task_type === 'instance_segmentation' ||
                   selectedImage.result.task_type === 'semantic_segmentation') && (
                   <div>
-                    <h5 className="text-xs font-semibold text-gray-900 mb-3">
-                      분할된 인스턴스 ({selectedImage.result.num_instances}개)
-                    </h5>
+                    <div className="flex items-center justify-between mb-3">
+                      <h5 className="text-xs font-semibold text-gray-900">
+                        분할된 인스턴스 ({selectedImage.result.num_instances || 0}개)
+                      </h5>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={showBboxes}
+                          onChange={(e) => setShowBboxes(e.target.checked)}
+                          className="w-4 h-4 text-violet-600 border-gray-300 rounded focus:ring-violet-500"
+                        />
+                        <span className="text-xs text-gray-600">BBox 표시</span>
+                      </label>
+                    </div>
+                    {selectedImage.result.num_instances === 0 ? (
+                      <div className="p-4 bg-gray-50 rounded-lg text-center">
+                        <p className="text-xs text-gray-500">분할된 인스턴스가 없습니다</p>
+                        <p className="text-xs text-gray-400 mt-1">Confidence threshold를 낮춰보세요</p>
+                      </div>
+                    ) : (
                     <div className="space-y-3">
                       {selectedImage.result.predicted_boxes?.slice(0, 10).map((box: any, idx: number) => (
                         <div key={idx} className="p-3 bg-gray-50 rounded-lg">
@@ -743,6 +786,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                         </div>
                       ))}
                     </div>
+                    )}
                   </div>
                 )}
 
