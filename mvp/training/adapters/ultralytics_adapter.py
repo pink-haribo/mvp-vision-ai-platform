@@ -538,13 +538,27 @@ class UltralyticsAdapter(TrainingAdapter):
             sys.stdout.flush()
 
             # YOLO format - create data.yaml
-            data = {
-                'path': os.path.abspath(self.dataset_config.dataset_path),
-                'train': train_path,
-                'val': val_path,
-                'nc': nc,
-                'names': [f'class_{i}' for i in range(nc)]
-            }
+            # Check if train_path is a .txt file (auto-split dataset)
+            if train_path.endswith('.txt'):
+                # txt files contain absolute paths, so path should point to output_dir
+                data = {
+                    'path': output_dir,
+                    'train': train_path,
+                    'val': val_path,
+                    'nc': nc,
+                    'names': [f'class_{i}' for i in range(nc)]
+                }
+                print(f"[_create_data_yaml] Using txt file format (auto-split dataset)")
+                sys.stdout.flush()
+            else:
+                # Regular folder structure
+                data = {
+                    'path': os.path.abspath(self.dataset_config.dataset_path),
+                    'train': train_path,
+                    'val': val_path,
+                    'nc': nc,
+                    'names': [f'class_{i}' for i in range(nc)]
+                }
         elif self.dataset_config.format == DatasetFormat.COCO:
             # COCO format - convert to YOLO format reference
             data = {
@@ -632,15 +646,21 @@ class UltralyticsAdapter(TrainingAdapter):
         """
         Detect actual train/val folder names in YOLO dataset.
 
+        If val folder doesn't exist, automatically creates train/val split
+        from all available data.
+
         YOLO datasets can have various folder structures:
         - images/train, images/val (standard)
         - images/train2017, images/val2017 (COCO format)
         - train, val (flat structure)
+        - images/ only (will auto-split)
 
         Returns:
-            tuple: (train_path, val_path) relative to dataset root
+            tuple: (train_path, val_path) relative to dataset root or output dir
         """
         from pathlib import Path
+        import random
+        import shutil
 
         dataset_path = Path(self.dataset_config.dataset_path)
         print(f"[_detect_yolo_folders] Scanning dataset: {dataset_path}")
@@ -671,34 +691,133 @@ class UltralyticsAdapter(TrainingAdapter):
             elif val_candidates:
                 val_name = val_candidates[0]
 
-            # If val not found, use train for validation (common in small datasets)
-            if not val_name and train_name:
-                print(f"[_detect_yolo_folders] Warning: No val folder found, using train for validation")
-                sys.stdout.flush()
-                val_name = train_name
-
-            if train_name:
+            # If both train and val exist, use them
+            if train_name and val_name:
                 train_path = f'images/{train_name}'
-                val_path = f'images/{val_name}' if val_name else train_path
+                val_path = f'images/{val_name}'
                 print(f"[_detect_yolo_folders] Using train={train_path}, val={val_path}")
                 sys.stdout.flush()
                 return train_path, val_path
+
+            # If only train exists (no val), auto-split
+            if train_name and not val_name:
+                print(f"[_detect_yolo_folders] Val folder not found, auto-splitting train data...")
+                sys.stdout.flush()
+                return self._auto_split_dataset(
+                    images_base=images_dir,
+                    train_folder=train_name,
+                    split_ratio=0.8
+                )
 
         # Fallback: Check for flat structure (train/, val/ directly under dataset root)
         train_dir = dataset_path / "train"
         val_dir = dataset_path / "val"
 
         if train_dir.exists() and train_dir.is_dir():
-            train_path = 'train'
-            val_path = 'val' if val_dir.exists() else 'train'
-            print(f"[_detect_yolo_folders] Using flat structure: train={train_path}, val={val_path}")
-            sys.stdout.flush()
-            return train_path, val_path
+            if val_dir.exists():
+                train_path = 'train'
+                val_path = 'val'
+                print(f"[_detect_yolo_folders] Using flat structure: train={train_path}, val={val_path}")
+                sys.stdout.flush()
+                return train_path, val_path
+            else:
+                print(f"[_detect_yolo_folders] Val folder not found, auto-splitting train data...")
+                sys.stdout.flush()
+                return self._auto_split_dataset(
+                    images_base=dataset_path,
+                    train_folder='train',
+                    split_ratio=0.8
+                )
 
-        # Last resort: use default
+        # No train/val structure found, treat entire images/ folder as data
+        print(f"[_detect_yolo_folders] No train/val structure detected")
+        print(f"[_detect_yolo_folders] Auto-splitting all data in images/ folder...")
+        sys.stdout.flush()
+
+        if images_dir.exists():
+            return self._auto_split_dataset(
+                images_base=dataset_path,
+                train_folder='images',
+                split_ratio=0.8
+            )
+
+        # Last resort: use default (will likely fail in YOLO)
         print(f"[_detect_yolo_folders] Warning: Could not detect folder structure, using defaults")
         sys.stdout.flush()
         return 'images/train', 'images/val'
+
+    def _auto_split_dataset(self, images_base: Path, train_folder: str, split_ratio: float = 0.8) -> Tuple[str, str]:
+        """
+        Automatically split dataset into train/val sets.
+
+        Creates .txt files with image paths for YOLO to use.
+        This avoids copying/moving actual image files.
+
+        Args:
+            images_base: Base directory containing images
+            train_folder: Name of the folder with all images
+            split_ratio: Train/val split ratio (default 0.8 = 80% train)
+
+        Returns:
+            tuple: (train_txt_path, val_txt_path) relative paths for data.yaml
+        """
+        from pathlib import Path
+        import random
+
+        print(f"[_auto_split_dataset] Splitting dataset with ratio {split_ratio}")
+        sys.stdout.flush()
+
+        # Find all images in the source folder
+        source_dir = images_base / train_folder
+        if not source_dir.exists():
+            source_dir = images_base  # Fallback to base directory
+
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff'}
+        all_images = []
+
+        for ext in image_extensions:
+            all_images.extend(source_dir.glob(f'*{ext}'))
+            all_images.extend(source_dir.glob(f'*{ext.upper()}'))
+
+        if not all_images:
+            print(f"[_auto_split_dataset] ERROR: No images found in {source_dir}")
+            sys.stdout.flush()
+            return 'images/train', 'images/val'  # Fallback
+
+        # Shuffle and split
+        random.seed(42)  # For reproducibility
+        random.shuffle(all_images)
+
+        split_idx = int(len(all_images) * split_ratio)
+        train_images = all_images[:split_idx]
+        val_images = all_images[split_idx:]
+
+        print(f"[_auto_split_dataset] Total images: {len(all_images)}")
+        print(f"[_auto_split_dataset] Train: {len(train_images)}, Val: {len(val_images)}")
+        sys.stdout.flush()
+
+        # Create .txt files in output directory
+        output_dir = Path(self.output_dir)
+        train_txt = output_dir / 'train.txt'
+        val_txt = output_dir / 'val.txt'
+
+        # Write absolute paths to txt files
+        with open(train_txt, 'w') as f:
+            for img_path in train_images:
+                # YOLO expects absolute paths in .txt files
+                f.write(f"{img_path.absolute()}\n")
+
+        with open(val_txt, 'w') as f:
+            for img_path in val_images:
+                f.write(f"{img_path.absolute()}\n")
+
+        print(f"[_auto_split_dataset] Created train.txt: {train_txt}")
+        print(f"[_auto_split_dataset] Created val.txt: {val_txt}")
+        sys.stdout.flush()
+
+        # Return relative paths for data.yaml
+        # YOLO will resolve these relative to data.yaml location
+        return 'train.txt', 'val.txt'
 
     def train(self, start_epoch: int = 0, checkpoint_path: str = None, resume_training: bool = False) -> List[MetricsResult]:
         """
@@ -1148,6 +1267,16 @@ class UltralyticsAdapter(TrainingAdapter):
         print("[YOLO] Registered real-time metric collection callback")
         sys.stdout.flush()
 
+        # Disable YOLO's built-in MLflow integration to avoid parameter conflicts
+        # We use our own Callbacks for MLflow logging
+        try:
+            from ultralytics import settings
+            settings.update({'mlflow': False})
+            print("[YOLO] Disabled YOLO's built-in MLflow (using custom Callbacks)")
+        except Exception as e:
+            print(f"[YOLO WARNING] Could not disable MLflow: {e}")
+        sys.stdout.flush()
+
         # YOLO training
         try:
             print("[YOLO] Starting YOLO training loop...")
@@ -1525,33 +1654,52 @@ class UltralyticsAdapter(TrainingAdapter):
             import json
             from pathlib import Path
             from collections import defaultdict
+            import torch
 
-            # Find predictions.json file
-            save_dir = Path(self.output_dir) / f'job_{self.job_id}'
-            predictions_file = save_dir / 'predictions.json'
-
-            if not predictions_file.exists():
-                print(f"[YOLO] predictions.json not found at {predictions_file}, skipping image results")
-                print(f"[YOLO] Make sure save_json=True is set in training args")
+            # Try to extract predictions directly from validator
+            if not hasattr(validator, 'pred') or validator.pred is None:
+                print(f"[YOLO] No predictions available in validator (validator.pred is None)")
                 sys.stdout.flush()
                 return
 
-            # Load predictions
-            with open(predictions_file, 'r') as f:
-                predictions = json.load(f)
-
-            print(f"[YOLO] Loaded {len(predictions)} predictions from JSON")
+            print(f"[YOLO] Extracting predictions directly from validator...")
             sys.stdout.flush()
 
-            # Group predictions by image_id
+            # Get predictions from validator
+            # validator.pred is a list of tensors, one per batch
+            # Each tensor has shape [num_detections, 6] where 6 = [x1, y1, x2, y2, conf, class_id]
+            all_preds = []
+            if isinstance(validator.pred, list):
+                for batch_pred in validator.pred:
+                    if isinstance(batch_pred, torch.Tensor):
+                        all_preds.append(batch_pred.cpu().numpy())
+                    elif isinstance(batch_pred, list):
+                        for pred in batch_pred:
+                            if isinstance(pred, torch.Tensor):
+                                all_preds.append(pred.cpu().numpy())
+
+            if not all_preds:
+                print(f"[YOLO] Could not extract predictions from validator")
+                sys.stdout.flush()
+                return
+
+            print(f"[YOLO] Extracted {len(all_preds)} prediction batches")
+            sys.stdout.flush()
+
+            # Group predictions by image index
             pred_by_image = defaultdict(list)
-            for pred in predictions:
-                image_id = pred['image_id']
-                pred_by_image[image_id].append({
-                    'bbox': pred['bbox'],  # [x, y, w, h] in absolute coordinates
-                    'class_id': pred['category_id'],
-                    'confidence': pred['score']
-                })
+            for img_idx, pred_array in enumerate(all_preds):
+                if pred_array is not None and len(pred_array) > 0:
+                    for detection in pred_array:
+                        # YOLO format: [x1, y1, x2, y2, confidence, class_id]
+                        if len(detection) >= 6:
+                            x1, y1, x2, y2, conf, cls_id = detection[:6]
+                            # Convert to [x, y, w, h] format
+                            pred_by_image[img_idx].append({
+                                'bbox': [float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
+                                'class_id': int(cls_id),
+                                'confidence': float(conf)
+                            })
 
             # Get image paths from validator's dataloader
             if not hasattr(validator, 'dataloader') or not validator.dataloader:

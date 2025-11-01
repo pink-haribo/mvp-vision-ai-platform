@@ -11,4 +11,8 @@
 # This fixes the ImportError: cannot import name 'YOLOWorld'
 ultralytics>=8.3.0
 
+# Faster COCO Eval (required for segmentation validation)
+# NOTE: Must be pre-installed before training to avoid runtime import errors
+faster-coco-eval>=1.6.7
+
 # Note: torch/torchvision automatically installed by ultralytics

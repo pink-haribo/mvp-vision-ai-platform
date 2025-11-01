@@ -12,6 +12,8 @@ interface User {
   company?: string | null
   division?: string | null
   department?: string | null
+  phone_number?: string | null
+  bio?: string | null
 }
 
 interface RegisterData {

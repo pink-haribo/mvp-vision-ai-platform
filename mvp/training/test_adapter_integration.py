@@ -370,6 +370,127 @@ def test_adapter_segmentation_e2e():
         return True
 
 
+def create_classification_dataset(root_dir):
+    """Create a tiny ImageFolder classification dataset."""
+    print(f"\n[SETUP] Creating classification dataset at {root_dir}...")
+
+    root = Path(root_dir)
+    # Only create train folder (no val) to test auto-split
+    train_dir = root / "train"
+    train_dir.mkdir(parents=True, exist_ok=True)
+
+    for class_idx in range(2):
+        class_dir = train_dir / f"class_{class_idx}"
+        class_dir.mkdir(exist_ok=True)
+
+        # Create 10 images per class
+        for img_idx in range(10):
+            img_array = np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8)
+            img = Image.fromarray(img_array)
+            img_path = class_dir / f"img_{img_idx}.jpg"
+            img.save(img_path)
+
+    print(f"[OK] Classification dataset created (train only, no val)")
+    return root
+
+
+def test_adapter_classification_autosplit():
+    """
+    Test TimmAdapter auto-split for classification datasets without val folder.
+    """
+    from adapters.timm_adapter import TimmAdapter
+    from platform_sdk import TaskType
+
+    print("\n" + "=" * 80)
+    print("TEST: TimmAdapter Classification Auto-Split")
+    print("=" * 80)
+    print("\nThis test verifies auto train/val split for Classification tasks")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create dataset (train only, no val)
+        dataset_root = create_classification_dataset(Path(tmpdir) / "dataset")
+
+        # Mock config
+        class MockModelConfig:
+            def __init__(self):
+                self.framework = "timm"
+                self.model_name = "resnet18"
+                self.task_type = TaskType.IMAGE_CLASSIFICATION
+                self.image_size = 64
+                self.num_classes = 2
+                self.pretrained = True
+                self.custom_config = None
+
+        class MockTrainingConfig:
+            def __init__(self):
+                self.epochs = 1
+                self.batch_size = 2
+                self.learning_rate = 0.001
+                self.device = "cpu"
+                self.optimizer = "adam"
+                self.scheduler = None
+                self.advanced_config = None
+
+        class MockDatasetConfig:
+            def __init__(self):
+                self.dataset_path = str(dataset_root)
+                self.format = "imagefolder"
+                self.train_split = "train"
+                self.val_split = "val"
+                self.test_split = None
+                self.augmentation = None
+
+        output_dir = Path(tmpdir) / "output"
+        output_dir.mkdir()
+
+        # Create adapter
+        print("\n[ADAPTER] Creating TimmAdapter...")
+        adapter = TimmAdapter(
+            job_id=88888,
+            model_config=MockModelConfig(),
+            training_config=MockTrainingConfig(),
+            dataset_config=MockDatasetConfig(),
+            output_dir=str(output_dir)
+        )
+
+        # Prepare model
+        print("\n[ADAPTER] Calling prepare_model()...")
+        adapter.prepare_model()
+        print("  ✓ Model prepared successfully")
+
+        # Prepare dataset - should auto-split since val folder doesn't exist
+        print("\n[ADAPTER] Calling prepare_dataset()...")
+        print("           Expected: Auto-split train data into 80/20 train/val")
+
+        try:
+            adapter.prepare_dataset()
+            print("  ✓ Dataset prepared successfully (auto-split worked!)")
+        except ValueError as e:
+            print(f"  ❌ FAILED with ValueError: {e}")
+            print("     This means auto-split is not working for Classification!")
+            return False
+
+        # Verify train and val loaders exist
+        if not hasattr(adapter, 'train_loader') or not hasattr(adapter, 'val_loader'):
+            print(f"  ❌ FAILED: train_loader or val_loader not created")
+            return False
+
+        # Verify they have data
+        train_batches = len(adapter.train_loader)
+        val_batches = len(adapter.val_loader)
+
+        print(f"  ✓ Train batches: {train_batches}")
+        print(f"  ✓ Val batches: {val_batches}")
+
+        if train_batches == 0 or val_batches == 0:
+            print(f"  ❌ FAILED: Empty dataloaders")
+            return False
+
+        print("\n✅ Classification auto-split test passed!")
+        print("   Auto train/val split works for all task types (cls, det, seg)!")
+        return True
+
+
 def main():
     """Run all Adapter integration tests."""
     print("\n" + "=" * 80)
@@ -399,6 +520,12 @@ def main():
         print("=" * 80)
         results.append(("Segmentation E2E", test_adapter_segmentation_e2e()))
 
+        # Test 4: Classification Auto-Split
+        print("\n" + "=" * 80)
+        print("TEST 4: Classification Auto-Split")
+        print("=" * 80)
+        results.append(("Classification Auto-Split", test_adapter_classification_autosplit()))
+
         # Summary
         print("\n" + "=" * 80)
         print("TEST SUMMARY")
@@ -416,8 +543,9 @@ def main():
             print("  - Model name to model path conversion (no suffix duplication)")
             print("  - Adapter initialization and configuration")
             print("  - prepare_model() execution")
-            print("  - Dataset preparation")
+            print("  - Dataset preparation (with auto train/val split)")
             print("  - Short training execution")
+            print("  - Auto-split works for ALL task types (cls, det, seg)")
             print("\nThis gives us confidence that the Adapter works correctly!")
             return 0
         else:

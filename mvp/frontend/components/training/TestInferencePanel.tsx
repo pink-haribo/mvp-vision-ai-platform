@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { Upload, Settings, Play, AlertCircle, Terminal } from 'lucide-react'
+import { Upload, Settings, Play, AlertCircle, Terminal, Info, CheckCircle, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { SlidePanel } from '../SlidePanel'
 import ImageUploadList from './ImageUploadList'
@@ -288,6 +288,11 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           }
 
           // Step 2: Run inference with server path and checkpoint from validation results
+          if (!serverPath) {
+            addLog('error', `이미지 경로를 찾을 수 없습니다: ${image.file.name}`)
+            continue
+          }
+
           addLog('info', `추론 실행 중: ${image.file.name}`)
           // Build query parameters
           const params = new URLSearchParams({
@@ -557,7 +562,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             {/* Run Inference Button */}
             <button
               onClick={runInference}
-              disabled={images.length === 0 || isRunning || (selectedEpoch && !selectedEpoch.checkpoint_path)}
+              disabled={images.length === 0 || isRunning || Boolean(selectedEpoch && !selectedEpoch.checkpoint_path)}
               className={cn(
                 'w-full px-4 py-2.5',
                 'bg-violet-600 hover:bg-violet-700',
@@ -782,7 +787,6 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
         </div>
       )}
 
-      {/* Logs Section */}
       {logs.length > 0 && (
         <div className="bg-white rounded-lg border border-gray-200">
           <div className="flex items-center gap-2 px-6 py-3 border-b border-gray-200">
@@ -799,20 +803,14 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                   log.level === 'success' && 'bg-green-50',
                   log.level === 'error' && 'bg-red-50',
                   log.level === 'warning' && 'bg-yellow-50',
-                  log.level === 'info' && 'hover:bg-gray-50'
+                  log.level === 'info' && 'bg-blue-50'
                 )}
               >
-                {/* Timestamp */}
-                <span className="text-gray-400 shrink-0">
-                  {log.timestamp.toLocaleTimeString('ko-KR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                    fractionalSecondDigits: 3
-                  })}
-                </span>
+                {log.level === 'info' && <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />}
+                {log.level === 'success' && <CheckCircle className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />}
+                {log.level === 'error' && <XCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />}
+                {log.level === 'warning' && <AlertCircle className="w-4 h-4 text-yellow-600 shrink-0 mt-0.5" />}
 
-                {/* Level Badge */}
                 <span
                   className={cn(
                     'px-1.5 py-0.5 rounded text-xs font-medium shrink-0',
@@ -828,7 +826,6 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                   {log.level === 'error' && 'ERROR'}
                 </span>
 
-                {/* Message */}
                 <span
                   className={cn(
                     'flex-1',
@@ -861,13 +858,6 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
       )}
 
       {/* Slide Panel for Super-Resolution Comparison */}
-      {console.log('[DEBUG] SlidePanel render check:', {
-        showSlidePanel,
-        hasSelectedImage: !!selectedImage,
-        hasResult: !!selectedImage?.result,
-        hasUpscaledUrl: !!selectedImage?.result?.upscaled_image_url,
-        isOpen: showSlidePanel && !!selectedImage?.result?.upscaled_image_url
-      })}
       <SlidePanel
         isOpen={showSlidePanel && !!selectedImage?.result?.upscaled_image_url}
         onClose={() => {

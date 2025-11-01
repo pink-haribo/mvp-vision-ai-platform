@@ -48,7 +48,7 @@ export const ClassificationMetricsView: React.FC<ClassificationMetricsViewProps>
   };
 
   // Format float
-  const formatFloat = (value: number | undefined) => {
+  const formatFloat = (value: number | null | undefined) => {
     if (value === undefined || value === null) return 'N/A';
     return value.toFixed(4);
   };

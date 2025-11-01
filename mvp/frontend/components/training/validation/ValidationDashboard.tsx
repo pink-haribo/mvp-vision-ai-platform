@@ -73,7 +73,7 @@ export const ValidationDashboard: React.FC<ValidationDashboardProps> = ({
     // Determine which epoch to fetch (priority: selectedEpoch > currentEpoch > best_epoch)
     let epochToFetch = selectedEpoch !== null ? selectedEpoch : currentEpoch;
     if (epochToFetch === null || epochToFetch === undefined) {
-      epochToFetch = summary.best_epoch;
+      epochToFetch = summary.best_epoch ?? undefined;
     }
 
     // Check if the epoch exists in the summary
