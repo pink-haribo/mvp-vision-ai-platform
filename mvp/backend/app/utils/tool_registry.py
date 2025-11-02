@@ -305,11 +305,14 @@ class ToolRegistry:
     ) -> list[dict]:
         """Handler for list_datasets tool"""
         from pathlib import Path
+        import os
 
         datasets = []
 
-        # Scan C:\datasets for built-in datasets
-        builtin_path = Path("C:/datasets")
+        # Scan built-in datasets directory (supports Windows/Linux)
+        # Default: C:/datasets (Windows dev), /app/datasets (Linux prod)
+        datasets_path = os.getenv("DATASETS_PATH", "C:/datasets")
+        builtin_path = Path(datasets_path)
 
         if builtin_path.exists():
             for item in builtin_path.iterdir():
@@ -321,9 +324,9 @@ class ToolRegistry:
                         "exists": True
                     })
 
-        # Also scan user-provided base_path if different from C:\datasets
+        # Also scan user-provided base_path if different from default
         base_path = params.get("base_path")
-        if base_path and base_path != "C:/datasets":
+        if base_path and base_path != datasets_path:
             base_dir = Path(base_path)
             if base_dir.exists():
                 for item in base_dir.iterdir():
