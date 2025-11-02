@@ -122,20 +122,25 @@ class ConversationManager:
             logger.info(f"[Session {session_id}] LLM action: {action_response.action}")
             logger.debug(f"[Session {session_id}] LLM message: {action_response.message}")
 
-            # EXPLICIT DEBUG - Log LLM response to file
-            debug_log_path = "C:/Users/flyto/Project/Github/mvp-vision-ai-platform/mvp/backend/llm_debug.log"
-            with open(debug_log_path, "a", encoding="utf-8") as f:
-                f.write("\n" + "="*80 + "\n")
-                f.write(f"[DEBUG] LLM Response for session {session_id}:\n")
-                f.write(f"Action: {action_response.action}\n")
-                f.write(f"Message: {action_response.message[:200]}\n")
-                if action_response.current_config:
-                    f.write(f"Current Config: {json.dumps(action_response.current_config, ensure_ascii=False)}\n")
-                else:
-                    f.write(f"Current Config: NONE/NULL\n")
-                if action_response.config:
-                    f.write(f"Config: {json.dumps(action_response.config, ensure_ascii=False)}\n")
-                f.write("="*80 + "\n")
+            # EXPLICIT DEBUG - Log LLM response to file (optional, only in dev)
+            try:
+                from pathlib import Path
+                debug_log_path = Path(__file__).parent.parent.parent / "llm_debug.log"
+                with open(debug_log_path, "a", encoding="utf-8") as f:
+                    f.write("\n" + "="*80 + "\n")
+                    f.write(f"[DEBUG] LLM Response for session {session_id}:\n")
+                    f.write(f"Action: {action_response.action}\n")
+                    f.write(f"Message: {action_response.message[:200]}\n")
+                    if action_response.current_config:
+                        f.write(f"Current Config: {json.dumps(action_response.current_config, ensure_ascii=False)}\n")
+                    else:
+                        f.write(f"Current Config: NONE/NULL\n")
+                    if action_response.config:
+                        f.write(f"Config: {json.dumps(action_response.config, ensure_ascii=False)}\n")
+                    f.write("="*80 + "\n")
+            except Exception as e:
+                # Ignore debug log errors in production
+                logger.debug(f"[Session {session_id}] Debug log failed (ignored): {e}")
 
             # 4. Execute action
             logger.warning(f"[CM] Calling handle_action for action: {action_response.action}")

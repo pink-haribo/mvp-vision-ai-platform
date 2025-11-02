@@ -465,6 +465,10 @@ async def send_message(
             .all()
         )
 
+        # Safely get assistant and user messages
+        if len(messages) < 2:
+            raise HTTPException(status_code=500, detail="Failed to retrieve messages")
+
         assistant_message = messages[0] if messages[0].role == "assistant" else messages[1]
         user_message = messages[1] if messages[0].role == "assistant" else messages[0]
 
