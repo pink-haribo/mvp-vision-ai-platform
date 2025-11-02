@@ -29,35 +29,106 @@ except ImportError:
     # Use static model definitions instead
     MODEL_REGISTRY_AVAILABLE = False
 
-    # Static model definitions for production
-    TIMM_MODEL_REGISTRY = {
-        "resnet50": {"display_name": "ResNet-50", "task_types": ["image_classification"]},
-        "resnet18": {"display_name": "ResNet-18", "task_types": ["image_classification"]},
-        "efficientnet_b0": {"display_name": "EfficientNet-B0", "task_types": ["image_classification"]},
-    }
-    ULTRALYTICS_MODEL_REGISTRY = {
-        "yolo11n": {"display_name": "YOLO11n", "task_types": ["object_detection", "instance_segmentation"]},
-        "yolo11s": {"display_name": "YOLO11s", "task_types": ["object_detection", "instance_segmentation"]},
-        "yolo11m": {"display_name": "YOLO11m", "task_types": ["object_detection", "instance_segmentation"]},
-    }
-    HUGGINGFACE_MODEL_REGISTRY = {
-        "vit-base": {"display_name": "ViT-Base", "task_types": ["image_classification"]},
-    }
+    # Static model definitions for production (minimal set)
+    STATIC_MODELS = [
+        # timm models
+        {
+            "framework": "timm",
+            "model_name": "resnet50",
+            "display_name": "ResNet-50",
+            "description": "Deep residual network with 50 layers",
+            "params": "25.6M",
+            "input_size": 224,
+            "task_types": ["image_classification"],
+            "pretrained_available": True,
+            "recommended_batch_size": 32,
+            "recommended_lr": 0.001,
+            "tags": ["cnn", "popular"],
+            "priority": 1
+        },
+        {
+            "framework": "timm",
+            "model_name": "resnet18",
+            "display_name": "ResNet-18",
+            "description": "Lightweight residual network with 18 layers",
+            "params": "11.7M",
+            "input_size": 224,
+            "task_types": ["image_classification"],
+            "pretrained_available": True,
+            "recommended_batch_size": 64,
+            "recommended_lr": 0.001,
+            "tags": ["cnn", "fast"],
+            "priority": 1
+        },
+        {
+            "framework": "timm",
+            "model_name": "efficientnet_b0",
+            "display_name": "EfficientNet-B0",
+            "description": "Efficient neural network with balanced scaling",
+            "params": "5.3M",
+            "input_size": 224,
+            "task_types": ["image_classification"],
+            "pretrained_available": True,
+            "recommended_batch_size": 32,
+            "recommended_lr": 0.001,
+            "tags": ["efficient", "popular"],
+            "priority": 1
+        },
+        # ultralytics models
+        {
+            "framework": "ultralytics",
+            "model_name": "yolo11n",
+            "display_name": "YOLO11n (Nano)",
+            "description": "Ultra-fast YOLO model for real-time detection",
+            "params": "2.6M",
+            "input_size": 640,
+            "task_types": ["object_detection", "instance_segmentation"],
+            "pretrained_available": True,
+            "recommended_batch_size": 16,
+            "recommended_lr": 0.01,
+            "tags": ["fast", "realtime"],
+            "priority": 1
+        },
+        {
+            "framework": "ultralytics",
+            "model_name": "yolo11s",
+            "display_name": "YOLO11s (Small)",
+            "description": "Balanced YOLO model for accuracy and speed",
+            "params": "9.4M",
+            "input_size": 640,
+            "task_types": ["object_detection", "instance_segmentation"],
+            "pretrained_available": True,
+            "recommended_batch_size": 16,
+            "recommended_lr": 0.01,
+            "tags": ["balanced", "popular"],
+            "priority": 1
+        },
+        {
+            "framework": "ultralytics",
+            "model_name": "yolo11m",
+            "display_name": "YOLO11m (Medium)",
+            "description": "High-accuracy YOLO model",
+            "params": "20.1M",
+            "input_size": 640,
+            "task_types": ["object_detection", "instance_segmentation"],
+            "pretrained_available": True,
+            "recommended_batch_size": 8,
+            "recommended_lr": 0.01,
+            "tags": ["accurate"],
+            "priority": 2
+        },
+    ]
 
     def get_all_models():
-        return {
-            "timm": TIMM_MODEL_REGISTRY,
-            "ultralytics": ULTRALYTICS_MODEL_REGISTRY,
-            "huggingface": HUGGINGFACE_MODEL_REGISTRY,
-        }
+        """Return list of all models (API mode uses static definitions)."""
+        return STATIC_MODELS
 
     def get_registry_model_info(framework: str, model_name: str):
-        registries = {
-            "timm": TIMM_MODEL_REGISTRY,
-            "ultralytics": ULTRALYTICS_MODEL_REGISTRY,
-            "huggingface": HUGGINGFACE_MODEL_REGISTRY,
-        }
-        return registries.get(framework, {}).get(model_name)
+        """Get specific model info by framework and name."""
+        for model in STATIC_MODELS:
+            if model["framework"] == framework and model["model_name"] == model_name:
+                return model
+        return None
 
 router = APIRouter(prefix="/models", tags=["models"])
 
