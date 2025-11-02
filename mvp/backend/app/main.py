@@ -82,6 +82,16 @@ async def start_background_tasks():
     from datetime import datetime, timedelta
     import shutil
 
+    # Initialize database tables
+    print("[STARTUP] Initializing database tables...")
+    from app.db.database import init_db
+    try:
+        init_db()
+        print("[STARTUP] Database tables initialized successfully")
+    except Exception as e:
+        print(f"[STARTUP] Database initialization error: {e}")
+        # Don't crash the app if tables already exist
+
     async def cleanup_old_inference_sessions():
         """
         Periodically clean up old inference session directories.
