@@ -9,9 +9,21 @@ mlflow server \
     --default-artifact-root /app/mlruns \
     &
 
-# Wait for MLflow to be ready
+# Wait for MLflow to be ready with health check
 echo "Waiting for MLflow server to start..."
-sleep 5
+max_attempts=30
+attempt=0
+until curl -s http://localhost:5000/health > /dev/null 2>&1; do
+    attempt=$((attempt + 1))
+    if [ $attempt -ge $max_attempts ]; then
+        echo "WARNING: MLflow did not start within 30 seconds, continuing anyway..."
+        break
+    fi
+    echo "Attempt $attempt/$max_attempts: MLflow not ready yet..."
+    sleep 1
+done
+
+echo "MLflow server is ready!"
 
 # Start FastAPI application
 echo "Starting FastAPI application on port ${PORT:-8000}..."
