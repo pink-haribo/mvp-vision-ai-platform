@@ -5,6 +5,8 @@ python-multipart==0.0.6
 
 # Database
 sqlalchemy==2.0.23
+psycopg2-binary==2.9.9  # PostgreSQL driver for Railway
+alembic==1.13.1  # Database migrations
 
 # LLM
 langchain>=0.1.0
