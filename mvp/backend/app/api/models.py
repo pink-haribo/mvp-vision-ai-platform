@@ -9,7 +9,12 @@ import sys
 from pathlib import Path
 
 # Add training directory to path
-training_dir = Path(__file__).parent.parent.parent.parent / "training"
+# In production (Railway): /mvp/training
+# In development: project_root/mvp/training
+training_dir = Path("/mvp/training")
+if not training_dir.exists():
+    # Fallback for local development
+    training_dir = Path(__file__).parent.parent.parent.parent / "training"
 sys.path.insert(0, str(training_dir))
 
 from model_registry import (
