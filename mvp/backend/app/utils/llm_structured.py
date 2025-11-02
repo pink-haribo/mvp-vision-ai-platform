@@ -66,8 +66,11 @@ SUPPORTED ACTIONS (Training Setup):
 
 PHASE 1 ACTIONS (Dataset/Model/Training Control):
 10. analyze_dataset: Analyze dataset structure and quality
+    - Use when user provides dataset path and wants analysis
 11. show_dataset_analysis: Display dataset analysis results
 12. list_datasets: List available datasets
+    - Use when user asks: "기본 데이터셋", "사용 가능한 데이터셋", "어떤 데이터셋이 있어", "built-in datasets"
+    - Lists datasets from C:\datasets (built-in) and other paths
 13. search_models: Search for models by task/framework
 14. show_model_info: Show detailed model information
 15. recommend_models: Recommend models based on dataset
@@ -144,20 +147,51 @@ Before returning your response, check:
 
 ═══════════════════════════════════════════════════════════════
 
+🚨 ACTION SELECTION RULES - CRITICAL 🚨
+═══════════════════════════════════════════════════════════════
+**BEFORE choosing ask_clarification, CHECK THESE RULES FIRST:**
+
+1. If user asks about "기본 데이터셋", "사용 가능한 데이터셋", "어떤 데이터셋", "built-in dataset", "제공되는 데이터셋"
+   → **MUST use action="list_datasets"**
+   → Do NOT use ask_clarification for this!
+
+   Example:
+   User: "기본으로 제공되는 데이터셋이 있어?"
+   ✅ CORRECT: {"action": "list_datasets", "message": "사용 가능한 데이터셋을 확인하고 있습니다..."}
+   ❌ WRONG: {"action": "ask_clarification", "message": "기본으로 제공되는 데이터셋은 없습니다..."}
+
+2. If user provides dataset path (e.g., "C:\\datasets\\...") and wants analysis
+   → action="analyze_dataset"
+
+3. If user asks about model features/comparison
+   → action="search_models" or "show_model_info"
+═══════════════════════════════════════════════════════════════
+
 INFERENCE RULES:
 1. If user mentions "ResNet" or "EfficientNet" → framework="timm", task_type="image_classification"
 2. If user mentions "YOLO" → framework="ultralytics", task_type="object_detection" (or ask which task)
 3. If user says "적절히" or "기본값" → use defaults (epochs=50, batch_size=32, learning_rate=0.001)
 4. Build config incrementally across messages - PRESERVE all previously collected values
 
-PRESET RULES (for training parameters):
-- "easy" 프리셋: epochs=10, batch_size=16, learning_rate=0.001 (빠른 테스트용)
-- "balanced" 프리셋: epochs=50, batch_size=32, learning_rate=0.001 (기본값)
-- "hard" 프리셋: epochs=100, batch_size=64, learning_rate=0.0001 (정확도 우선)
+ADVANCED CONFIG PRESETS:
+사용자가 프리셋을 언급하면 해당 프리셋을 advanced_config 필드에 설정하세요.
+사용 가능한 프리셋:
+- "basic": 간단한 학습 설정 (minimal augmentation, Adam optimizer)
+- "standard": 균형잡힌 설정 (AdamW optimizer, cosine scheduler, moderate augmentation)
+- "aggressive": 강력한 augmentation (작은 데이터셋에 적합)
+- "fine_tuning": 사전 학습된 모델 fine-tuning에 최적화
 
-Example:
-User: "에포크 5 나머지는 easy 프리셋으로 하자"
-→ epochs=5, batch_size=16, learning_rate=0.001 (easy 프리셋에서 batch_size와 learning_rate 가져옴)
+프리셋 사용 예시:
+User: "basic 프리셋으로 학습하고 싶어요"
+→ Set advanced_config="basic" in config
+→ Message: "Basic 프리셋으로 설정합니다. 간단한 augmentation과 Adam optimizer를 사용합니다."
+
+User: "standard 프리셋 사용할게"
+→ Set advanced_config="standard" in config
+→ Message: "Standard 프리셋으로 설정합니다. AdamW optimizer와 cosine scheduler를 사용합니다."
+
+⚠️ IMPORTANT: 프리셋을 사용할 때는 config에 "advanced_config" 필드를 추가하세요.
+예: {"framework": "timm", "model_name": "resnet18", "advanced_config": "standard"}
 
 WHEN USER REQUESTS DATASET ANALYSIS:
 If user provides dataset_path AND includes keywords like:

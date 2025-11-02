@@ -119,10 +119,19 @@ export default function ChatPanel({
     setIsLoading(true)
 
     try {
+      // Get authentication token
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        alert('로그인이 필요합니다.')
+        setIsLoading(false)
+        return
+      }
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat/message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           session_id: sessionId,
@@ -152,18 +161,11 @@ export default function ChatPanel({
       setInput('')
 
       // Phase 1: Update action-specific state from response
-      if (data.dataset_analysis) {
-        setDatasetAnalysis(data.dataset_analysis)
-      }
-      if (data.model_recommendations || data.model_search_results) {
-        setModelRecommendations(data.model_recommendations || data.model_search_results || [])
-      }
-      if (data.training_status) {
-        setTrainingStatus(data.training_status)
-      }
-      if (data.inference_results) {
-        setInferenceResults(data.inference_results)
-      }
+      // Clear previous data and only show new data if present in response
+      setDatasetAnalysis(data.dataset_analysis || null)
+      setModelRecommendations(data.model_recommendations || data.model_search_results || null)
+      setTrainingStatus(data.training_status || null)
+      setInferenceResults(data.inference_results || null)
 
       // If project was selected via chat, notify parent to show project detail
       if (data.selected_project_id) {
@@ -191,6 +193,13 @@ export default function ChatPanel({
 
   const createTrainingJob = async (sessionId: number, config: any, metadata?: any) => {
     try {
+      // Get authentication token
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        alert('로그인이 필요합니다.')
+        return
+      }
+
       const requestBody: any = {
         session_id: sessionId,
         config: config,
@@ -208,6 +217,7 @@ export default function ChatPanel({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify(requestBody),
       })

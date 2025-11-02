@@ -460,3 +460,46 @@ class DatasetAnalyzer:
             return True
         except ValueError:
             return False
+
+
+# Convenience function for tool_registry
+def analyze_dataset(dataset_path: str) -> Dict[str, Any]:
+    """
+    Analyze a dataset and return comprehensive statistics
+
+    Args:
+        dataset_path: Path to the dataset directory
+
+    Returns:
+        dict: Analysis results including format, classes, statistics, and suggestions
+    """
+    analyzer = DatasetAnalyzer(dataset_path)
+
+    # Detect format
+    format_info = analyzer.detect_format()
+    format_type = format_info.get("format", "unknown")
+
+    # Collect statistics
+    stats = analyzer.collect_statistics(format_type)
+
+    # Check quality
+    quality = analyzer.check_quality(stats)
+
+    # Combine all results
+    # Extract from nested structure
+    structure = stats.get("structure", {})
+
+    return {
+        "format": format_type,
+        "classes": structure.get("class_names", []),
+        "total_samples": structure.get("num_samples", 0),
+        "num_classes": structure.get("num_classes", 0),
+        "class_distribution": stats.get("samples_per_class", {}),
+        "dataset_info": format_info,
+        "statistics": stats.get("statistics", {}),
+        "quality": quality,
+        "suggestions": quality.get("suggestions", []),
+        "has_train_split": structure.get("has_train_split", False),
+        "has_val_split": structure.get("has_val_split", False),
+        "has_test_split": structure.get("has_test_split", False),
+    }

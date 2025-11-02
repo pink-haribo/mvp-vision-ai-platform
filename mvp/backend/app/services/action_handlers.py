@@ -35,12 +35,14 @@ class ActionHandlers:
 
     def __init__(self, db: Session):
         self.db = db
+        self.current_user_id = None  # Will be set during handle_action
 
     async def handle_action(
         self,
         action_response: GeminiActionResponse,
         session: SessionModel,
-        user_message: str
+        user_message: str,
+        user_id: int  # Required: Current logged-in user ID
     ) -> Dict[str, Any]:
         """
         Route action to appropriate handler
@@ -49,6 +51,7 @@ class ActionHandlers:
             action_response: LLM's action response
             session: Current session
             user_message: Original user message
+            user_id: Current user ID for project ownership - REQUIRED
 
         Returns:
             dict: {
@@ -58,6 +61,9 @@ class ActionHandlers:
                 "training_job_id": int (optional)
             }
         """
+        # Store current user ID for handlers to use
+        self.current_user_id = user_id
+
         # CRITICAL: Apply fallback extraction BEFORE routing to handler
         # This ensures config data is extracted even if LLM fails
         temp_data = session.temp_data or {}
@@ -231,8 +237,9 @@ class ActionHandlers:
 
         logger.debug(f"After show_project_options: config = {existing_config}")
 
-        # Build project options message
-        message = "설정이 완료되었습니다. 프로젝트를 선택해주세요.\n\n"
+        # Build project options message with config summary
+        message = self._format_config_summary(existing_config)
+        message += "\n\n학습 설정이 완료되었습니다. 프로젝트를 선택해주세요.\n\n"
         message += "1️⃣ 신규 프로젝트 생성\n"
         message += "2️⃣ 기존 프로젝트 선택\n"
         message += "3️⃣ 프로젝트 없이 실험만 진행\n\n"
@@ -311,17 +318,42 @@ class ActionHandlers:
         temp_data = session.temp_data or {}
         config = temp_data.get("config", {})
 
-        # Create new project
-        new_project = Project(
-            name=action_response.project_name,
-            description=action_response.project_description,
-            task_type=config.get("task_type"),
-        )
-        self.db.add(new_project)
-        self.db.commit()
-        self.db.refresh(new_project)
+        # DEBUG: Log what we received
+        logger.info(f"[CREATE_PROJECT] action_response.project_name = {action_response.project_name}")
+        logger.info(f"[CREATE_PROJECT] action_response.project_description = {action_response.project_description}")
+        logger.info(f"[CREATE_PROJECT] Full action_response: {action_response}")
 
-        logger.info(f"Created project: {new_project.name} (ID: {new_project.id})")
+        # Validate project name (required)
+        project_name = action_response.project_name
+        if not project_name or str(project_name).strip() == "":
+            logger.warning("create_project called without project_name")
+            return {
+                "new_state": ConversationState.SELECTING_PROJECT,
+                "message": "프로젝트 이름을 입력해주세요.\n\n예시: 이미지 분류 프로젝트",
+                "temp_data": temp_data
+            }
+
+        # Create new project
+        try:
+            new_project = Project(
+                name=project_name.strip(),
+                description=action_response.project_description or "",
+                task_type=config.get("task_type"),
+                user_id=self.current_user_id  # Set owner to current logged-in user
+            )
+            self.db.add(new_project)
+            self.db.commit()
+            self.db.refresh(new_project)
+
+            logger.info(f"Created project: {new_project.name} (ID: {new_project.id})")
+        except Exception as e:
+            logger.error(f"Failed to create project: {e}", exc_info=True)
+            self.db.rollback()
+            return {
+                "new_state": ConversationState.ERROR,
+                "message": f"프로젝트 생성 중 오류가 발생했습니다: {str(e)}",
+                "temp_data": temp_data
+            }
 
         # Save project ID to temp_data
         temp_data["selected_project_id"] = new_project.id
@@ -579,6 +611,19 @@ class ActionHandlers:
             f"- 배치 크기: {config.get('batch_size', 'N/A')}",
             f"- 학습률: {config.get('learning_rate', 'N/A')}",
         ]
+
+        # Add advanced config preset if specified
+        advanced_config = config.get('advanced_config')
+        if advanced_config:
+            preset_descriptions = {
+                "basic": "간단한 학습 (minimal augmentation, Adam optimizer)",
+                "standard": "균형잡힌 설정 (AdamW, cosine scheduler, moderate augmentation)",
+                "aggressive": "강력한 augmentation (작은 데이터셋에 적합)",
+                "fine_tuning": "사전학습 모델 fine-tuning 최적화"
+            }
+            preset_desc = preset_descriptions.get(advanced_config, advanced_config)
+            lines.append(f"- Advanced Config: {advanced_config} ({preset_desc})")
+
         return "\n".join(lines)
 
     # ========== Phase 1 Dataset Handlers ==========

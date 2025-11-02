@@ -306,20 +306,34 @@ class ToolRegistry:
         """Handler for list_datasets tool"""
         from pathlib import Path
 
-        base_path = params.get("base_path", "C:/datasets")
-        base_dir = Path(base_path)
-
-        if not base_dir.exists():
-            return []
-
         datasets = []
-        for item in base_dir.iterdir():
-            if item.is_dir():
-                datasets.append({
-                    "name": item.name,
-                    "path": str(item),
-                    "exists": True
-                })
+
+        # Scan C:\datasets for built-in datasets
+        builtin_path = Path("C:/datasets")
+
+        if builtin_path.exists():
+            for item in builtin_path.iterdir():
+                if item.is_dir():
+                    datasets.append({
+                        "name": f"{item.name} (기본 제공)",
+                        "path": str(item.absolute()),
+                        "category": "built-in",
+                        "exists": True
+                    })
+
+        # Also scan user-provided base_path if different from C:\datasets
+        base_path = params.get("base_path")
+        if base_path and base_path != "C:/datasets":
+            base_dir = Path(base_path)
+            if base_dir.exists():
+                for item in base_dir.iterdir():
+                    if item.is_dir():
+                        datasets.append({
+                            "name": item.name,
+                            "path": str(item.absolute()),
+                            "category": "user",
+                            "exists": True
+                        })
 
         return datasets
 

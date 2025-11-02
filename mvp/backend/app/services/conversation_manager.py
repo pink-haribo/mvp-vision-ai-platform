@@ -39,7 +39,8 @@ class ConversationManager:
     async def process_message(
         self,
         session_id: int,
-        user_message: str
+        user_message: str,
+        user_id: int  # Required: Current logged-in user ID
     ) -> Dict[str, Any]:
         """
         Process user message through conversation flow
@@ -47,6 +48,7 @@ class ConversationManager:
         Args:
             session_id: Current session ID
             user_message: User's message text
+            user_id: Current user ID (for project ownership, etc.) - REQUIRED
 
         Returns:
             dict: {
@@ -82,9 +84,18 @@ class ConversationManager:
             # 2. Build conversation context (last 5 messages)
             context = self._build_context(session)
 
+            # 2.5. Handle dataset listing keywords (LLM sometimes fails to route to list_datasets)
+            dataset_keywords = ['기본 데이터셋', '기본으로 제공', '사용 가능한 데이터셋', '어떤 데이터셋', 'built-in dataset', '제공되는 데이터셋']
+            if any(keyword in user_message for keyword in dataset_keywords):
+                logger.info(f"[Session {session_id}] Detected dataset listing keyword, forcing list_datasets action")
+                action_response = GeminiActionResponse(
+                    action=ActionType.LIST_DATASETS,
+                    message="사용 가능한 데이터셋을 확인하고 있습니다...",
+                    current_config=temp_data.get("config")
+                )
             # 3. Handle simple option selection in SELECTING_PROJECT state
             # (LLM sometimes fails to parse simple "1", "2", "3" inputs correctly)
-            if current_state == ConversationState.SELECTING_PROJECT:
+            elif current_state == ConversationState.SELECTING_PROJECT:
                 direct_action = self._handle_project_selection(user_message, temp_data)
                 if direct_action:
                     logger.info(f"[Session {session_id}] Direct action (bypassing LLM): {direct_action.action}")
@@ -132,7 +143,8 @@ class ConversationManager:
             result = await self.action_handlers.handle_action(
                 action_response=action_response,
                 session=session,
-                user_message=user_message
+                user_message=user_message,
+                user_id=user_id  # Pass user ID for ownership
             )
             logger.warning(f"[CM] handle_action returned")
 

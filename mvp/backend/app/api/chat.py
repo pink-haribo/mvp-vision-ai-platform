@@ -9,9 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session as DBSession
 
 from app.db.database import get_db
-from app.db.models import Session as SessionModel, Message as MessageModel, TrainingJob
+from app.db.models import Session as SessionModel, Message as MessageModel, TrainingJob, User
 from app.schemas import chat
 from app.services.conversation_manager import ConversationManager
+from app.utils.dependencies import get_current_user
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -412,7 +413,11 @@ async def export_chat_log(session_id: int, db: DBSession = Depends(get_db)):
 
 
 @router.post("/message", response_model=chat.ChatResponse)
-async def send_message(request: chat.ChatRequest, db: DBSession = Depends(get_db)):
+async def send_message(
+    request: chat.ChatRequest,
+    db: DBSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)  # Authentication required
+):
     """
     Send a message and get AI response.
 
@@ -420,8 +425,13 @@ async def send_message(request: chat.ChatRequest, db: DBSession = Depends(get_db
     1. Creates or retrieves a session
     2. Delegates to ConversationManager for processing
     3. Returns response with state information
+
+    Requires authentication: User must be logged in.
     """
     logger.debug(f"Received chat request: session_id={request.session_id}, message={request.message[:50]}...")
+
+    # Get authenticated user ID
+    user_id = current_user.id
 
     try:
         # Create manager
@@ -442,7 +452,8 @@ async def send_message(request: chat.ChatRequest, db: DBSession = Depends(get_db
         # Process message through ConversationManager
         result = await manager.process_message(
             session_id=session_id,
-            user_message=request.message
+            user_message=request.message,
+            user_id=user_id  # Pass authenticated user ID
         )
 
         # Get the latest messages
