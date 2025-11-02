@@ -4,26 +4,60 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
-# Import model registries
+# Import model registries (optional in production API mode)
 import sys
 from pathlib import Path
 
-# Add training directory to path
-# In production (Railway): /mvp/training
-# In development: project_root/mvp/training
-training_dir = Path("/mvp/training")
-if not training_dir.exists():
-    # Fallback for local development
+# Try to import model_registry (only available in local/subprocess mode)
+try:
+    # Add training directory to path
+    # In development: project_root/mvp/training
     training_dir = Path(__file__).parent.parent.parent.parent / "training"
-sys.path.insert(0, str(training_dir))
+    if training_dir.exists():
+        sys.path.insert(0, str(training_dir))
 
-from model_registry import (
-    TIMM_MODEL_REGISTRY,
-    ULTRALYTICS_MODEL_REGISTRY,
-    HUGGINGFACE_MODEL_REGISTRY,
-    get_all_models,
-    get_model_info as get_registry_model_info
-)
+    from model_registry import (
+        TIMM_MODEL_REGISTRY,
+        ULTRALYTICS_MODEL_REGISTRY,
+        HUGGINGFACE_MODEL_REGISTRY,
+        get_all_models,
+        get_model_info as get_registry_model_info
+    )
+    MODEL_REGISTRY_AVAILABLE = True
+except ImportError:
+    # Production API mode: model_registry not available
+    # Use static model definitions instead
+    MODEL_REGISTRY_AVAILABLE = False
+
+    # Static model definitions for production
+    TIMM_MODEL_REGISTRY = {
+        "resnet50": {"display_name": "ResNet-50", "task_types": ["image_classification"]},
+        "resnet18": {"display_name": "ResNet-18", "task_types": ["image_classification"]},
+        "efficientnet_b0": {"display_name": "EfficientNet-B0", "task_types": ["image_classification"]},
+    }
+    ULTRALYTICS_MODEL_REGISTRY = {
+        "yolo11n": {"display_name": "YOLO11n", "task_types": ["object_detection", "instance_segmentation"]},
+        "yolo11s": {"display_name": "YOLO11s", "task_types": ["object_detection", "instance_segmentation"]},
+        "yolo11m": {"display_name": "YOLO11m", "task_types": ["object_detection", "instance_segmentation"]},
+    }
+    HUGGINGFACE_MODEL_REGISTRY = {
+        "vit-base": {"display_name": "ViT-Base", "task_types": ["image_classification"]},
+    }
+
+    def get_all_models():
+        return {
+            "timm": TIMM_MODEL_REGISTRY,
+            "ultralytics": ULTRALYTICS_MODEL_REGISTRY,
+            "huggingface": HUGGINGFACE_MODEL_REGISTRY,
+        }
+
+    def get_registry_model_info(framework: str, model_name: str):
+        registries = {
+            "timm": TIMM_MODEL_REGISTRY,
+            "ultralytics": ULTRALYTICS_MODEL_REGISTRY,
+            "huggingface": HUGGINGFACE_MODEL_REGISTRY,
+        }
+        return registries.get(framework, {}).get(model_name)
 
 router = APIRouter(prefix="/models", tags=["models"])
 

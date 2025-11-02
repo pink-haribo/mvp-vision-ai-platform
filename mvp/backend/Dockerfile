@@ -22,14 +22,12 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY mvp/backend/ .
 
-# Copy training module metadata only (for model_registry imports)
-# Actual training runs in separate Training Service
-RUN mkdir -p /mvp/training
-COPY mvp/training/model_registry.py /mvp/training/
-COPY mvp/training/__init__.py /mvp/training/ 2>/dev/null || touch /mvp/training/__init__.py
-
 # Copy sample datasets to /app/datasets (shared via volume in production)
 COPY mvp/backend/sample_datasets/ /app/datasets/
+
+# Note: Training code is NOT copied to Backend
+# Backend communicates with Training Services via HTTP API
+# model_registry imports are handled dynamically with try/except
 
 # Create necessary directories
 RUN mkdir -p outputs uploads /app/data/outputs /app/data/logs /app/mlruns
