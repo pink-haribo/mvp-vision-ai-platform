@@ -56,6 +56,11 @@ test_*.json
 *.log
 logs/
 
+# Debug files
+llm_debug.log
+gemini_responses.txt
+*_debug.log
+
 # Database
 *.db
 *.sqlite
