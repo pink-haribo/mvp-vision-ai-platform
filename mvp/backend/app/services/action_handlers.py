@@ -131,14 +131,26 @@ class ActionHandlers:
             ActionType.SEARCH_MODELS: self._handle_search_models,
             ActionType.SHOW_MODEL_INFO: self._handle_show_model_info,
             ActionType.RECOMMEND_MODELS: self._handle_recommend_models,
+            ActionType.COMPARE_MODELS: self._handle_compare_models,
 
             # Phase 1 추가 핸들러 - Training Control
             ActionType.SHOW_TRAINING_STATUS: self._handle_show_training_status,
             ActionType.STOP_TRAINING: self._handle_stop_training,
             ActionType.LIST_TRAINING_JOBS: self._handle_list_training_jobs,
+            ActionType.RESUME_TRAINING: self._handle_resume_training,
 
             # Phase 1 추가 핸들러 - Inference
             ActionType.START_QUICK_INFERENCE: self._handle_start_quick_inference,
+            ActionType.START_BATCH_INFERENCE: self._handle_start_batch_inference,
+            ActionType.SHOW_INFERENCE_RESULTS: self._handle_show_inference_results,
+
+            # Phase 1 추가 핸들러 - Results
+            ActionType.SHOW_VALIDATION_RESULTS: self._handle_show_validation_results,
+            ActionType.SHOW_CONFUSION_MATRIX: self._handle_show_confusion_matrix,
+
+            # Phase 1 추가 핸들러 - Utility
+            ActionType.SHOW_HELP: self._handle_show_help,
+            ActionType.RESET_CONVERSATION: self._handle_reset_conversation,
         }
 
         handler = handlers.get(action)
@@ -151,6 +163,12 @@ class ActionHandlers:
 
         # CRITICAL: Merge our extracted config with handler's temp_data
         # This ensures extracted data isn't lost when handler returns
+        # EXCEPTION: Skip merge for actions that intentionally clear state
+        if action == ActionType.RESET_CONVERSATION:
+            # Don't merge config back - handler wants to clear everything
+            logger.info(f"[RESET] Skipping config merge for {action}")
+            return result
+
         handler_temp_data = result.get("temp_data", {})
         handler_config = handler_temp_data.get("config", {})
 
@@ -1372,3 +1390,382 @@ class ActionHandlers:
             lines.append(f"\n시작: {status['started_at']}")
 
         return "\n".join(lines)
+
+    # ========== 미구현 핸들러 추가 ==========
+
+    async def _handle_compare_models(
+        self,
+        action_response: GeminiActionResponse,
+        session: SessionModel,
+        user_message: str
+    ) -> Dict[str, Any]:
+        """Handle compare_models action"""
+        temp_data = session.temp_data or {}
+        config = temp_data.get("config", {})
+
+        models_to_compare = config.get("models_to_compare", [])
+
+        if not models_to_compare or len(models_to_compare) < 2:
+            return {
+                "new_state": ConversationState.SELECTING_MODEL,
+                "message": "비교할 모델을 2개 이상 지정해주세요.\n\n예시: resnet50과 efficientnet_b0 비교해줘",
+                "temp_data": temp_data
+            }
+
+        try:
+            from app.utils.tool_registry import tool_registry
+
+            # Call compare_models tool
+            result = await tool_registry.call_tool(
+                "compare_models",
+                {"model_specs": models_to_compare},
+                self.db,
+                user_id=None
+            )
+
+            # Format comparison results
+            message = f"**모델 비교 결과:**\n\n"
+
+            for i, model in enumerate(models_to_compare, 1):
+                message += f"{i}. {model.get('framework')} / {model.get('name')}\n"
+
+            message += f"\n{result.get('comparison', '모델 비교 기능은 곧 제공됩니다.')}"
+
+            temp_data["model_comparison"] = result
+
+            return {
+                "new_state": ConversationState.COMPARING_MODELS,
+                "message": message,
+                "temp_data": temp_data
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to compare models: {str(e)}", exc_info=True)
+            return {
+                "new_state": ConversationState.ERROR,
+                "message": f"모델 비교 중 오류가 발생했습니다: {str(e)}",
+                "temp_data": temp_data
+            }
+
+    async def _handle_resume_training(
+        self,
+        action_response: GeminiActionResponse,
+        session: SessionModel,
+        user_message: str
+    ) -> Dict[str, Any]:
+        """Handle resume_training action"""
+        temp_data = session.temp_data or {}
+        config = temp_data.get("config", {})
+
+        job_id = config.get("job_id")
+
+        if not job_id:
+            return {
+                "new_state": ConversationState.GATHERING_CONFIG,
+                "message": "재개할 학습 작업의 ID를 알려주세요.\n\n예시: job 123 재개해줘",
+                "temp_data": temp_data
+            }
+
+        try:
+            # Check if job exists and is stopped
+            job = self.db.query(TrainingJob).filter(TrainingJob.id == job_id).first()
+
+            if not job:
+                return {
+                    "new_state": ConversationState.ERROR,
+                    "message": f"학습 작업 {job_id}를 찾을 수 없습니다.",
+                    "temp_data": temp_data
+                }
+
+            if job.status != "stopped":
+                return {
+                    "new_state": ConversationState.MONITORING_TRAINING,
+                    "message": f"학습 작업 {job_id}는 현재 '{job.status}' 상태입니다. 중지된 작업만 재개할 수 있습니다.",
+                    "temp_data": temp_data
+                }
+
+            # TODO: Implement actual resume logic
+            # For now, just return a message indicating it's not implemented yet
+            message = f"**학습 재개:**\n\n"
+            message += f"Job ID {job_id}의 학습을 재개합니다.\n"
+            message += f"모델: {job.model_name}\n"
+            message += f"프레임워크: {job.framework}\n\n"
+            message += "학습 재개 기능은 곧 구현됩니다."
+
+            return {
+                "new_state": ConversationState.MONITORING_TRAINING,
+                "message": message,
+                "temp_data": temp_data
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to resume training: {str(e)}", exc_info=True)
+            return {
+                "new_state": ConversationState.ERROR,
+                "message": f"학습 재개 중 오류가 발생했습니다: {str(e)}",
+                "temp_data": temp_data
+            }
+
+    async def _handle_start_batch_inference(
+        self,
+        action_response: GeminiActionResponse,
+        session: SessionModel,
+        user_message: str
+    ) -> Dict[str, Any]:
+        """Handle start_batch_inference action"""
+        temp_data = session.temp_data or {}
+        config = temp_data.get("config", {})
+
+        job_id = config.get("job_id")
+        image_dir = config.get("image_dir")
+
+        if not job_id:
+            return {
+                "new_state": ConversationState.GATHERING_CONFIG,
+                "message": "추론에 사용할 학습 작업 ID를 알려주세요.\n\n예시: job 123으로 추론해줘",
+                "temp_data": temp_data
+            }
+
+        if not image_dir:
+            return {
+                "new_state": ConversationState.GATHERING_CONFIG,
+                "message": "추론할 이미지 폴더 경로를 알려주세요.\n\n예시: C:/datasets/images 폴더 추론해줘",
+                "temp_data": temp_data
+            }
+
+        # Check if job exists
+        job = self.db.query(TrainingJob).filter(TrainingJob.id == job_id).first()
+
+        if not job:
+            return {
+                "new_state": ConversationState.ERROR,
+                "message": f"학습 작업 {job_id}를 찾을 수 없습니다.",
+                "temp_data": temp_data
+            }
+
+        # TODO: Implement actual batch inference logic
+        message = f"**배치 추론 시작:**\n\n"
+        message += f"Job ID: {job_id}\n"
+        message += f"이미지 폴더: {image_dir}\n"
+        message += f"모델: {job.model_name}\n\n"
+        message += "배치 추론 기능은 곧 구현됩니다."
+
+        return {
+            "new_state": ConversationState.RUNNING_INFERENCE,
+            "message": message,
+            "temp_data": temp_data
+        }
+
+    async def _handle_show_inference_results(
+        self,
+        action_response: GeminiActionResponse,
+        session: SessionModel,
+        user_message: str
+    ) -> Dict[str, Any]:
+        """Handle show_inference_results action"""
+        temp_data = session.temp_data or {}
+
+        # Check if inference results exist in temp_data
+        inference_results = temp_data.get("inference_results")
+
+        if not inference_results:
+            return {
+                "new_state": ConversationState.IDLE,
+                "message": "표시할 추론 결과가 없습니다. 먼저 추론을 실행해주세요.",
+                "temp_data": temp_data
+            }
+
+        # Format inference results
+        message = f"**추론 결과:**\n\n"
+
+        job_id = inference_results.get("job_id")
+        if job_id:
+            message += f"Job ID: {job_id}\n\n"
+
+        predictions = inference_results.get("predictions", [])
+        if predictions:
+            message += f"총 {len(predictions)}개 이미지 추론 완료:\n\n"
+            for i, pred in enumerate(predictions[:10], 1):  # Show first 10
+                image_name = pred.get("image", f"image_{i}")
+                pred_class = pred.get("class", "Unknown")
+                confidence = pred.get("confidence", 0)
+                message += f"{i}. {image_name}: {pred_class} ({confidence:.2%})\n"
+
+            if len(predictions) > 10:
+                message += f"\n... 외 {len(predictions) - 10}개"
+        else:
+            message += "추론 결과가 비어있습니다."
+
+        return {
+            "new_state": ConversationState.VIEWING_RESULTS,
+            "message": message,
+            "temp_data": temp_data
+        }
+
+    async def _handle_show_validation_results(
+        self,
+        action_response: GeminiActionResponse,
+        session: SessionModel,
+        user_message: str
+    ) -> Dict[str, Any]:
+        """Handle show_validation_results action"""
+        temp_data = session.temp_data or {}
+        config = temp_data.get("config", {})
+
+        job_id = config.get("job_id")
+
+        if not job_id:
+            return {
+                "new_state": ConversationState.GATHERING_CONFIG,
+                "message": "검증 결과를 조회할 학습 작업 ID를 알려주세요.\n\n예시: job 123 검증 결과 보여줘",
+                "temp_data": temp_data
+            }
+
+        # Check if job exists
+        job = self.db.query(TrainingJob).filter(TrainingJob.id == job_id).first()
+
+        if not job:
+            return {
+                "new_state": ConversationState.ERROR,
+                "message": f"학습 작업 {job_id}를 찾을 수 없습니다.",
+                "temp_data": temp_data
+            }
+
+        # TODO: Fetch validation results from database or MLflow
+        message = f"**검증 결과:**\n\n"
+        message += f"Job ID: {job_id}\n"
+        message += f"모델: {job.model_name}\n"
+        message += f"작업 유형: {job.task_type}\n\n"
+
+        if job.final_accuracy:
+            message += f"최종 정확도: {job.final_accuracy:.2%}\n"
+
+        message += "\n상세한 검증 메트릭 조회 기능은 곧 구현됩니다."
+
+        return {
+            "new_state": ConversationState.VIEWING_RESULTS,
+            "message": message,
+            "temp_data": temp_data
+        }
+
+    async def _handle_show_confusion_matrix(
+        self,
+        action_response: GeminiActionResponse,
+        session: SessionModel,
+        user_message: str
+    ) -> Dict[str, Any]:
+        """Handle show_confusion_matrix action"""
+        temp_data = session.temp_data or {}
+        config = temp_data.get("config", {})
+
+        job_id = config.get("job_id")
+
+        if not job_id:
+            return {
+                "new_state": ConversationState.GATHERING_CONFIG,
+                "message": "Confusion Matrix를 조회할 학습 작업 ID를 알려주세요.\n\n예시: job 123 confusion matrix 보여줘",
+                "temp_data": temp_data
+            }
+
+        # Check if job exists
+        job = self.db.query(TrainingJob).filter(TrainingJob.id == job_id).first()
+
+        if not job:
+            return {
+                "new_state": ConversationState.ERROR,
+                "message": f"학습 작업 {job_id}를 찾을 수 없습니다.",
+                "temp_data": temp_data
+            }
+
+        if job.task_type not in ["classification", "image_classification"]:
+            return {
+                "new_state": ConversationState.VIEWING_RESULTS,
+                "message": f"Confusion Matrix는 분류 작업({job.task_type})에만 사용할 수 있습니다.",
+                "temp_data": temp_data
+            }
+
+        # TODO: Generate and fetch confusion matrix from validation results
+        message = f"**Confusion Matrix:**\n\n"
+        message += f"Job ID: {job_id}\n"
+        message += f"모델: {job.model_name}\n\n"
+        message += "Confusion Matrix 시각화 기능은 곧 구현됩니다."
+
+        return {
+            "new_state": ConversationState.VIEWING_RESULTS,
+            "message": message,
+            "temp_data": temp_data
+        }
+
+    async def _handle_show_help(
+        self,
+        action_response: GeminiActionResponse,
+        session: SessionModel,
+        user_message: str
+    ) -> Dict[str, Any]:
+        """Handle show_help action"""
+        temp_data = session.temp_data or {}
+
+        message = """**Vision AI Training Platform 도움말**
+
+📊 **데이터셋 관리:**
+- 데이터셋 분석: "C:/datasets/coco8 분석해줘"
+- 데이터셋 목록: "데이터셋 목록 보여줘"
+
+🤖 **모델 선택:**
+- 모델 검색: "classification 모델 찾아줘"
+- 모델 추천: "어떤 모델이 좋을까?"
+- 모델 정보: "yolov8n 정보 알려줘"
+- 모델 비교: "resnet50과 efficientnet_b0 비교해줘"
+
+🚀 **학습 관리:**
+- 학습 시작: "resnet50으로 학습 시작"
+- 학습 상태: "job 123 상태 알려줘"
+- 학습 중지: "job 123 중지해줘"
+- 학습 재개: "job 123 재개해줘"
+- 작업 목록: "학습 작업 목록 보여줘"
+
+🔮 **추론:**
+- 빠른 추론: "job 123으로 C:/test/cat.jpg 추론해줘"
+- 배치 추론: "job 123으로 C:/test/images 폴더 추론해줘"
+- 결과 조회: "추론 결과 보여줘"
+
+📈 **결과 조회:**
+- 검증 결과: "job 123 검증 결과 보여줘"
+- Confusion Matrix: "job 123 confusion matrix 보여줘"
+
+⚙️ **기타:**
+- 도움말: "도움말" 또는 "help"
+- 대화 초기화: "초기화" 또는 "reset"
+
+💡 **팁:** 자연어로 편하게 말씀하세요! 예: "고양이 강아지 분류 모델 만들고 싶어"
+"""
+
+        return {
+            "new_state": ConversationState.IDLE,
+            "message": message,
+            "temp_data": temp_data
+        }
+
+    async def _handle_reset_conversation(
+        self,
+        action_response: GeminiActionResponse,
+        session: SessionModel,
+        user_message: str
+    ) -> Dict[str, Any]:
+        """Handle reset_conversation action"""
+        # Clear all temp_data
+        session.temp_data = {}
+
+        message = "대화를 초기화했습니다. 새로운 작업을 시작해주세요.\n\n"
+        message += "무엇을 도와드릴까요?\n"
+        message += "- 데이터셋 분석\n"
+        message += "- 모델 검색/추천\n"
+        message += "- 학습 시작\n"
+        message += "- 추론 실행\n\n"
+        message += "도움이 필요하시면 '도움말'을 입력해주세요."
+
+        return {
+            "new_state": ConversationState.INITIAL,
+            "message": message,
+            "temp_data": {}
+        }
