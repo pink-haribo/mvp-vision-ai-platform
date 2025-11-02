@@ -21,6 +21,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY mvp/backend/ .
 
+# Copy training module (needed by model_registry)
+COPY mvp/training/ /training/
+
 # Create necessary directories
 RUN mkdir -p outputs uploads datasets
 
