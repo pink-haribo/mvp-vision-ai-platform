@@ -400,28 +400,66 @@ class UltralyticsAdapter(TrainingAdapter):
             traceback.print_exc()
             raise
 
-        # Determine model path based on task
+        # Determine model name with suffix based on task
         suffix = self.TASK_SUFFIX_MAP.get(self.task_type, "")
 
         # Check if model_name already has the suffix to avoid duplication
         # e.g., "yolo11n-seg" + "-seg" = "yolo11n-seg-seg" (WRONG)
         if suffix and self.model_config.model_name.endswith(suffix):
             # Model name already has suffix, don't add it again
-            model_path = f"{self.model_config.model_name}.pt"
+            full_model_name = self.model_config.model_name
             print(f"[prepare_model] Model name already contains suffix '{suffix}', not adding again")
         else:
             # Add suffix to model name
-            model_path = f"{self.model_config.model_name}{suffix}.pt"
+            full_model_name = f"{self.model_config.model_name}{suffix}"
 
-        print(f"[prepare_model] Step 2: Loading model: {model_path}")
+        print(f"[prepare_model] Step 2: Getting model weights: {full_model_name}.pt")
         print(f"[prepare_model] Task type: {self.task_type}")
         print(f"[prepare_model] Model type: {'YOLO-World' if is_yolo_world else 'Standard YOLO'}")
         print(f"[prepare_model] Suffix: '{suffix}'")
         sys.stdout.flush()
 
+        # Get model weights with auto-caching
+        from platform_sdk import get_model_weights
+
+        def download_yolo():
+            """Download YOLO model from original source."""
+            print(f"[prepare_model] Downloading from Ultralytics...")
+            sys.stdout.flush()
+
+            # YOLO constructor auto-downloads to ~/.cache/ultralytics/
+            if is_yolo_world:
+                temp_model = YOLOWorld(f"{full_model_name}.pt")
+            else:
+                temp_model = YOLO(f"{full_model_name}.pt")
+
+            # Find where it was downloaded
+            from pathlib import Path
+            cache_path = Path.home() / ".cache" / "ultralytics" / f"{full_model_name}.pt"
+
+            if not cache_path.exists():
+                # Try alternative location
+                cache_path = Path.home() / ".config" / "Ultralytics" / f"{full_model_name}.pt"
+
+            if cache_path.exists():
+                return str(cache_path)
+            else:
+                raise FileNotFoundError(f"YOLO downloaded but cache file not found: {cache_path}")
+
+        # Get weights (local cache → R2 → original source)
+        model_path = get_model_weights(
+            model_name=full_model_name,
+            framework="ultralytics",
+            download_fn=download_yolo,
+            file_extension="pt"
+        )
+
+        print(f"[prepare_model] Using model weights: {model_path}")
+        sys.stdout.flush()
+
         try:
             if is_yolo_world:
-                print(f"[prepare_model] About to call YOLOWorld('{model_path}')...")
+                print(f"[prepare_model] Loading YOLOWorld from: {model_path}")
                 sys.stdout.flush()
 
                 self.model = YOLOWorld(model_path)
@@ -440,7 +478,7 @@ class UltralyticsAdapter(TrainingAdapter):
                     print("[prepare_model] YOLO-World requires custom text prompts to function properly")
                     sys.stdout.flush()
             else:
-                print(f"[prepare_model] About to call YOLO('{model_path}')...")
+                print(f"[prepare_model] Loading YOLO from: {model_path}")
                 sys.stdout.flush()
 
                 self.model = YOLO(model_path)

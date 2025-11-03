@@ -100,8 +100,13 @@ def load_advanced_config_from_db(job_id: int):
         Advanced config dict or None
     """
     try:
-        from sqlalchemy import create_engine, Column, Integer, JSON
-        from sqlalchemy.orm import declarative_base, sessionmaker
+        # Optional import - only needed for subprocess mode (backward compatibility)
+        try:
+            from sqlalchemy import create_engine, Column, Integer, JSON
+            from sqlalchemy.orm import declarative_base, sessionmaker
+        except ImportError:
+            print(f"[INFO] sqlalchemy not available (not needed in API mode)")
+            return None
 
         # Get database path relative to project root
         # train.py is at: mvp/training/train.py
