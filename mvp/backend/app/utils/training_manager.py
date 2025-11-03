@@ -63,6 +63,8 @@ class TrainingManager:
             return ExecutionMode.SUBPROCESS
         elif env_mode == "docker":
             return ExecutionMode.DOCKER
+        elif env_mode == "api":
+            return ExecutionMode.API
 
         # Auto-detect: check if Docker is available
         try:
