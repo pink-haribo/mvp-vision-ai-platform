@@ -134,6 +134,91 @@ async def analyze_dataset(request: DatasetAnalyzeRequest):
         )
 
 
+# R2 Sample Datasets Metadata
+# These are platform-provided sample datasets stored in R2
+SAMPLE_DATASETS = [
+    {
+        "id": "det-coco8",
+        "name": "COCO8 (Object Detection)",
+        "description": "8 images COCO sample for object detection",
+        "format": "yolo",
+        "task_type": "object_detection",
+        "num_items": 8,
+        "size_mb": 0.42,
+        "source": "r2",
+        "path": "det-coco8",
+    },
+    {
+        "id": "det-coco128",
+        "name": "COCO128 (Object Detection)",
+        "description": "128 images COCO sample for object detection",
+        "format": "yolo",
+        "task_type": "object_detection",
+        "num_items": 128,
+        "size_mb": 6.66,
+        "source": "r2",
+        "path": "det-coco128",
+    },
+    {
+        "id": "seg-coco8",
+        "name": "COCO8-Seg (Instance Segmentation)",
+        "description": "8 images COCO sample for instance segmentation",
+        "format": "yolo",
+        "task_type": "instance_segmentation",
+        "num_items": 8,
+        "size_mb": 0.44,
+        "source": "r2",
+        "path": "seg-coco8",
+    },
+    {
+        "id": "seg-coco128",
+        "name": "COCO128-Seg (Instance Segmentation)",
+        "description": "128 images COCO sample for instance segmentation",
+        "format": "yolo",
+        "task_type": "instance_segmentation",
+        "num_items": 128,
+        "size_mb": 6.85,
+        "source": "r2",
+        "path": "seg-coco128",
+    },
+    {
+        "id": "cls-imagenet-10",
+        "name": "ImageNet-10 (Classification)",
+        "description": "10 classes ImageNet sample for image classification",
+        "format": "imagefolder",
+        "task_type": "image_classification",
+        "num_items": 100,
+        "size_mb": 0.07,
+        "source": "r2",
+        "path": "cls-imagenet-10",
+    },
+    {
+        "id": "cls-imagenette2-160",
+        "name": "Imagenette2-160 (Classification)",
+        "description": "Imagenette 160x160 for image classification",
+        "format": "imagefolder",
+        "task_type": "image_classification",
+        "num_items": 9469,
+        "size_mb": 102.05,
+        "source": "r2",
+        "path": "cls-imagenette2-160",
+    },
+]
+
+
+class SampleDatasetInfo(BaseModel):
+    """Sample dataset information from R2"""
+    id: str
+    name: str
+    description: str
+    format: str
+    task_type: str
+    num_items: int
+    size_mb: float
+    source: str
+    path: str
+
+
 class DatasetListItem(BaseModel):
     """Dataset list item"""
     name: str
@@ -146,6 +231,31 @@ class DatasetListResponse(BaseModel):
     """Response model for dataset list"""
     base_path: str
     datasets: List[DatasetListItem]
+
+
+@router.get("/available", response_model=List[SampleDatasetInfo])
+async def list_sample_datasets(
+    task_type: Optional[str] = Query(default=None, description="Filter by task type (image_classification, object_detection, etc.)")
+):
+    """
+    List available R2 sample datasets.
+
+    These are platform-provided sample datasets that will be automatically
+    downloaded from R2 when training starts.
+
+    Args:
+        task_type: Optional filter by task type
+
+    Returns:
+        List of sample datasets with metadata
+    """
+    datasets = SAMPLE_DATASETS
+
+    # Filter by task type if specified
+    if task_type:
+        datasets = [ds for ds in datasets if ds["task_type"] == task_type]
+
+    return datasets
 
 
 @router.get("/list", response_model=DatasetListResponse)
