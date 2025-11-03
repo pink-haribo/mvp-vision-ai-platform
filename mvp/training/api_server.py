@@ -56,6 +56,7 @@ class TrainingRequest(BaseModel):
     pretrained: bool = True
     checkpoint_path: Optional[str] = None
     resume: bool = False
+    advanced_config: Optional[dict] = None  # Advanced configuration from Backend
 
 
 def run_training(request: TrainingRequest):
@@ -80,6 +81,10 @@ def run_training(request: TrainingRequest):
             "--job_id", str(request.job_id),
             "--num_classes", str(request.num_classes),
         ]
+
+        # Add advanced_config if provided
+        if request.advanced_config:
+            cmd.extend(["--advanced_config", json.dumps(request.advanced_config)])
 
         # Execute training
         result = subprocess.run(

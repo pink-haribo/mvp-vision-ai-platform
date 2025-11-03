@@ -733,7 +733,8 @@ class TrainingManager:
             "image_size": 224,
             "pretrained": True,
             "checkpoint_path": checkpoint_path,
-            "resume": resume
+            "resume": resume,
+            "advanced_config": job.advanced_config  # Pass advanced_config from Backend DB
         }
 
         print(f"[TrainingManager] Starting training via API for job {job_id}")

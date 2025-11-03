@@ -12,6 +12,7 @@ from .base import (
     ConfigField,
     InferenceResult,
 )
+from .logger import TrainingLogger
 
 __version__ = "0.1.0"
 __all__ = [
@@ -25,4 +26,5 @@ __all__ = [
     "ConfigSchema",
     "ConfigField",
     "InferenceResult",
+    "TrainingLogger",
 ]
