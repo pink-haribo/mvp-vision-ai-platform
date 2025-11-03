@@ -86,11 +86,13 @@ def run_training(request: TrainingRequest):
         if request.advanced_config:
             cmd.extend(["--advanced_config", json.dumps(request.advanced_config)])
 
-        # Execute training
+        # Execute training (no capture_output to see logs in Railway)
+        print(f"[run_training] Executing command: {' '.join(cmd)}")
+        sys.stdout.flush()
+
         result = subprocess.run(
             cmd,
-            capture_output=True,
-            text=True,
+            capture_output=False,  # Show output in Railway logs for debugging
             timeout=3600  # 1 hour timeout
         )
 
@@ -99,7 +101,7 @@ def run_training(request: TrainingRequest):
         else:
             job_status[job_id] = {
                 "status": "failed",
-                "error": result.stderr
+                "error": f"Training failed with return code {result.returncode}"
             }
 
     except Exception as e:
