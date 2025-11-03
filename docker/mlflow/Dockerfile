@@ -44,7 +44,7 @@ ENV GUNICORN_WORKERS="2"
 ENV GUNICORN_THREADS="4"
 
 # Entrypoint script
-COPY --chown=mlflow:mlflow docker-entrypoint.sh /mlflow/
+COPY --chown=mlflow:mlflow docker/mlflow/docker-entrypoint.sh /mlflow/
 RUN chmod +x /mlflow/docker-entrypoint.sh
 
 ENTRYPOINT ["/mlflow/docker-entrypoint.sh"]
