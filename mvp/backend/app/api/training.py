@@ -799,46 +799,61 @@ async def get_config_schema(framework: str, task_type: str = None):
     try:
         logger.info(f"[config-schema] Requested framework={framework}, task_type={task_type}")
 
-        # Add training directory to path for imports
-        import sys
-        from pathlib import Path
-        training_dir = Path(__file__).parent.parent.parent.parent / "training"
-        if str(training_dir) not in sys.path:
-            sys.path.insert(0, str(training_dir))
+        # Use Training Service API to get config schema
+        # This maintains dependency isolation between Backend and Training code
+        from app.utils.training_client import TrainingServiceClient
+        import requests
 
-        # Import config schemas (lightweight, no torch dependencies)
-        from config_schemas import get_timm_schema, get_ultralytics_schema
+        # Initialize Training Service client for the requested framework
+        client = TrainingServiceClient(framework=framework)
 
-        # Map framework name to schema getter function
-        schema_map = {
-            'timm': get_timm_schema,
-            'ultralytics': get_ultralytics_schema,
-        }
+        logger.info(f"[config-schema] Fetching schema from Training Service: {client.base_url}")
 
-        # Get schema getter function
-        schema_getter = schema_map.get(framework.lower())
-        if not schema_getter:
+        # Call Training Service /config-schema endpoint
+        response = requests.get(
+            f"{client.base_url}/config-schema",
+            params={"task_type": task_type or ""},
+            timeout=10
+        )
+
+        # Handle errors
+        if response.status_code == 404:
             raise HTTPException(
                 status_code=404,
-                detail=f"Framework '{framework}' not supported. Available: {list(schema_map.keys())}"
+                detail=f"Framework '{framework}' not supported or config schema not available"
+            )
+        elif response.status_code == 503:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Training Service for framework '{framework}' is not available"
+            )
+        elif response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Training Service error: {response.text}"
             )
 
-        logger.info(f"[config-schema] Getting schema for {framework}")
+        # Parse response
+        schema_data = response.json()
 
-        # Get configuration schema
-        schema = schema_getter()
-        schema_dict = schema.to_dict()
+        logger.info(f"[config-schema] Schema retrieved with {len(schema_data.get('schema', {}).get('fields', []))} fields")
 
-        logger.info(f"[config-schema] Schema retrieved with {len(schema_dict.get('fields', []))} fields")
-
-        return {
-            "framework": framework,
-            "task_type": task_type,
-            "schema": schema_dict
-        }
+        return schema_data
 
     except HTTPException:
         raise
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"[config-schema] Connection error to Training Service: {str(e)}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Training Service for framework '{framework}' is not reachable. Please check deployment."
+        )
+    except requests.exceptions.Timeout as e:
+        logger.error(f"[config-schema] Timeout connecting to Training Service: {str(e)}")
+        raise HTTPException(
+            status_code=504,
+            detail=f"Training Service timeout. Please try again later."
+        )
     except Exception as e:
         import traceback
         logger.error(f"[config-schema] Error: {str(e)}")

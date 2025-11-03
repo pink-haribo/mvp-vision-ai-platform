@@ -209,6 +209,79 @@ async def get_model(model_name: str):
     }
 
 
+@app.get("/config-schema")
+async def get_config_schema(task_type: str):
+    """
+    Return configuration schema for this framework and task type.
+
+    This endpoint provides the advanced configuration options available
+    for training jobs, allowing the frontend to dynamically generate
+    configuration forms.
+
+    Args:
+        task_type: Task type (e.g., image_classification, object_detection)
+
+    Returns:
+        ConfigSchema with fields organized by groups
+    """
+    try:
+        # Import config schemas (lightweight, no torch dependencies)
+        from config_schemas import get_timm_schema, get_ultralytics_schema, get_huggingface_schema
+
+        # Map framework to schema getter
+        schema_map = {
+            'timm': get_timm_schema,
+            'ultralytics': get_ultralytics_schema,
+            'huggingface': get_huggingface_schema,
+        }
+
+        schema_getter = schema_map.get(FRAMEWORK.lower())
+        if not schema_getter:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No config schema available for framework '{FRAMEWORK}'"
+            )
+
+        # Get schema
+        schema = schema_getter()
+
+        # Convert to dict for JSON response
+        return {
+            "framework": FRAMEWORK,
+            "task_type": task_type,
+            "schema": {
+                "fields": [
+                    {
+                        "name": field.name,
+                        "type": field.type,
+                        "default": field.default,
+                        "options": field.options,
+                        "min": field.min,
+                        "max": field.max,
+                        "step": field.step,
+                        "description": field.description,
+                        "group": field.group,
+                        "required": field.required,
+                        "advanced": field.advanced,
+                    }
+                    for field in schema.fields
+                ],
+                "groups": schema.groups
+            }
+        }
+
+    except ImportError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Config schemas not available in this Training Service: {e}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting config schema: {e}"
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8001))
