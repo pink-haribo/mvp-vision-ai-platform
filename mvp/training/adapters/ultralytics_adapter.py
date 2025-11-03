@@ -495,8 +495,74 @@ class UltralyticsAdapter(TrainingAdapter):
             sys.stdout.flush()
             raise
 
+    def _resolve_dataset_path(self) -> str:
+        """
+        Resolve dataset path with R2 lazy download support.
+
+        Handles 3 cases:
+        1. Built-in Ultralytics datasets (e.g., "coco8.yaml") → return as-is
+        2. Simple dataset names (e.g., "det-coco8") → download from R2
+        3. Absolute paths → return as-is
+
+        Returns:
+            Resolved dataset path
+        """
+        dataset_path_str = self.dataset_config.dataset_path
+
+        # Case 1: Built-in Ultralytics datasets (.yaml)
+        if dataset_path_str.endswith('.yaml'):
+            print(f"[_resolve_dataset_path] Using Ultralytics built-in: {dataset_path_str}")
+            sys.stdout.flush()
+            return dataset_path_str
+
+        # Case 2: Absolute path (custom dataset)
+        if os.path.isabs(dataset_path_str) and os.path.exists(dataset_path_str):
+            print(f"[_resolve_dataset_path] Using existing path: {dataset_path_str}")
+            sys.stdout.flush()
+            return dataset_path_str
+
+        # Case 3: Simple name → try R2 lazy download
+        # Simple name = no path separators
+        if '/' not in dataset_path_str and '\\' not in dataset_path_str:
+            print(f"[_resolve_dataset_path] Simple name detected: {dataset_path_str}")
+            print(f"[_resolve_dataset_path] Attempting R2 lazy download...")
+            sys.stdout.flush()
+
+            try:
+                from platform_sdk import get_dataset
+
+                # Download from R2 (or use local cache)
+                downloaded_path = get_dataset(
+                    dataset_id=dataset_path_str,
+                    download_fn=None  # No fallback download function
+                )
+
+                print(f"[_resolve_dataset_path] Dataset resolved: {downloaded_path}")
+                sys.stdout.flush()
+                return downloaded_path
+
+            except Exception as e:
+                print(f"[_resolve_dataset_path] WARNING: R2 download failed: {e}")
+                print(f"[_resolve_dataset_path] Falling back to original path (may fail)")
+                sys.stdout.flush()
+                return dataset_path_str
+
+        # Case 4: Path doesn't exist → return as-is (will likely fail later)
+        print(f"[_resolve_dataset_path] Using original path: {dataset_path_str}")
+        sys.stdout.flush()
+        return dataset_path_str
+
     def prepare_dataset(self):
         """Prepare dataset in YOLO format."""
+        # Check if dataset needs to be downloaded from R2
+        dataset_path = self._resolve_dataset_path()
+
+        # Update dataset_config with resolved path
+        if dataset_path != self.dataset_config.dataset_path:
+            print(f"[prepare_dataset] Resolved dataset path: {dataset_path}")
+            sys.stdout.flush()
+            self.dataset_config.dataset_path = dataset_path
+
         # Clear any existing YOLO cache files to avoid stale data issues
         self._clear_yolo_cache()
 
@@ -552,10 +618,32 @@ class UltralyticsAdapter(TrainingAdapter):
             ├── train/
             └── val/
         """
+        dataset_path_str = self.dataset_config.dataset_path
+
+        # Check if dataset_path is a Ultralytics built-in dataset
+        # Built-in datasets: coco8, coco128, coco, etc.
+        # Can be specified as "coco8" or "coco8.yaml"
+
+        # Case 1: Already ends with .yaml - likely a built-in dataset
+        if dataset_path_str.endswith('.yaml'):
+            print(f"[_create_data_yaml] Using Ultralytics built-in dataset: {dataset_path_str}")
+            sys.stdout.flush()
+            return dataset_path_str
+
+        # Case 2: Simple name without path separators - convert to built-in
+        if '/' not in dataset_path_str and '\\' not in dataset_path_str and not os.path.isabs(dataset_path_str):
+            yaml_name = f"{dataset_path_str}.yaml"
+            print(f"[_create_data_yaml] Converting simple name to built-in dataset: {yaml_name}")
+            print(f"[_create_data_yaml] Ultralytics will auto-download to ~/.cache/ultralytics/datasets/")
+            sys.stdout.flush()
+            return yaml_name
+
+        # Case 3: Custom dataset path - continue with existing logic
         # Check if data.yaml already exists in dataset
-        existing_yaml = os.path.join(self.dataset_config.dataset_path, "data.yaml")
+        existing_yaml = os.path.join(dataset_path_str, "data.yaml")
         if os.path.exists(existing_yaml):
-            print(f"Using existing data.yaml: {existing_yaml}")
+            print(f"[_create_data_yaml] Using existing data.yaml: {existing_yaml}")
+            sys.stdout.flush()
             return os.path.abspath(existing_yaml)
 
         # Ensure output_dir is absolute path

@@ -61,7 +61,59 @@ export default function TrainingConfigPanel({
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [datasetInfo, setDatasetInfo] = useState<any | null>(null)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
-  const [availableDatasets, setAvailableDatasets] = useState<any[]>([])
+
+  // R2 Sample Datasets (automatically downloaded from R2 when training starts)
+  const [availableDatasets, setAvailableDatasets] = useState<any[]>([
+    {
+      name: 'COCO8 (Object Detection)',
+      path: 'det-coco8',
+      description: '8 images COCO sample for object detection',
+      format: 'yolo',
+      task_type: 'object_detection',
+      num_items: 8
+    },
+    {
+      name: 'COCO128 (Object Detection)',
+      path: 'det-coco128',
+      description: '128 images COCO sample for object detection',
+      format: 'yolo',
+      task_type: 'object_detection',
+      num_items: 128
+    },
+    {
+      name: 'COCO8-Seg (Instance Segmentation)',
+      path: 'seg-coco8',
+      description: '8 images COCO sample for instance segmentation',
+      format: 'yolo',
+      task_type: 'instance_segmentation',
+      num_items: 8
+    },
+    {
+      name: 'COCO128-Seg (Instance Segmentation)',
+      path: 'seg-coco128',
+      description: '128 images COCO sample for instance segmentation',
+      format: 'yolo',
+      task_type: 'instance_segmentation',
+      num_items: 128
+    },
+    {
+      name: 'ImageNet-10 (Classification)',
+      path: 'cls-imagenet-10',
+      description: '10 classes ImageNet sample for image classification',
+      format: 'imagefolder',
+      task_type: 'image_classification',
+      num_items: 100
+    },
+    {
+      name: 'Imagenette2-160 (Classification)',
+      path: 'cls-imagenette2-160',
+      description: 'Imagenette 160x160 for image classification',
+      format: 'imagefolder',
+      task_type: 'image_classification',
+      num_items: 9469
+    },
+  ])
+
   const [isLoadingDatasets, setIsLoadingDatasets] = useState(false)
 
   // Step 3: Hyperparameters
