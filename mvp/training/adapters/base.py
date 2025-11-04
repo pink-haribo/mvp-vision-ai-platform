@@ -1728,44 +1728,150 @@ class TrainingCallbacks:
                 print(f"{key}={value:.4f} ", end="")
         print()
 
-    def on_train_end(self, final_metrics: Dict[str, float] = None):
+    def on_train_end(self, final_metrics: Dict[str, float] = None, checkpoint_dir: str = None):
         """
         Called when training ends.
 
-        Logs final metrics and closes MLflow run.
+        Logs final metrics, closes MLflow run, and uploads checkpoints to R2.
 
         Args:
             final_metrics: Final training metrics (optional)
+            checkpoint_dir: Directory containing checkpoints (optional)
         """
-        import mlflow
+        print(f"[Callbacks] Training ended")
+        sys.stdout.flush()
 
-        if not self.mlflow_run:
-            print(f"[Callbacks] Warning: MLflow run not active")
-            return
+        # MLflow operations (only if MLflow is available)
+        if self.mlflow_run:
+            import mlflow
 
-        # Log final metrics if provided
-        if final_metrics:
-            for key, value in final_metrics.items():
-                if isinstance(value, (int, float)):
-                    mlflow.log_metric(f"final_{key}", value)
+            # Log final metrics if provided
+            if final_metrics:
+                for key, value in final_metrics.items():
+                    if isinstance(value, (int, float)):
+                        try:
+                            mlflow.log_metric(f"final_{key}", value)
+                        except Exception as e:
+                            print(f"[Callbacks WARNING] Failed to log metric to MLflow: {e}")
+
+            # End MLflow run
+            try:
+                mlflow.end_run()
+                print(f"[Callbacks] MLflow run ended: {self.mlflow_run_id}")
+            except Exception as e:
+                print(f"[Callbacks WARNING] Failed to end MLflow run: {e}")
+
+            self.mlflow_run = None
+        else:
+            print(f"[Callbacks] MLflow not active (skipping MLflow operations)")
 
         # Update database with final accuracy
         if self.db_session and final_metrics:
-            from app.db import models
-            job = self.db_session.query(models.TrainingJob).filter(
-                models.TrainingJob.id == self.job_id
-            ).first()
+            try:
+                from app.db import models
+                job = self.db_session.query(models.TrainingJob).filter(
+                    models.TrainingJob.id == self.job_id
+                ).first()
 
-            if job:
-                final_acc = final_metrics.get('accuracy') or final_metrics.get('mAP50')
-                if final_acc:
-                    job.final_accuracy = final_acc
-                self.db_session.commit()
+                if job:
+                    final_acc = final_metrics.get('accuracy') or final_metrics.get('mAP50')
+                    if final_acc:
+                        job.final_accuracy = final_acc
+                    self.db_session.commit()
+                    print(f"[Callbacks] Updated final accuracy in database: {final_acc}")
+            except Exception as e:
+                print(f"[Callbacks WARNING] Failed to update database: {e}")
 
-        # End MLflow run
-        mlflow.end_run()
-        print(f"[Callbacks] MLflow run ended: {self.mlflow_run_id}")
-        self.mlflow_run = None
+        # Upload checkpoints to R2
+        self._upload_checkpoints_to_r2(checkpoint_dir)
+
+        print(f"[Callbacks] Training end callback completed")
+        sys.stdout.flush()
+
+    def _upload_checkpoints_to_r2(self, checkpoint_dir: str = None):
+        """
+        Upload training checkpoints to R2.
+
+        Args:
+            checkpoint_dir: Directory containing checkpoints (if not provided, auto-detect)
+        """
+        from pathlib import Path
+
+        print(f"[Callbacks] Uploading checkpoints to R2...")
+        sys.stdout.flush()
+
+        # Import upload function from platform_sdk
+        try:
+            import sys
+            from pathlib import Path
+            sdk_path = Path(__file__).parent.parent / "platform_sdk"
+            if str(sdk_path) not in sys.path:
+                sys.path.insert(0, str(sdk_path))
+
+            from storage import upload_checkpoint
+        except ImportError as e:
+            print(f"[Callbacks WARNING] Failed to import upload_checkpoint: {e}")
+            return
+
+        # Determine checkpoint directory
+        if not checkpoint_dir:
+            # Try to auto-detect from training config
+            if hasattr(self, 'training_config') and hasattr(self.training_config, 'output_dir'):
+                output_dir = Path(self.training_config.output_dir)
+                # Common patterns: output_dir/job_{id}/weights, output_dir/weights, etc.
+                possible_dirs = [
+                    output_dir / f"job_{self.job_id}" / "weights",
+                    output_dir / "weights",
+                    output_dir / f"job_{self.job_id}",
+                    output_dir
+                ]
+                for possible_dir in possible_dirs:
+                    if possible_dir.exists():
+                        checkpoint_dir = str(possible_dir)
+                        print(f"[Callbacks] Auto-detected checkpoint directory: {checkpoint_dir}")
+                        break
+
+        if not checkpoint_dir:
+            print(f"[Callbacks WARNING] No checkpoint directory provided or detected")
+            return
+
+        checkpoint_path = Path(checkpoint_dir)
+        if not checkpoint_path.exists():
+            print(f"[Callbacks WARNING] Checkpoint directory does not exist: {checkpoint_dir}")
+            return
+
+        # Look for common checkpoint files
+        checkpoint_files = [
+            ("best.pt", checkpoint_path / "best.pt"),
+            ("last.pt", checkpoint_path / "last.pt"),
+            ("best.pth", checkpoint_path / "best.pth"),
+            ("last.pth", checkpoint_path / "last.pth"),
+            ("model_best.pth", checkpoint_path / "model_best.pth"),
+            ("checkpoint.pth", checkpoint_path / "checkpoint.pth"),
+        ]
+
+        uploaded_count = 0
+        for checkpoint_name, checkpoint_file in checkpoint_files:
+            if checkpoint_file.exists():
+                print(f"[Callbacks] Found checkpoint: {checkpoint_name}")
+                sys.stdout.flush()
+
+                try:
+                    upload_checkpoint(
+                        checkpoint_path=str(checkpoint_file),
+                        job_id=self.job_id,
+                        checkpoint_name=checkpoint_name
+                    )
+                    uploaded_count += 1
+                except Exception as e:
+                    print(f"[Callbacks WARNING] Failed to upload {checkpoint_name}: {e}")
+
+        if uploaded_count > 0:
+            print(f"[Callbacks] Successfully uploaded {uploaded_count} checkpoint(s) to R2")
+        else:
+            print(f"[Callbacks WARNING] No checkpoints found to upload")
+
+        sys.stdout.flush()
 
     def log_artifact(self, file_path: str, artifact_path: str = None):
         """

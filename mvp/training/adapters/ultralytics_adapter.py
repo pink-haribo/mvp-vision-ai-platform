@@ -1584,8 +1584,9 @@ class UltralyticsAdapter(TrainingAdapter):
         # No need to parse results.csv after training completes
         print("[YOLO] Metrics collected in real-time via callbacks")
 
-        # End training
-        callbacks.on_train_end()
+        # End training and upload checkpoints
+        checkpoint_dir = os.path.join(self.output_dir, f"job_{self.job_id}", "weights")
+        callbacks.on_train_end(checkpoint_dir=checkpoint_dir)
 
         # For compatibility, still return empty list
         # (metrics were already reported via callbacks during training)

@@ -520,3 +520,75 @@ def _upload_dataset_to_r2(
         warnings.warn(f"[R2 WARNING] Failed to upload dataset to R2: {e}", UserWarning)
         print(f"[R2 WARNING] Dataset upload failed (non-critical): {e}")
         sys.stdout.flush()
+
+
+# ========== Checkpoint Management ==========
+
+def upload_checkpoint(
+    checkpoint_path: str,
+    job_id: int,
+    checkpoint_name: str = "best.pt"
+):
+    """
+    Upload training checkpoint to R2.
+
+    Non-blocking: Warns on failure but doesn't crash.
+
+    Args:
+        checkpoint_path: Local path to checkpoint file
+        job_id: Training job ID
+        checkpoint_name: Name of checkpoint (e.g., "best.pt", "last.pt")
+
+    Example:
+        >>> upload_checkpoint("/path/to/weights/best.pt", job_id=123, checkpoint_name="best.pt")
+        # Uploads to: s3://vision-platform-prod/checkpoints/job_123/best.pt
+    """
+    try:
+        import boto3
+        from pathlib import Path
+
+        checkpoint_file = Path(checkpoint_path)
+        if not checkpoint_file.exists():
+            print(f"[R2 WARNING] Checkpoint file not found: {checkpoint_path}")
+            sys.stdout.flush()
+            return
+
+        # Check if R2 credentials are available
+        endpoint = os.getenv('AWS_S3_ENDPOINT_URL')
+        access_key = os.getenv('AWS_ACCESS_KEY_ID')
+        secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+        if not all([endpoint, access_key, secret_key]):
+            print(f"[R2] R2 credentials not configured, skipping checkpoint upload")
+            sys.stdout.flush()
+            return
+
+        s3 = boto3.client(
+            's3',
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key
+        )
+
+        bucket = 'vision-platform-prod'
+        key = f'checkpoints/job_{job_id}/{checkpoint_name}'
+
+        print(f"[R2] Uploading checkpoint to R2: s3://{bucket}/{key}...")
+        sys.stdout.flush()
+
+        # Get file size for progress reporting
+        file_size_mb = checkpoint_file.stat().st_size / (1024 * 1024)
+        print(f"[R2] Checkpoint size: {file_size_mb:.2f} MB")
+        sys.stdout.flush()
+
+        s3.upload_file(str(checkpoint_file), bucket, key)
+
+        print(f"[R2] Checkpoint upload successful!")
+        print(f"[R2] Checkpoint available at: s3://{bucket}/{key}")
+        sys.stdout.flush()
+
+    except Exception as e:
+        # Don't fail training just because upload failed
+        warnings.warn(f"[R2 WARNING] Failed to upload checkpoint to R2: {e}", UserWarning)
+        print(f"[R2 WARNING] Checkpoint upload failed (non-critical): {e}")
+        sys.stdout.flush()
