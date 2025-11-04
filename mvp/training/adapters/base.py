@@ -382,7 +382,8 @@ class TrainingAdapter(ABC):
         training_config: TrainingConfig,
         output_dir: str,
         job_id: int,
-        project_id: int = None
+        project_id: int = None,
+        logger=None
     ):
         self.model_config = model_config
         self.dataset_config = dataset_config
@@ -390,6 +391,7 @@ class TrainingAdapter(ABC):
         self.output_dir = output_dir
         self.job_id = job_id
         self.project_id = project_id
+        self.logger = logger
 
         self.model = None
         self.train_loader = None
