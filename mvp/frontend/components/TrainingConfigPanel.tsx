@@ -56,40 +56,56 @@ export default function TrainingConfigPanel({
   const [showPromptsModal, setShowPromptsModal] = useState(false)
 
   // Step 2: Dataset
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null)
+  const [selectedDataset, setSelectedDataset] = useState<any | null>(null)
   const [datasetPath, setDatasetPath] = useState(initialConfig?.dataset_path || '')
   const [datasetFormat, setDatasetFormat] = useState(initialConfig?.dataset_format || 'imagefolder')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [datasetInfo, setDatasetInfo] = useState<any | null>(null)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
 
-  // R2 Sample Datasets (loaded from Backend API)
+  // R2 Datasets (loaded from Backend API with authentication)
   const [availableDatasets, setAvailableDatasets] = useState<any[]>([])
   const [isLoadingDatasets, setIsLoadingDatasets] = useState(true)
 
   // Load available datasets from Backend API
   useEffect(() => {
-    const fetchAvailableDatasets = async () => {
-      try {
-        setIsLoadingDatasets(true)
-        const response = await fetch('/api/v1/datasets/available')
-
-        if (response.ok) {
-          const datasets = await response.json()
-          setAvailableDatasets(datasets)
-        } else {
-          console.error('Failed to fetch datasets:', response.statusText)
-          setAvailableDatasets([])
-        }
-      } catch (error) {
-        console.error('Error fetching datasets:', error)
-        setAvailableDatasets([])
-      } finally {
-        setIsLoadingDatasets(false)
-      }
-    }
-
     fetchAvailableDatasets()
   }, [])
+
+  const fetchAvailableDatasets = async () => {
+    try {
+      setIsLoadingDatasets(true)
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+      const token = localStorage.getItem('access_token')
+
+      if (!token) {
+        console.error('No access token found')
+        setAvailableDatasets([])
+        setIsLoadingDatasets(false)
+        return
+      }
+
+      const response = await fetch(`${baseUrl}/datasets/available?labeled=true`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      if (response.ok) {
+        const datasets = await response.json()
+        setAvailableDatasets(datasets)
+      } else {
+        console.error('Failed to fetch datasets:', response.statusText)
+        setAvailableDatasets([])
+      }
+    } catch (error) {
+      console.error('Error fetching datasets:', error)
+      setAvailableDatasets([])
+    } finally {
+      setIsLoadingDatasets(false)
+    }
+  }
 
   // Step 3: Hyperparameters
   const [epochs, setEpochs] = useState(initialConfig?.epochs || 50)
@@ -296,7 +312,7 @@ export default function TrainingConfigPanel({
     // YOLO-World requires custom prompts
     taskType !== 'zero_shot_detection' || customPrompts.length > 0
   )
-  const canProceedStep2 = datasetPath.trim() !== '' && datasetInfo !== null  // Need analysis
+  const canProceedStep2 = selectedDatasetId !== null  // Dataset selected from R2
   const canSubmit = canProceedStep1 && canProceedStep2 && epochs > 0 && batchSize > 0 && learningRate > 0
 
   const handleNext = () => {
@@ -356,9 +372,9 @@ export default function TrainingConfigPanel({
         framework,
         model_name: modelName,
         task_type: taskType,
-        dataset_path: datasetPath.trim(),
-        dataset_format: datasetFormat,
-        num_classes: datasetInfo?.structure?.num_classes || undefined,
+        dataset_id: selectedDatasetId,  // Use dataset_id instead of dataset_path
+        dataset_format: selectedDataset?.format || datasetFormat,
+        num_classes: selectedDataset?.num_items ? undefined : undefined,  // Let backend determine from DB
         epochs,
         batch_size: batchSize,
         learning_rate: learningRate,
@@ -576,88 +592,83 @@ export default function TrainingConfigPanel({
           {step === 2 && (
             <div className="space-y-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  데이터셋 경로 <span className="text-red-500">*</span>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  데이터셋 선택 <span className="text-red-500">*</span>
                 </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={datasetPath}
-                    onChange={(e) => {
-                      setDatasetPath(e.target.value)
-                      setDatasetInfo(null)  // Clear previous analysis
-                      setAnalysisError(null)
-                    }}
-                    placeholder="예: C:\datasets\cls\imagenet-10"
-                    className={cn(
-                      'flex-1 px-4 py-2.5 border border-gray-300 rounded-lg',
-                      'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
-                      'text-sm'
-                    )}
-                  />
-                  <button
-                    onClick={handleAnalyzeDataset}
-                    disabled={isAnalyzing || !datasetPath.trim()}
-                    className={cn(
-                      'px-4 py-2.5 bg-violet-600 text-white rounded-lg',
-                      'hover:bg-violet-700 transition-colors',
-                      'text-sm font-medium whitespace-nowrap',
-                      'disabled:opacity-50 disabled:cursor-not-allowed'
-                    )}
-                  >
-                    {isAnalyzing ? '분석 중...' : '분석하기'}
-                  </button>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  절대 경로를 입력하거나 아래 목록에서 데이터셋을 선택하세요
+                <p className="text-xs text-gray-500 mb-4">
+                  R2 Storage에 저장된 레이블링된 데이터셋 중 하나를 선택하세요
                 </p>
-              </div>
 
-              {/* Available Datasets List */}
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  사용 가능한 데이터셋
-                </label>
                 {isLoadingDatasets ? (
-                  <div className="p-4 bg-gray-50 rounded-lg text-center">
+                  <div className="p-8 bg-gray-50 rounded-lg text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600 mx-auto mb-3"></div>
                     <p className="text-sm text-gray-500">데이터셋 목록을 불러오는 중...</p>
                   </div>
                 ) : availableDatasets.length === 0 ? (
-                  <div className="p-4 bg-gray-50 rounded-lg text-center">
-                    <p className="text-sm text-gray-500">사용 가능한 데이터셋이 없습니다</p>
-                    <p className="text-xs text-gray-400 mt-1">C:\datasets 폴더에 데이터셋을 추가하세요</p>
+                  <div className="p-8 bg-gray-50 rounded-lg text-center">
+                    <div className="text-4xl mb-3">📦</div>
+                    <p className="text-sm text-gray-700 font-medium mb-1">사용 가능한 데이터셋이 없습니다</p>
+                    <p className="text-xs text-gray-500">데이터셋 관리 페이지에서 먼저 데이터셋을 생성하고 이미지를 업로드하세요</p>
                   </div>
                 ) : (
-                  <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
+                  <div className="grid grid-cols-2 gap-4">
                     {availableDatasets.map((dataset) => (
                       <button
-                        key={dataset.path}
+                        key={dataset.id}
                         onClick={() => {
-                          setDatasetPath(dataset.path)
-                          setDatasetInfo(null)
-                          setAnalysisError(null)
+                          setSelectedDatasetId(dataset.id)
+                          setSelectedDataset(dataset)
                         }}
                         className={cn(
-                          'w-full px-4 py-3 text-left border-b border-gray-100 last:border-b-0',
-                          'hover:bg-gray-50 transition-colors',
-                          datasetPath === dataset.path && 'bg-violet-50 hover:bg-violet-100'
+                          'p-4 border-2 rounded-lg text-left transition-all',
+                          'hover:shadow-md',
+                          selectedDatasetId === dataset.id
+                            ? 'border-violet-500 bg-violet-50'
+                            : 'border-gray-200 hover:border-violet-300'
                         )}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <h3 className="text-sm font-semibold text-gray-900 mb-1">
                               {dataset.name}
+                            </h3>
+                            <p className="text-xs text-gray-500 line-clamp-2">
+                              {dataset.description}
                             </p>
-                            <p className="text-xs text-gray-500 truncate">{dataset.path}</p>
                           </div>
-                          <div className="ml-4 flex-shrink-0 text-xs text-gray-400">
-                            {dataset.num_items && (
-                              <span className="mr-2">{dataset.num_items.toLocaleString()} images</span>
-                            )}
-                            {dataset.size_mb && (
-                              <span>{dataset.size_mb.toFixed(1)} MB</span>
-                            )}
-                          </div>
+                          {selectedDatasetId === dataset.id && (
+                            <div className="ml-2 flex-shrink-0">
+                              <div className="w-5 h-5 bg-violet-600 rounded-full flex items-center justify-center">
+                                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 mb-3">
+                          <span className={cn(
+                            'px-2 py-0.5 rounded text-xs font-medium',
+                            dataset.labeled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                          )}>
+                            {dataset.labeled ? '레이블링됨' : '미레이블'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+                            {dataset.format.toUpperCase()}
+                          </span>
+                          {dataset.source === 'r2' && (
+                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                              R2 Storage
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs text-gray-600">
+                          <span>{dataset.num_items?.toLocaleString() || 0} images</span>
+                          {dataset.size_mb && (
+                            <span>{dataset.size_mb.toFixed(1)} MB</span>
+                          )}
                         </div>
                       </button>
                     ))}
@@ -665,128 +676,45 @@ export default function TrainingConfigPanel({
                 )}
               </div>
 
-              {/* Analysis Error */}
-              {analysisError && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-800 font-medium">❌ {analysisError}</p>
-                </div>
-              )}
-
-              {/* Analysis Result */}
-              {datasetInfo && (
+              {/* Selected Dataset Info */}
+              {selectedDataset && (
                 <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg space-y-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-emerald-600 font-semibold">✓ 데이터셋 분석 완료</span>
-                    {datasetInfo.confidence && (
-                      <span className="text-xs text-emerald-600">
-                        (신뢰도: {Math.round(datasetInfo.confidence * 100)}%)
-                      </span>
-                    )}
+                    <span className="text-emerald-600 font-semibold">✓ 선택된 데이터셋</span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
+                      <span className="text-gray-600">이름:</span>
+                      <span className="ml-2 font-medium text-gray-900">{selectedDataset.name}</span>
+                    </div>
+                    <div>
                       <span className="text-gray-600">형식:</span>
+                      <span className="ml-2 font-medium text-gray-900">{selectedDataset.format.toUpperCase()}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">이미지 수:</span>
                       <span className="ml-2 font-medium text-gray-900">
-                        {datasetInfo.format?.toUpperCase() || 'Unknown'}
+                        {selectedDataset.num_items?.toLocaleString() || 0}장
                       </span>
                     </div>
                     <div>
-                      <span className="text-gray-600">작업 유형:</span>
-                      <span className="ml-2 font-medium text-gray-900">
-                        {getTaskTypeFromFormat(datasetInfo.format)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">클래스:</span>
-                      <span className="ml-2 font-medium text-gray-900">
-                        {datasetInfo.structure?.num_classes || 0}개
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">샘플 수:</span>
-                      <span className="ml-2 font-medium text-gray-900">
-                        {datasetInfo.structure?.num_samples?.toLocaleString() || 0}장
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">총 용량:</span>
-                      <span className="ml-2 font-medium text-gray-900">
-                        {datasetInfo.statistics?.total_size_mb?.toFixed(1) || 0} MB
+                      <span className="text-gray-600">상태:</span>
+                      <span className={cn(
+                        "ml-2 font-medium",
+                        selectedDataset.labeled ? "text-green-600" : "text-gray-600"
+                      )}>
+                        {selectedDataset.labeled ? '레이블링됨' : '미레이블'}
                       </span>
                     </div>
                   </div>
 
-                  {datasetInfo.structure?.class_names && datasetInfo.structure.class_names.length > 0 && (
-                    <div>
-                      <span className="text-xs text-gray-600">클래스:</span>
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {datasetInfo.structure.class_names.slice(0, 10).map((className: string) => (
-                          <span
-                            key={className}
-                            className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700"
-                          >
-                            {className}
-                          </span>
-                        ))}
-                        {datasetInfo.structure.class_names.length > 10 && (
-                          <span className="text-xs text-gray-500">
-                            +{datasetInfo.structure.class_names.length - 10}개 더
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Preview Images */}
-                  {datasetInfo.preview_images && datasetInfo.preview_images.length > 0 && (
-                    <div>
-                      <span className="text-xs text-gray-600">샘플 이미지 ({datasetInfo.preview_images.length}개)</span>
-                      <div className="mt-2 grid grid-cols-5 gap-2">
-                        {datasetInfo.preview_images.slice(0, 5).map((img: any, idx: number) => (
-                          <div key={idx} className="relative aspect-square bg-gray-100 rounded overflow-hidden border border-gray-200">
-                            {img.thumbnail ? (
-                              <img
-                                src={img.thumbnail}
-                                alt={img.class}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <div className="text-center p-2">
-                                  <div className="text-2xl">📁</div>
-                                </div>
-                              </div>
-                            )}
-                            <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-60 text-white text-[10px] p-1 truncate text-center">
-                              {img.class}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Warnings */}
-                  {datasetInfo.quality_checks?.warnings && datasetInfo.quality_checks.warnings.length > 0 && (
+                  {selectedDataset.description && (
                     <div className="pt-2 border-t border-emerald-200">
-                      <p className="text-xs font-medium text-amber-700 mb-1">⚠️ 경고</p>
-                      <ul className="text-xs text-amber-700 space-y-0.5">
-                        {datasetInfo.quality_checks.warnings.map((warning: string, idx: number) => (
-                          <li key={idx}>• {warning}</li>
-                        ))}
-                      </ul>
+                      <span className="text-xs text-gray-600">설명:</span>
+                      <p className="text-sm text-gray-700 mt-1">{selectedDataset.description}</p>
                     </div>
                   )}
-                </div>
-              )}
-
-              {/* Help text when no analysis yet */}
-              {!datasetInfo && !analysisError && !isAnalyzing && (
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-800">
-                    💡 데이터셋 경로를 입력하고 <strong>분석하기</strong>를 클릭하면 자동으로 형식을 감지하고 통계를 수집합니다.
-                  </p>
                 </div>
               )}
             </div>
@@ -946,7 +874,7 @@ export default function TrainingConfigPanel({
                   <div className="flex justify-between">
                     <span className="text-gray-600">데이터셋:</span>
                     <span className="font-medium text-xs truncate max-w-[200px]">
-                      {datasetPath}
+                      {selectedDataset?.name || '선택되지 않음'}
                     </span>
                   </div>
                   <div className="flex justify-between">
