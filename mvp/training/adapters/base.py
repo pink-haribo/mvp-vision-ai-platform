@@ -1795,6 +1795,7 @@ class TrainingCallbacks:
         Args:
             checkpoint_dir: Directory containing checkpoints (if not provided, auto-detect)
         """
+        import sys
         from pathlib import Path
 
         print(f"[Callbacks] Uploading checkpoints to R2...")
@@ -1802,8 +1803,6 @@ class TrainingCallbacks:
 
         # Import upload function from platform_sdk
         try:
-            import sys
-            from pathlib import Path
             sdk_path = Path(__file__).parent.parent / "platform_sdk"
             if str(sdk_path) not in sys.path:
                 sys.path.insert(0, str(sdk_path))
