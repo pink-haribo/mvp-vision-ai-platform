@@ -213,6 +213,7 @@ class DatasetFormat(Enum):
     COCO = "coco"  # Detection, Segmentation: JSON annotations
     YOLO = "yolo"  # YOLO format: txt annotations
     PASCAL_VOC = "voc"  # Pascal VOC XML format
+    DICE = "dice"  # Platform unified format (DICE v2.0)
     CUSTOM = "custom"  # Custom format
 
 

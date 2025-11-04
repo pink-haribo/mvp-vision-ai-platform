@@ -7,6 +7,279 @@
 
 ---
 
+## [2025-11-04 17:30] Training Service Microservice 인프라 구축 및 데이터 접근 전략 수립
+
+### 논의 주제
+- Training Service Microservice 아키텍처 구현
+- Framework별 독립 서비스 구성 (timm, ultralytics, huggingface)
+- R2 Storage 직접 접근 전략
+- DICE Format → Framework Format 변환 설계
+- 데이터셋-모델 호환성 검증 전략
+
+### 주요 결정사항
+
+#### 1. Microservice 아키텍처 구현 (Railway 환경과 동일)
+- **배경**:
+  - 로컬 테스트가 subprocess 방식으로 동작
+  - Railway 배포 환경은 microservice로 구성
+  - 로컬과 배포 환경의 불일치 문제
+
+- **결정**: 로컬에서도 microservice로 실행 ✅
+  ```
+  Backend (Port 8000)
+    ↓ HTTP
+  ultralytics-service (Port 8002)
+  timm-service (Port 8001)
+  huggingface-service (Port 8003)
+  ```
+
+- **구현 내용**:
+  - Framework별 독립 venv 생성 (`venv-ultralytics`, `venv-timm`)
+  - 독립 실행 스크립트 (`scripts/start-ultralytics-service.bat`)
+  - Backend `.env`에 framework별 URL 설정
+  - `TrainingServiceClient`가 framework 기반 라우팅 지원
+
+#### 2. R2 Storage 직접 접근 (Option A 선택)
+- **질문**: Training Service가 데이터를 어떻게 접근할 것인가?
+  - Option A: Training Service가 R2 직접 접근 (추천 ✅)
+  - Option B: Backend API 통해 다운로드
+
+- **결정**: Option A - R2 직접 접근
+- **이유**:
+  - Microservice 철학에 맞음 (독립적 동작)
+  - Backend 부담 감소
+  - `platform_sdk/storage.py` 이미 구현됨
+  - R2 credentials 공유 필요하지만 문제없음
+
+- **구현 방식**:
+  ```python
+  # Training Service .env
+  AWS_S3_ENDPOINT_URL=https://...r2.cloudflarestorage.com
+  AWS_ACCESS_KEY_ID=...
+  AWS_SECRET_ACCESS_KEY=...
+  S3_BUCKET=vision-platform-prod
+
+  # platform_sdk/storage.py
+  get_dataset(dataset_id) → R2 다운로드 → 로컬 캐시
+  ```
+
+#### 3. Dataset ID 기반 접근 (Path 방식에서 전환)
+- **현재 문제**:
+  - 기존: `dataset_path` (파일 시스템 경로)
+  - Frontend 흐름: User가 데이터셋 선택 (ID 기반)
+  - R2 구조: `datasets/{id}/` (UUID 기반)
+
+- **결정**: `dataset_id` 기반으로 전환
+  ```python
+  # Frontend → Backend
+  {"dataset_id": "uuid-123"}
+
+  # Backend → Training Service
+  {"dataset_id": "uuid-123"}
+
+  # Training Service
+  dataset_path = get_dataset("uuid-123")
+  # → R2: datasets/uuid-123/ 다운로드
+  # → Local: /workspace/data/.cache/datasets/uuid-123/
+  ```
+
+#### 4. DICE Format 변환 전략
+- **배경**:
+  - R2에 DICE Format으로 저장됨 (`annotations.json`)
+  - 각 framework는 고유 포맷 필요 (YOLO, COCO, ImageFolder 등)
+
+- **변환 전략**:
+  ```
+  Training Service
+    ↓ 1. Download
+    datasets/{id}/annotations.json (DICE Format)
+
+    ↓ 2. Convert
+    dice_to_yolo()      → data.yaml, labels/*.txt
+    dice_to_imagefolder() → train/class1/, val/class1/
+    dice_to_coco()      → annotations/instances.json
+
+    ↓ 3. Train
+    UltralyticsAdapter(converted_path)
+  ```
+
+- **구현 위치**: `mvp/training/converters/`
+  - `dice_to_yolo.py`
+  - `dice_to_imagefolder.py`
+  - `dice_to_coco.py`
+
+#### 5. 데이터셋-모델 호환성 검증 (3-Tier 전략)
+- **문제**:
+  - Classification 데이터로 Detection 학습 불가
+  - Segmentation → Detection 변환 가능
+  - Detection → Classification 변환 애매
+
+- **3-Tier 검증 전략**:
+  ```
+  Tier 1: Frontend (UX Hint) [P2]
+    → 데이터셋 선택 시 호환성 힌트 표시
+
+  Tier 2: Backend API (사전 검증) [P1]
+    → GET /datasets/{id}/compatibility?task_type=...
+    → DB 메타데이터 or annotations.json 파싱
+
+  Tier 3: Training Service (실행 시 검증) [P0] ✅
+    → prepare_dataset()에서 상세 검증
+    → 변환 가능하면 변환, 불가능하면 명확한 에러
+  ```
+
+- **MVP 우선순위**: Tier 3만 구현 (필수)
+  - 이유: 일단 동작하는 것 먼저, UX는 나중에
+
+- **변환 규칙 테이블**:
+  ```python
+  CONVERSION_MATRIX = {
+      ("instance_segmentation", "object_detection"): polygon_to_bbox,
+      ("instance_segmentation", "image_classification"): use_dominant_class,
+      ("object_detection", "image_classification"): use_dominant_class,
+      ("image_classification", "object_detection"): None,  # ❌ 불가능
+  }
+  ```
+
+### 구현 내용
+
+#### Microservice 인프라
+**스크립트 생성**:
+- `mvp/scripts/setup-ultralytics-service.bat` - venv 생성 및 의존성 설치
+- `mvp/scripts/start-ultralytics-service.bat` - 서비스 시작 (Port 8002)
+- `mvp/scripts/setup-timm-service.bat` - timm 서비스 셋업
+- `mvp/scripts/start-timm-service.bat` - timm 서비스 시작 (Port 8001)
+
+**Backend 설정**:
+```bash
+# mvp/backend/.env
+TIMM_SERVICE_URL=http://localhost:8001
+ULTRALYTICS_SERVICE_URL=http://localhost:8002
+HUGGINGFACE_SERVICE_URL=http://localhost:8003
+TRAINING_SERVICE_URL=http://localhost:8001  # Fallback
+```
+
+**ultralytics-service 실행 확인**:
+- ✅ Port 8002에서 정상 동작
+- ✅ Health Check: `{"status":"healthy"}`
+- ✅ Models API: 5개 모델 (yolo11n, yolo11n-seg, yolo11n-pose, yolo_world_v2_s, sam2_t)
+
+#### 기존 코드 분석
+**platform_sdk/storage.py**:
+- ✅ `get_dataset(dataset_id)` 이미 구현됨
+- ✅ 3-tier 캐싱: Local → R2 → Original source
+- ✅ 자동 압축 해제 및 디렉토리 반환
+
+**ultralytics_adapter.py**:
+- ✅ `_resolve_dataset_path()` 메서드 존재
+- ✅ Simple name 감지 → `get_dataset()` 호출
+- ⚠️ 현재는 path 기반, dataset_id 기반으로 수정 필요
+
+### 다음 단계 (우선순위 순)
+
+#### Phase 1: 환경 설정 및 기본 연동
+- [x] ultralytics-service venv 생성 및 의존성 설치
+- [x] ultralytics-service 실행 스크립트
+- [x] Backend .env 업데이트 (framework별 URL)
+- [ ] Training Service .env 업데이트 (R2 credentials)
+- [ ] Backend 실행 및 Training Service 연결 테스트
+
+#### Phase 2: DICE Format 변환기 구현
+- [ ] `mvp/training/converters/dice_to_yolo.py` 구현
+  - annotations.json 파싱
+  - Polygon → Bounding box 변환
+  - data.yaml 생성
+  - labels/*.txt 생성
+- [ ] `platform_sdk/storage.py` 확장
+  - `get_dataset_from_r2(dataset_id)` 디렉토리 다운로드
+- [ ] 호환성 검증 로직
+  - `check_detailed_compatibility()` 함수
+  - CONVERSION_MATRIX 정의
+
+#### Phase 3: 학습 파이프라인 E2E 테스트
+- [ ] R2에 테스트 데이터셋 업로드 (sample-det-coco32)
+- [ ] Backend → ultralytics-service 학습 시작
+- [ ] 데이터 다운로드 → 변환 → 학습 전체 흐름 검증
+- [ ] 메트릭 수집 및 로깅 확인
+
+#### Phase 4: Checkpoint R2 저장
+- [ ] `platform_sdk/storage.py`에 `upload_checkpoint()` 추가
+- [ ] Adapter `save_checkpoint()` 수정
+- [ ] R2 경로: `checkpoints/{job_id}/epoch_{epoch}.pth`
+
+### 핵심 설계 원칙
+
+1. **No Shortcuts, No Hardcoding** (CLAUDE.md)
+   - ✅ 동적 모델 레지스트리 (Training Service API)
+   - ✅ R2 Storage 기반 (로컬 파일시스템 의존성 제거)
+   - ✅ Database 기반 메타데이터 (하드코딩 샘플 없음)
+
+2. **Dependency Isolation**
+   - ✅ Backend: PyTorch 없음
+   - ✅ Training Services: Framework별 독립 venv
+   - ✅ HTTP/JSON 통신만
+
+3. **Production = Local**
+   - ✅ Microservice 아키텍처 동일
+   - ✅ R2 Storage 사용
+   - ✅ 환경변수만 차이 (URL, credentials)
+
+### 관련 문서
+- **인프라**: [docs/planning/TRAINER_IMPLEMENTATION_PLAN.md](../planning/TRAINER_IMPLEMENTATION_PLAN.md)
+- **데이터셋 설계**: [docs/datasets/DATASET_MANAGEMENT_DESIGN.md](../datasets/DATASET_MANAGEMENT_DESIGN.md)
+- **DICE Format 스펙**: [docs/datasets/PLATFORM_DATASET_FORMAT.md](../datasets/PLATFORM_DATASET_FORMAT.md)
+- **현재 상태**: [docs/datasets/CURRENT_STATUS.md](../datasets/CURRENT_STATUS.md)
+
+### 기술 노트
+
+#### R2 Storage 구조
+```
+vision-platform-prod/
+├── datasets/
+│   └── {id}/
+│       ├── images/          # 원본 폴더 구조 유지
+│       └── annotations.json # DICE Format v1.0
+├── models/
+│   └── pretrained/{framework}/{model_name}.pt
+└── checkpoints/
+    └── {job_id}/
+        └── epoch_{n}.pth
+```
+
+#### Training Service 데이터 흐름
+```
+1. Backend → POST /training/start
+   {"dataset_id": "uuid-123", "model_name": "yolo11n", ...}
+
+2. Training Service → get_dataset("uuid-123")
+   - Check local: /workspace/data/.cache/datasets/uuid-123/
+   - Download R2: datasets/uuid-123/ → local cache
+   - Return: local_path
+
+3. DICE Format 변환
+   - Parse: annotations.json
+   - Check: compatibility with task_type
+   - Convert: dice_to_yolo() → data.yaml + labels/
+   - Return: converted_path
+
+4. 학습 실행
+   - UltralyticsAdapter(converted_path)
+   - Train + Validate
+   - Save checkpoint → R2
+   - Log metrics → Backend
+```
+
+#### Framework별 Port 할당
+```
+Backend:           8000
+timm-service:      8001
+ultralytics-service: 8002
+huggingface-service: 8003
+Frontend:          3000
+```
+
+---
+
 ## [2025-11-04 16:00] 데이터셋 인증/권한 구현 및 학습 파이프라인 준비
 
 ### 논의 주제

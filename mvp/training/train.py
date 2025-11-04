@@ -48,7 +48,7 @@ def parse_args():
     parser.add_argument('--dataset_path', type=str, required=True,
                         help='Path to dataset directory')
     parser.add_argument('--dataset_format', type=str, default='imagefolder',
-                        choices=['imagefolder', 'coco', 'yolo', 'voc', 'custom'],
+                        choices=['imagefolder', 'coco', 'yolo', 'voc', 'custom', 'dice'],
                         help='Dataset format')
     parser.add_argument('--num_classes', type=int, required=False,
                         help='Number of classes (required for classification)')

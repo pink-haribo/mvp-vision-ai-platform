@@ -66,9 +66,12 @@ def run_training(request: TrainingRequest):
     try:
         job_status[job_id] = {"status": "running", "error": None}
 
+        # Get train.py path (works for both local and Railway)
+        train_script = os.path.join(os.path.dirname(__file__), "train.py")
+
         # Build command
         cmd = [
-            "python", "/workspace/training/train.py",
+            "python", train_script,
             "--framework", request.framework,
             "--task_type", request.task_type,
             "--model_name", request.model_name,
