@@ -1516,82 +1516,91 @@ class TrainingCallbacks:
         import mlflow
         import os
 
-        # Create experiment name from job_id
-        experiment_name = f"job_{self.job_id}"
+        try:
+            # Create experiment name from job_id
+            experiment_name = f"job_{self.job_id}"
 
-        # Set or create experiment
-        experiment = mlflow.set_experiment(experiment_name)
-        self.mlflow_experiment_id = experiment.experiment_id
+            # Set or create experiment
+            experiment = mlflow.set_experiment(experiment_name)
+            self.mlflow_experiment_id = experiment.experiment_id
 
-        # Start MLflow run
-        run_name = f"{self.model_config.model_name}_training"
-        self.mlflow_run = mlflow.start_run(run_name=run_name)
-        self.mlflow_run_id = self.mlflow_run.info.run_id
+            # Start MLflow run
+            run_name = f"{self.model_config.model_name}_training"
+            self.mlflow_run = mlflow.start_run(run_name=run_name)
+            self.mlflow_run_id = self.mlflow_run.info.run_id
 
-        print(f"[Callbacks] MLflow run started:")
-        print(f"  Experiment ID: {self.mlflow_experiment_id}")
-        print(f"  Run ID: {self.mlflow_run_id}")
+            print(f"[Callbacks] MLflow run started:")
+            print(f"  Experiment ID: {self.mlflow_experiment_id}")
+            print(f"  Run ID: {self.mlflow_run_id}")
 
-        # Log parameters to MLflow
-        mlflow.log_param("model", self.model_config.model_name)
-        mlflow.log_param("framework", self.model_config.framework)
-        mlflow.log_param("task_type", self.model_config.task_type.value)
-        mlflow.log_param("epochs", self.training_config.epochs)
-        mlflow.log_param("batch_size", self.training_config.batch_size)
-        mlflow.log_param("learning_rate", self.training_config.learning_rate)
-        mlflow.log_param("image_size", self.model_config.image_size)
-        mlflow.log_param("device", self.training_config.device or 'auto')
+            # Log parameters to MLflow
+            mlflow.log_param("model", self.model_config.model_name)
+            mlflow.log_param("framework", self.model_config.framework)
+            mlflow.log_param("task_type", self.model_config.task_type.value)
+            mlflow.log_param("epochs", self.training_config.epochs)
+            mlflow.log_param("batch_size", self.training_config.batch_size)
+            mlflow.log_param("learning_rate", self.training_config.learning_rate)
+            mlflow.log_param("image_size", self.model_config.image_size)
+            mlflow.log_param("device", self.training_config.device or 'auto')
 
-        if self.model_config.num_classes:
-            mlflow.log_param("num_classes", self.model_config.num_classes)
+            if self.model_config.num_classes:
+                mlflow.log_param("num_classes", self.model_config.num_classes)
 
-        # Log additional config if provided
-        if config:
-            for key, value in config.items():
-                if isinstance(value, (str, int, float, bool)):
-                    mlflow.log_param(key, value)
+            # Log additional config if provided
+            if config:
+                for key, value in config.items():
+                    if isinstance(value, (str, int, float, bool)):
+                        mlflow.log_param(key, value)
 
-        # Update database with MLflow IDs
-        if self.db_session:
-            from app.db import models
-            job = self.db_session.query(models.TrainingJob).filter(
-                models.TrainingJob.id == self.job_id
-            ).first()
+            # Update database with MLflow IDs
+            if self.db_session:
+                from app.db import models
+                job = self.db_session.query(models.TrainingJob).filter(
+                    models.TrainingJob.id == self.job_id
+                ).first()
 
-            if job:
-                job.mlflow_experiment_id = self.mlflow_experiment_id
-                job.mlflow_run_id = self.mlflow_run_id
-                self.db_session.commit()
-                print(f"[Callbacks] Updated DB with MLflow IDs")
-        else:
-            # If no db_session provided, use direct SQLite connection
-            try:
-                import sqlite3
-                from pathlib import Path
-
-                # Get database path
-                training_dir = Path(__file__).parent.parent
-                mvp_dir = training_dir.parent
-                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
-
-                if db_path.exists():
-                    conn = sqlite3.connect(str(db_path))
-                    cursor = conn.cursor()
-
-                    # Update MLflow IDs using direct SQL
-                    cursor.execute(
-                        "UPDATE training_jobs SET mlflow_experiment_id = ?, mlflow_run_id = ? WHERE id = ?",
-                        (self.mlflow_experiment_id, self.mlflow_run_id, self.job_id)
-                    )
-                    conn.commit()
-                    conn.close()
-
+                if job:
+                    job.mlflow_experiment_id = self.mlflow_experiment_id
+                    job.mlflow_run_id = self.mlflow_run_id
+                    self.db_session.commit()
                     print(f"[Callbacks] Updated DB with MLflow IDs")
-                    print(f"  Job ID: {self.job_id}")
-                    print(f"  Experiment ID: {self.mlflow_experiment_id}")
-                    print(f"  Run ID: {self.mlflow_run_id}")
-            except Exception as e:
-                print(f"[Callbacks WARNING] Failed to update DB with MLflow IDs: {e}")
+            else:
+                # If no db_session provided, use direct SQLite connection
+                try:
+                    import sqlite3
+                    from pathlib import Path
+
+                    # Get database path
+                    training_dir = Path(__file__).parent.parent
+                    mvp_dir = training_dir.parent
+                    db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+
+                    if db_path.exists():
+                        conn = sqlite3.connect(str(db_path))
+                        cursor = conn.cursor()
+
+                        # Update MLflow IDs using direct SQL
+                        cursor.execute(
+                            "UPDATE training_jobs SET mlflow_experiment_id = ?, mlflow_run_id = ? WHERE id = ?",
+                            (self.mlflow_experiment_id, self.mlflow_run_id, self.job_id)
+                        )
+                        conn.commit()
+                        conn.close()
+
+                        print(f"[Callbacks] Updated DB with MLflow IDs")
+                        print(f"  Job ID: {self.job_id}")
+                        print(f"  Experiment ID: {self.mlflow_experiment_id}")
+                        print(f"  Run ID: {self.mlflow_run_id}")
+                except Exception as e:
+                    print(f"[Callbacks WARNING] Failed to update DB with MLflow IDs: {e}")
+
+        except Exception as e:
+            # MLflow tracking is optional - continue training without it
+            print(f"[Callbacks WARNING] MLflow tracking unavailable (will continue without tracking): {e}")
+            print(f"[Callbacks INFO] Training will proceed without MLflow tracking")
+            self.mlflow_run = None
+            self.mlflow_run_id = None
+            self.mlflow_experiment_id = None
 
     def on_epoch_begin(self, epoch: int):
         """

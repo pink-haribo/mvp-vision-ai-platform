@@ -13,6 +13,15 @@ sys.stderr.reconfigure(line_buffering=True)
 # Add training directory to path
 sys.path.insert(0, os.path.dirname(__file__))
 
+# Load .env file for R2 credentials
+from dotenv import load_dotenv
+dotenv_path = Path(__file__).parent / ".env"
+if dotenv_path.exists():
+    load_dotenv(dotenv_path)
+    print(f"[INFO] Loaded environment variables from {dotenv_path}")
+else:
+    print(f"[WARNING] .env file not found at {dotenv_path}")
+
 from platform_sdk import (
     ModelConfig,
     DatasetConfig,
@@ -23,12 +32,8 @@ from platform_sdk import (
 )
 from adapters import ADAPTER_REGISTRY, TimmAdapter, UltralyticsAdapter
 
-# Configure MLflow tracking URI
-# Use MLflow server instead of local file storage
+# Configure MLflow tracking URI (only if not already set by .env)
 os.environ.setdefault("MLFLOW_TRACKING_URI", "http://localhost:5000")
-os.environ.setdefault("MLFLOW_S3_ENDPOINT_URL", "http://localhost:9000")
-os.environ.setdefault("AWS_ACCESS_KEY_ID", "minioadmin")
-os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "minioadmin")
 
 
 def parse_args():
@@ -192,9 +197,14 @@ def main():
             image_size = 640
             print(f"[CONFIG] Adjusting image_size from 224 to 640 for YOLO")
 
+        # Normalize task_type: convert hyphen to underscore for enum compatibility
+        # Backend may send "object-detection" but enum expects "object_detection"
+        normalized_task_type = args.task_type.replace('-', '_')
+        print(f"[CONFIG] Task type: {args.task_type} → {normalized_task_type}")
+
         model_config = ModelConfig(
             framework=args.framework,
-            task_type=TaskType(args.task_type),
+            task_type=TaskType(normalized_task_type),
             model_name=args.model_name,
             pretrained=args.pretrained,
             num_classes=args.num_classes,

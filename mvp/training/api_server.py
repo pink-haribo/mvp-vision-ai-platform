@@ -69,9 +69,23 @@ def run_training(request: TrainingRequest):
         # Get train.py path (works for both local and Railway)
         train_script = os.path.join(os.path.dirname(__file__), "train.py")
 
+        # Determine Python interpreter
+        # Try venv-{framework} first, fallback to regular python
+        training_dir = os.path.dirname(__file__)
+        venv_python = os.path.join(training_dir, f"venv-{request.framework}", "Scripts", "python.exe")
+
+        if os.path.exists(venv_python):
+            python_exe = venv_python
+            print(f"[run_training] Using framework-specific venv: {venv_python}")
+        else:
+            python_exe = "python"
+            print(f"[run_training] Using system python (venv not found at {venv_python})")
+
+        sys.stdout.flush()
+
         # Build command
         cmd = [
-            "python", train_script,
+            python_exe, train_script,
             "--framework", request.framework,
             "--task_type", request.task_type,
             "--model_name", request.model_name,

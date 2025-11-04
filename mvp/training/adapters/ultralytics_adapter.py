@@ -427,24 +427,22 @@ class UltralyticsAdapter(TrainingAdapter):
             print(f"[prepare_model] Downloading from Ultralytics...")
             sys.stdout.flush()
 
-            # YOLO constructor auto-downloads to ~/.cache/ultralytics/
+            # YOLO constructor auto-downloads
             if is_yolo_world:
                 temp_model = YOLOWorld(f"{full_model_name}.pt")
             else:
                 temp_model = YOLO(f"{full_model_name}.pt")
 
-            # Find where it was downloaded
-            from pathlib import Path
-            cache_path = Path.home() / ".cache" / "ultralytics" / f"{full_model_name}.pt"
+            # Get actual downloaded path from model
+            import os
+            model_path = os.path.abspath(temp_model.ckpt_path)
 
-            if not cache_path.exists():
-                # Try alternative location
-                cache_path = Path.home() / ".config" / "Ultralytics" / f"{full_model_name}.pt"
-
-            if cache_path.exists():
-                return str(cache_path)
+            if os.path.exists(model_path):
+                print(f"[prepare_model] YOLO downloaded to: {model_path}")
+                sys.stdout.flush()
+                return model_path
             else:
-                raise FileNotFoundError(f"YOLO downloaded but cache file not found: {cache_path}")
+                raise FileNotFoundError(f"YOLO model not found at: {model_path}")
 
         # Get weights (local cache → R2 → original source)
         model_path = get_model_weights(
@@ -563,6 +561,17 @@ class UltralyticsAdapter(TrainingAdapter):
             sys.stdout.flush()
             self.dataset_config.dataset_path = dataset_path
 
+        # Convert DICE format to YOLO format if needed
+        if self.dataset_config.format == DatasetFormat.DICE:
+            print(f"[prepare_dataset] DICE format detected, converting to YOLO...")
+            sys.stdout.flush()
+
+            dataset_path = self._convert_dice_to_yolo(dataset_path)
+            self.dataset_config.dataset_path = dataset_path
+
+            print(f"[prepare_dataset] DICE → YOLO conversion completed: {dataset_path}")
+            sys.stdout.flush()
+
         # Clear any existing YOLO cache files to avoid stale data issues
         self._clear_yolo_cache()
 
@@ -581,6 +590,49 @@ class UltralyticsAdapter(TrainingAdapter):
         except Exception as e:
             print(f"[prepare_dataset] WARNING: Failed to load class names from data.yaml: {e}")
             sys.stdout.flush()
+
+    def _convert_dice_to_yolo(self, dice_dataset_path: str) -> str:
+        """
+        Convert DICE format dataset to YOLO format.
+
+        Args:
+            dice_dataset_path: Path to DICE format dataset directory
+
+        Returns:
+            Path to converted YOLO format dataset directory
+        """
+        from pathlib import Path
+        import sys
+        import os
+
+        # Add converters to path
+        converters_path = Path(__file__).parent.parent / "converters"
+        if str(converters_path) not in sys.path:
+            sys.path.insert(0, str(converters_path))
+
+        from dice_to_yolo import convert_dice_to_yolo
+
+        # Create output directory for converted dataset
+        dice_path = Path(dice_dataset_path)
+        output_dir = dice_path.parent / f"{dice_path.name}_yolo"
+
+        print(f"[_convert_dice_to_yolo] Converting DICE → YOLO")
+        print(f"[_convert_dice_to_yolo] Source: {dice_dataset_path}")
+        print(f"[_convert_dice_to_yolo] Output: {output_dir}")
+        sys.stdout.flush()
+
+        # Perform conversion
+        result = convert_dice_to_yolo(str(dice_dataset_path), str(output_dir))
+
+        print(f"[_convert_dice_to_yolo] Conversion result:")
+        print(f"  - Images: {result['num_images']}")
+        print(f"  - Annotations: {result['num_annotations']}")
+        print(f"  - Classes: {result['num_classes']}")
+        print(f"  - Class names: {result['class_names']}")
+        print(f"  - data.yaml: {result['data_yaml']}")
+        sys.stdout.flush()
+
+        return str(output_dir)
 
     def _clear_yolo_cache(self):
         """Clear YOLO cache files in the dataset directory."""

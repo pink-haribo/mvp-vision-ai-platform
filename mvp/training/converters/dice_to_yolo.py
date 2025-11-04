@@ -67,23 +67,63 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
     converted_images = 0
     converted_annotations = 0
 
-    # If images list is empty, scan images directory
+    # If images list is empty, reconstruct from annotations
     if not images:
-        print("[DICE→YOLO] No images in annotations.json, scanning images/ directory")
+        print("[DICE→YOLO] No images in annotations.json, reconstructing from annotations")
         images_dir = dice_path / "images"
-        if images_dir.exists():
-            for img_file in images_dir.glob("*.jpg"):
-                # Extract image_id from filename
-                img_id = img_file.stem
-                # Find matching annotations
-                if img_id in annotations_by_image or f"image_{img_id}" in annotations_by_image:
-                    actual_img_id = img_id if img_id in annotations_by_image else f"image_{img_id}"
-                    images.append({
-                        'id': actual_img_id,
-                        'file_name': img_file.name,
-                        'width': 640,  # Default, will be updated
-                        'height': 480
-                    })
+        if not images_dir.exists():
+            raise FileNotFoundError(f"images/ directory not found in {dice_path}")
+
+        # Get all image files
+        image_files = sorted(images_dir.glob("*.jpg"))
+        print(f"[DICE→YOLO] Found {len(image_files)} image files")
+
+        # Get unique image_ids from annotations
+        unique_image_ids = sorted(set(ann['image_id'] for ann in annotations if 'image_id' in ann))
+        print(f"[DICE→YOLO] Found {len(unique_image_ids)} unique image_ids in annotations")
+
+        # Strategy 1: Try exact filename match
+        image_id_to_file = {}
+        remaining_files = list(image_files)
+
+        for image_id in unique_image_ids:
+            # Try matching with or without "image_" prefix
+            possible_names = [
+                f"{image_id}.jpg",
+                f"{image_id.replace('image_', '')}.jpg",
+                f"{image_id.replace('_', '')}.jpg"
+            ]
+
+            for img_file in remaining_files:
+                if img_file.name in possible_names:
+                    image_id_to_file[image_id] = img_file
+                    remaining_files.remove(img_file)
+                    break
+
+        # Strategy 2: Sequential matching if Strategy 1 didn't work
+        if len(image_id_to_file) < len(unique_image_ids) and len(image_files) == len(unique_image_ids):
+            print(f"[DICE→YOLO] Using sequential matching strategy")
+            image_id_to_file = dict(zip(unique_image_ids, image_files))
+
+        # Create images list
+        for image_id, img_file in image_id_to_file.items():
+            # Try to get actual image dimensions
+            width, height = 640, 480  # defaults
+            try:
+                from PIL import Image
+                with Image.open(img_file) as img:
+                    width, height = img.size
+            except Exception:
+                pass
+
+            images.append({
+                'id': image_id,
+                'file_name': img_file.name,
+                'width': width,
+                'height': height
+            })
+
+        print(f"[DICE→YOLO] Reconstructed {len(images)} image entries")
 
     for image in images:
         image_id = image.get('id')

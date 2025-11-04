@@ -326,6 +326,10 @@ def _try_download_dataset_from_r2(
     """
     Try to download and extract dataset from R2.
 
+    Supports two formats:
+    1. Zip file: datasets/{dataset_id}.zip
+    2. Directory: datasets/{dataset_id}/ (with multiple files)
+
     Returns:
         Local directory path if successful, None otherwise
     """
@@ -352,36 +356,93 @@ def _try_download_dataset_from_r2(
         )
 
         bucket = 'vision-platform-prod'
-        key = f'datasets/{dataset_id}.zip'
 
-        print(f"[R2] Downloading from s3://{bucket}/{key}...")
+        # Try 1: Check for zip file
+        zip_key = f'datasets/{dataset_id}.zip'
+        print(f"[R2] Trying zip file: s3://{bucket}/{zip_key}...")
         sys.stdout.flush()
-
-        # Download to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
-            tmp_path = tmp_file.name
 
         try:
-            s3.download_file(bucket, key, tmp_path)
-            print(f"[R2] Download successful, extracting...")
+            # Check if zip file exists
+            s3.head_object(Bucket=bucket, Key=zip_key)
+
+            # Download to temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
+                tmp_path = tmp_file.name
+
+            try:
+                s3.download_file(bucket, zip_key, tmp_path)
+                print(f"[R2] Zip download successful, extracting...")
+                sys.stdout.flush()
+
+                # Extract to destination
+                _extract_dataset(tmp_path, dest_dir)
+
+                print(f"[R2] Extraction successful")
+                sys.stdout.flush()
+
+                return str(dest_dir)
+
+            finally:
+                # Clean up temporary file
+                if Path(tmp_path).exists():
+                    Path(tmp_path).unlink()
+
+        except s3.exceptions.ClientError as e:
+            if e.response['Error']['Code'] == '404':
+                # Zip not found, try directory structure
+                print(f"[R2] Zip not found, trying directory structure...")
+                sys.stdout.flush()
+            else:
+                raise
+
+        # Try 2: Check for directory structure
+        dir_prefix = f'datasets/{dataset_id}/'
+        print(f"[R2] Trying directory: s3://{bucket}/{dir_prefix}...")
+        sys.stdout.flush()
+
+        # List all objects with this prefix
+        response = s3.list_objects_v2(Bucket=bucket, Prefix=dir_prefix)
+
+        if 'Contents' not in response or len(response['Contents']) == 0:
+            print(f"[R2] No files found in directory")
+            sys.stdout.flush()
+            return None
+
+        # Create destination directory
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        # Download all files
+        total_files = len(response['Contents'])
+        print(f"[R2] Found {total_files} files, downloading...")
+        sys.stdout.flush()
+
+        for idx, obj in enumerate(response['Contents'], 1):
+            key = obj['Key']
+            # Get relative path (remove prefix)
+            relative_path = key[len(dir_prefix):]
+
+            if not relative_path:  # Skip directory marker
+                continue
+
+            local_file = dest_dir / relative_path
+            local_file.parent.mkdir(parents=True, exist_ok=True)
+
+            print(f"[R2] [{idx}/{total_files}] Downloading {relative_path}...")
             sys.stdout.flush()
 
-            # Extract to destination
-            _extract_dataset(tmp_path, dest_dir)
+            s3.download_file(bucket, key, str(local_file))
 
-            print(f"[R2] Extraction successful")
-            sys.stdout.flush()
+        print(f"[R2] Directory download successful: {dest_dir}")
+        sys.stdout.flush()
 
-            return str(dest_dir)
-
-        finally:
-            # Clean up temporary file
-            if Path(tmp_path).exists():
-                Path(tmp_path).unlink()
+        return str(dest_dir)
 
     except Exception as e:
-        print(f"[R2] Not found in R2 or download failed: {e}")
+        print(f"[R2] Download failed: {e}")
         sys.stdout.flush()
+        import traceback
+        traceback.print_exc()
         return None
 
 
