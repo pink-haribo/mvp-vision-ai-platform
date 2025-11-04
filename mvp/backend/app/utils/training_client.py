@@ -101,6 +101,31 @@ class TrainingServiceClient:
             logger.error(f"[TrainingClient] Failed to get job status: {e}")
             raise
 
+    def stop_training(self, job_id: int) -> bool:
+        """
+        Stop training job on Training Service.
+
+        Args:
+            job_id: Job ID to stop
+
+        Returns:
+            True if training stopped successfully
+        """
+        try:
+            url = f"{self.base_url}/training/stop/{job_id}"
+            logger.info(f"[TrainingClient] Sending stop request to {url}")
+
+            response = requests.post(url, timeout=10)
+            response.raise_for_status()
+
+            result = response.json()
+            logger.info(f"[TrainingClient] Training stopped: {result}")
+            return True
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[TrainingClient] Failed to stop training: {e}")
+            return False
+
     def health_check(self) -> bool:
         """
         Check if Training Service is healthy.

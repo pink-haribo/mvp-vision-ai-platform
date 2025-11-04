@@ -13,6 +13,8 @@ import RegisterModal from '@/components/RegisterModal'
 import ProfileModal from '@/components/ProfileModal'
 import AdminProjectsPanel from '@/components/AdminProjectsPanel'
 import AdminUsersPanel from '@/components/AdminUsersPanel'
+import AdminDatasetsPanel from '@/components/AdminDatasetsPanel'
+import DatasetPanel from '@/components/DatasetPanel'
 
 interface TrainingConfig {
   framework?: string
@@ -47,9 +49,13 @@ export default function Home() {
   // Admin panel states
   const [showAdminProjects, setShowAdminProjects] = useState(false)
   const [showAdminUsers, setShowAdminUsers] = useState(false)
+  const [showAdminDatasets, setShowAdminDatasets] = useState(false)
 
   // Image tools state
   const [showImageTools, setShowImageTools] = useState(false)
+
+  // Dataset panel state
+  const [showDatasets, setShowDatasets] = useState(false)
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -90,6 +96,9 @@ export default function Home() {
     setTrainingJobId(null)       // Close training panel if open
     setShowAdminProjects(false)  // Close admin panels if open
     setShowAdminUsers(false)
+    setShowAdminDatasets(false)
+    setShowDatasets(false)       // Close dataset panel if open
+    setShowImageTools(false)     // Close image tools if open
   }
 
   const handleCreateProject = () => {
@@ -190,6 +199,9 @@ export default function Home() {
   const handleOpenAdminProjects = () => {
     setShowAdminProjects(true)
     setShowAdminUsers(false)
+    setShowAdminDatasets(false)
+    setShowDatasets(false)
+    setShowImageTools(false)
     setSelectedProjectId(null)
     setIsCreatingProject(false)
     setIsCreatingTraining(false)
@@ -199,6 +211,20 @@ export default function Home() {
   const handleOpenAdminUsers = () => {
     setShowAdminUsers(true)
     setShowAdminProjects(false)
+    setShowAdminDatasets(false)
+    setShowDatasets(false)
+    setShowImageTools(false)
+    setSelectedProjectId(null)
+    setIsCreatingProject(false)
+    setIsCreatingTraining(false)
+    setTrainingJobId(null)
+  }
+
+  const handleOpenAdminDatasets = () => {
+    setShowAdminDatasets(true)
+    setShowAdminUsers(false)
+    setShowAdminProjects(false)
+    setShowDatasets(false)
     setShowImageTools(false)
     setSelectedProjectId(null)
     setIsCreatingProject(false)
@@ -210,6 +236,20 @@ export default function Home() {
     setShowImageTools(true)
     setShowAdminProjects(false)
     setShowAdminUsers(false)
+    setShowAdminDatasets(false)
+    setShowDatasets(false)
+    setSelectedProjectId(null)
+    setIsCreatingProject(false)
+    setIsCreatingTraining(false)
+    setTrainingJobId(null)
+  }
+
+  const handleOpenDatasets = () => {
+    setShowDatasets(true)
+    setShowImageTools(false)
+    setShowAdminProjects(false)
+    setShowAdminUsers(false)
+    setShowAdminDatasets(false)
     setSelectedProjectId(null)
     setIsCreatingProject(false)
     setIsCreatingTraining(false)
@@ -221,6 +261,8 @@ export default function Home() {
     setShowImageTools(false)
     setShowAdminUsers(false)
     setShowAdminProjects(false)
+    setShowAdminDatasets(false)
+    setShowDatasets(false)
     setSelectedProjectId(null)
     setIsCreatingProject(false)
     setIsCreatingTraining(false)
@@ -236,11 +278,13 @@ export default function Home() {
         selectedProjectId={selectedProjectId}
         onCreateProject={handleCreateProject}
         onOpenImageTools={handleOpenImageTools}
+        onOpenDatasets={handleOpenDatasets}
         onOpenLogin={() => setShowLoginModal(true)}
         onOpenRegister={() => setShowRegisterModal(true)}
         onOpenProfile={() => setShowProfileModal(true)}
         onOpenAdminProjects={handleOpenAdminProjects}
         onOpenAdminUsers={handleOpenAdminUsers}
+        onOpenAdminDatasets={handleOpenAdminDatasets}
         onLogout={handleLogout}
       />
 
@@ -271,7 +315,10 @@ export default function Home() {
 
         {/* Workspace Panel - Right (Dynamic Content) */}
         <div style={{ width: `${100 - centerWidth}%` }} className="flex-1">
-          {showImageTools ? (
+          {showDatasets ? (
+            // Show dataset panel
+            <DatasetPanel />
+          ) : showImageTools ? (
             // Show image tools panel
             <ImageToolsPanel />
           ) : showAdminProjects ? (
@@ -280,6 +327,9 @@ export default function Home() {
           ) : showAdminUsers ? (
             // Show admin users panel
             <AdminUsersPanel />
+          ) : showAdminDatasets ? (
+            // Show admin datasets panel
+            <AdminDatasetsPanel />
           ) : isCreatingProject ? (
             // Show create project form
             <CreateProjectForm

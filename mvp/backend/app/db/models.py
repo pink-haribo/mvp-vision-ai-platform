@@ -57,6 +57,90 @@ class ProjectMember(Base):
     inviter = relationship("User", back_populates="invited_members", foreign_keys=[invited_by])
 
 
+class Dataset(Base):
+    """Dataset model for managing training data.
+
+    Datasets can be public (accessible to everyone), private (owner only),
+    or organization-wide. Platform sample datasets are simply public datasets
+    with 'platform-sample' tag.
+    """
+
+    __tablename__ = "datasets"
+
+    id = Column(String(100), primary_key=True, index=True)  # UUID or simple ID like "det-coco8"
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+
+    # Ownership (nullable for public datasets without specific owner)
+    owner_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
+
+    # Visibility and access control
+    visibility = Column(String(20), nullable=False, default='private', index=True)  # 'public', 'private', 'organization'
+    tags = Column(JSON, nullable=True)  # e.g., ['platform-sample', 'object-detection', 'coco']
+
+    # Storage
+    storage_path = Column(String(500), nullable=False)  # e.g., "datasets/det-coco8/" or "datasets/{uuid}/"
+    storage_type = Column(String(20), nullable=False, default='r2')  # 'r2', 's3', 'gcs'
+
+    # Dataset metadata
+    format = Column(String(50), nullable=False)  # 'dice', 'yolo', 'imagefolder', 'coco', 'pascal_voc'
+    labeled = Column(Boolean, nullable=False, default=False)  # Whether dataset has annotation.json
+    annotation_path = Column(String(500), nullable=True)  # Path to annotation.json in R2
+    num_classes = Column(Integer, nullable=True)
+    num_images = Column(Integer, nullable=False, default=0)
+    class_names = Column(JSON, nullable=True)  # List of class names
+
+    # Versioning and snapshots
+    is_snapshot = Column(Boolean, nullable=False, default=False, index=True)  # Is this a snapshot?
+    parent_dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='CASCADE'), nullable=True, index=True)  # Parent if snapshot
+    snapshot_created_at = Column(DateTime, nullable=True)  # When snapshot was created
+    version_tag = Column(String(50), nullable=True)  # User-defined version tag (v1, v2, etc.)
+
+    # Status and integrity
+    status = Column(String(20), nullable=False, default='active')  # 'active', 'archived', 'deleted'
+    integrity_status = Column(String(20), nullable=False, default='valid')  # 'valid', 'broken', 'repairing'
+
+    # Change tracking
+    version = Column(Integer, nullable=False, default=1)
+    content_hash = Column(String(64), nullable=True)  # SHA256 hash of dataset content
+    last_modified_at = Column(DateTime, nullable=True)  # When data was last modified
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    owner = relationship("User", backref="owned_datasets", foreign_keys=[owner_id])
+    permissions = relationship("DatasetPermission", back_populates="dataset", cascade="all, delete-orphan")
+    training_jobs = relationship("TrainingJob", back_populates="dataset", foreign_keys="[TrainingJob.dataset_id]")
+
+    # Snapshot relationships (self-referential)
+    parent = relationship("Dataset", remote_side=[id], foreign_keys=[parent_dataset_id], backref="snapshots")
+    snapshot_training_jobs = relationship("TrainingJob", back_populates="dataset_snapshot", foreign_keys="[TrainingJob.dataset_snapshot_id]")
+
+
+class DatasetPermission(Base):
+    """Dataset permission model for collaboration.
+
+    Controls who can view, edit, or manage a dataset.
+    Public datasets don't require permissions for viewing.
+    """
+
+    __tablename__ = "dataset_permissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    role = Column(String(20), nullable=False, default='viewer')  # 'owner', 'editor', 'viewer'
+    granted_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    granted_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    dataset = relationship("Dataset", back_populates="permissions")
+    user = relationship("User", foreign_keys=[user_id], backref="dataset_permissions")
+    grantor = relationship("User", foreign_keys=[granted_by])
+
+
 class Project(Base):
     """Project model for organizing experiments."""
 
@@ -128,7 +212,14 @@ class TrainingJob(Base):
     model_name = Column(String(100), nullable=False)
     task_type = Column(String(50), nullable=False)
     num_classes = Column(Integer, nullable=True)
-    dataset_path = Column(String(500), nullable=False)
+
+    # Dataset reference (new approach)
+    dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='SET NULL'), nullable=True, index=True)
+    dataset_snapshot_id = Column(String(100), ForeignKey('datasets.id', ondelete='SET NULL'), nullable=True, index=True)  # Immutable snapshot reference
+    dataset_version = Column(Integer, nullable=True)  # Deprecated: kept for backward compatibility
+
+    # Legacy dataset path (backward compatibility)
+    dataset_path = Column(String(500), nullable=True)  # Made nullable for transition
     dataset_format = Column(String(50), nullable=False, default="imagefolder")
     output_dir = Column(String(500), nullable=False)
 
@@ -157,6 +248,8 @@ class TrainingJob(Base):
     creator = relationship("User", back_populates="created_training_jobs", foreign_keys=[created_by])
     session = relationship("Session", back_populates="training_jobs")
     project = relationship("Project", back_populates="experiments")
+    dataset = relationship("Dataset", back_populates="training_jobs", foreign_keys=[dataset_id])
+    dataset_snapshot = relationship("Dataset", back_populates="snapshot_training_jobs", foreign_keys=[dataset_snapshot_id])
     metrics = relationship("TrainingMetric", back_populates="job", cascade="all, delete-orphan")
     logs = relationship("TrainingLog", back_populates="job", cascade="all, delete-orphan")
     validation_results = relationship("ValidationResult", back_populates="job", cascade="all, delete-orphan")

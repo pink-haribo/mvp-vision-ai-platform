@@ -400,28 +400,66 @@ class UltralyticsAdapter(TrainingAdapter):
             traceback.print_exc()
             raise
 
-        # Determine model path based on task
+        # Determine model name with suffix based on task
         suffix = self.TASK_SUFFIX_MAP.get(self.task_type, "")
 
         # Check if model_name already has the suffix to avoid duplication
         # e.g., "yolo11n-seg" + "-seg" = "yolo11n-seg-seg" (WRONG)
         if suffix and self.model_config.model_name.endswith(suffix):
             # Model name already has suffix, don't add it again
-            model_path = f"{self.model_config.model_name}.pt"
+            full_model_name = self.model_config.model_name
             print(f"[prepare_model] Model name already contains suffix '{suffix}', not adding again")
         else:
             # Add suffix to model name
-            model_path = f"{self.model_config.model_name}{suffix}.pt"
+            full_model_name = f"{self.model_config.model_name}{suffix}"
 
-        print(f"[prepare_model] Step 2: Loading model: {model_path}")
+        print(f"[prepare_model] Step 2: Getting model weights: {full_model_name}.pt")
         print(f"[prepare_model] Task type: {self.task_type}")
         print(f"[prepare_model] Model type: {'YOLO-World' if is_yolo_world else 'Standard YOLO'}")
         print(f"[prepare_model] Suffix: '{suffix}'")
         sys.stdout.flush()
 
+        # Get model weights with auto-caching
+        from platform_sdk import get_model_weights
+
+        def download_yolo():
+            """Download YOLO model from original source."""
+            print(f"[prepare_model] Downloading from Ultralytics...")
+            sys.stdout.flush()
+
+            # YOLO constructor auto-downloads to ~/.cache/ultralytics/
+            if is_yolo_world:
+                temp_model = YOLOWorld(f"{full_model_name}.pt")
+            else:
+                temp_model = YOLO(f"{full_model_name}.pt")
+
+            # Find where it was downloaded
+            from pathlib import Path
+            cache_path = Path.home() / ".cache" / "ultralytics" / f"{full_model_name}.pt"
+
+            if not cache_path.exists():
+                # Try alternative location
+                cache_path = Path.home() / ".config" / "Ultralytics" / f"{full_model_name}.pt"
+
+            if cache_path.exists():
+                return str(cache_path)
+            else:
+                raise FileNotFoundError(f"YOLO downloaded but cache file not found: {cache_path}")
+
+        # Get weights (local cache → R2 → original source)
+        model_path = get_model_weights(
+            model_name=full_model_name,
+            framework="ultralytics",
+            download_fn=download_yolo,
+            file_extension="pt"
+        )
+
+        print(f"[prepare_model] Using model weights: {model_path}")
+        sys.stdout.flush()
+
         try:
             if is_yolo_world:
-                print(f"[prepare_model] About to call YOLOWorld('{model_path}')...")
+                print(f"[prepare_model] Loading YOLOWorld from: {model_path}")
                 sys.stdout.flush()
 
                 self.model = YOLOWorld(model_path)
@@ -440,7 +478,7 @@ class UltralyticsAdapter(TrainingAdapter):
                     print("[prepare_model] YOLO-World requires custom text prompts to function properly")
                     sys.stdout.flush()
             else:
-                print(f"[prepare_model] About to call YOLO('{model_path}')...")
+                print(f"[prepare_model] Loading YOLO from: {model_path}")
                 sys.stdout.flush()
 
                 self.model = YOLO(model_path)
@@ -457,8 +495,74 @@ class UltralyticsAdapter(TrainingAdapter):
             sys.stdout.flush()
             raise
 
+    def _resolve_dataset_path(self) -> str:
+        """
+        Resolve dataset path with R2 lazy download support.
+
+        Handles 3 cases:
+        1. Built-in Ultralytics datasets (e.g., "coco8.yaml") → return as-is
+        2. Simple dataset names (e.g., "det-coco8") → download from R2
+        3. Absolute paths → return as-is
+
+        Returns:
+            Resolved dataset path
+        """
+        dataset_path_str = self.dataset_config.dataset_path
+
+        # Case 1: Built-in Ultralytics datasets (.yaml)
+        if dataset_path_str.endswith('.yaml'):
+            print(f"[_resolve_dataset_path] Using Ultralytics built-in: {dataset_path_str}")
+            sys.stdout.flush()
+            return dataset_path_str
+
+        # Case 2: Absolute path (custom dataset)
+        if os.path.isabs(dataset_path_str) and os.path.exists(dataset_path_str):
+            print(f"[_resolve_dataset_path] Using existing path: {dataset_path_str}")
+            sys.stdout.flush()
+            return dataset_path_str
+
+        # Case 3: Simple name → try R2 lazy download
+        # Simple name = no path separators
+        if '/' not in dataset_path_str and '\\' not in dataset_path_str:
+            print(f"[_resolve_dataset_path] Simple name detected: {dataset_path_str}")
+            print(f"[_resolve_dataset_path] Attempting R2 lazy download...")
+            sys.stdout.flush()
+
+            try:
+                from platform_sdk import get_dataset
+
+                # Download from R2 (or use local cache)
+                downloaded_path = get_dataset(
+                    dataset_id=dataset_path_str,
+                    download_fn=None  # No fallback download function
+                )
+
+                print(f"[_resolve_dataset_path] Dataset resolved: {downloaded_path}")
+                sys.stdout.flush()
+                return downloaded_path
+
+            except Exception as e:
+                print(f"[_resolve_dataset_path] WARNING: R2 download failed: {e}")
+                print(f"[_resolve_dataset_path] Falling back to original path (may fail)")
+                sys.stdout.flush()
+                return dataset_path_str
+
+        # Case 4: Path doesn't exist → return as-is (will likely fail later)
+        print(f"[_resolve_dataset_path] Using original path: {dataset_path_str}")
+        sys.stdout.flush()
+        return dataset_path_str
+
     def prepare_dataset(self):
         """Prepare dataset in YOLO format."""
+        # Check if dataset needs to be downloaded from R2
+        dataset_path = self._resolve_dataset_path()
+
+        # Update dataset_config with resolved path
+        if dataset_path != self.dataset_config.dataset_path:
+            print(f"[prepare_dataset] Resolved dataset path: {dataset_path}")
+            sys.stdout.flush()
+            self.dataset_config.dataset_path = dataset_path
+
         # Clear any existing YOLO cache files to avoid stale data issues
         self._clear_yolo_cache()
 
@@ -514,10 +618,32 @@ class UltralyticsAdapter(TrainingAdapter):
             ├── train/
             └── val/
         """
+        dataset_path_str = self.dataset_config.dataset_path
+
+        # Check if dataset_path is a Ultralytics built-in dataset
+        # Built-in datasets: coco8, coco128, coco, etc.
+        # Can be specified as "coco8" or "coco8.yaml"
+
+        # Case 1: Already ends with .yaml - likely a built-in dataset
+        if dataset_path_str.endswith('.yaml'):
+            print(f"[_create_data_yaml] Using Ultralytics built-in dataset: {dataset_path_str}")
+            sys.stdout.flush()
+            return dataset_path_str
+
+        # Case 2: Simple name without path separators - convert to built-in
+        if '/' not in dataset_path_str and '\\' not in dataset_path_str and not os.path.isabs(dataset_path_str):
+            yaml_name = f"{dataset_path_str}.yaml"
+            print(f"[_create_data_yaml] Converting simple name to built-in dataset: {yaml_name}")
+            print(f"[_create_data_yaml] Ultralytics will auto-download to ~/.cache/ultralytics/datasets/")
+            sys.stdout.flush()
+            return yaml_name
+
+        # Case 3: Custom dataset path - continue with existing logic
         # Check if data.yaml already exists in dataset
-        existing_yaml = os.path.join(self.dataset_config.dataset_path, "data.yaml")
+        existing_yaml = os.path.join(dataset_path_str, "data.yaml")
         if os.path.exists(existing_yaml):
-            print(f"Using existing data.yaml: {existing_yaml}")
+            print(f"[_create_data_yaml] Using existing data.yaml: {existing_yaml}")
+            sys.stdout.flush()
             return os.path.abspath(existing_yaml)
 
         # Ensure output_dir is absolute path

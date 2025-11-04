@@ -18,7 +18,8 @@ from platform_sdk import (
     DatasetConfig,
     TrainingConfig,
     TaskType,
-    DatasetFormat
+    DatasetFormat,
+    TrainingLogger
 )
 from adapters import ADAPTER_REGISTRY, TimmAdapter, UltralyticsAdapter
 
@@ -81,6 +82,10 @@ def parse_args():
     parser.add_argument('--resume', action='store_true', default=False,
                         help='Resume training from checkpoint (restore optimizer/scheduler state)')
 
+    # Advanced config (passed from Backend via API)
+    parser.add_argument('--advanced_config', type=str, default=None,
+                        help='Advanced configuration JSON string from Backend')
+
     return parser.parse_args()
 
 
@@ -95,8 +100,13 @@ def load_advanced_config_from_db(job_id: int):
         Advanced config dict or None
     """
     try:
-        from sqlalchemy import create_engine, Column, Integer, JSON
-        from sqlalchemy.orm import declarative_base, sessionmaker
+        # Optional import - only needed for subprocess mode (backward compatibility)
+        try:
+            from sqlalchemy import create_engine, Column, Integer, JSON
+            from sqlalchemy.orm import declarative_base, sessionmaker
+        except ImportError:
+            print(f"[INFO] sqlalchemy not available (not needed in API mode)")
+            return None
 
         # Get database path relative to project root
         # train.py is at: mvp/training/train.py
@@ -155,10 +165,23 @@ def main():
     print("="*80)
     print(f"[CONFIG] {json.dumps(vars(args), indent=2)}")
 
-    # Load advanced_config from database if available
-    advanced_config = load_advanced_config_from_db(args.job_id)
+    # Load advanced_config from command line or database
+    advanced_config = None
+
+    if args.advanced_config:
+        # Priority 1: From command line (API mode - passed from Backend)
+        try:
+            advanced_config = json.loads(args.advanced_config)
+            print(f"[CONFIG] Advanced config loaded from API parameter")
+        except json.JSONDecodeError as e:
+            print(f"[WARNING] Failed to parse advanced_config JSON: {e}")
+
+    if not advanced_config:
+        # Priority 2: From database (subprocess mode - backward compatibility)
+        advanced_config = load_advanced_config_from_db(args.job_id)
+
     if advanced_config:
-        print(f"[CONFIG] Advanced config loaded: {json.dumps(advanced_config, indent=2)}")
+        print(f"[CONFIG] Advanced config: {json.dumps(advanced_config, indent=2)}")
 
     # Create configuration objects
     try:
@@ -239,6 +262,16 @@ def main():
     else:
         print(f"\n[CONFIG] Advanced Configuration: DISABLED (using defaults)")
 
+    # Initialize Training Logger
+    print(f"\n[INFO] Initializing Training Logger")
+    logger = TrainingLogger(job_id=args.job_id)
+    if logger.enabled:
+        print(f"[INFO] Training Logger enabled: {logger.backend_url}")
+        logger.log_message(f"Starting training: {args.framework}/{args.model_name}", level="INFO")
+        logger.update_status("running")
+    else:
+        print(f"[WARNING] Training Logger disabled (BACKEND_API_URL not set)")
+
     # Create adapter instance
     print(f"\n[INFO] Creating {args.framework} adapter for {args.task_type}")
     adapter = adapter_class(
@@ -246,7 +279,8 @@ def main():
         dataset_config=dataset_config,
         training_config=training_config,
         output_dir=args.output_dir,
-        job_id=args.job_id
+        job_id=args.job_id,
+        logger=logger
     )
 
     # Load checkpoint if provided
@@ -295,6 +329,11 @@ def main():
             for key, value in final_metrics.metrics.items():
                 print(f"[FINAL_METRICS] {key}: {value:.4f}")
 
+        # Update status to completed
+        if logger.enabled:
+            logger.update_status("completed")
+            logger.log_message("Training completed successfully", level="INFO")
+
         print("\n[STATUS] SUCCESS")
         return 0
 
@@ -305,6 +344,12 @@ def main():
         print(f"[ERROR] {str(e)}")
         import traceback
         traceback.print_exc()
+
+        # Update status to failed
+        if logger.enabled:
+            logger.update_status("failed", error=str(e))
+            logger.log_message(f"Training failed: {e}", level="ERROR")
+
         print("\n[STATUS] FAILED")
         sys.exit(1)
 

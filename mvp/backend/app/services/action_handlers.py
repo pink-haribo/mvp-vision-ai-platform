@@ -485,10 +485,28 @@ class ActionHandlers:
         user_message: str
     ) -> Dict[str, Any]:
         """Handle start_training action"""
+        from app.db.models import Dataset
+
         temp_data = session.temp_data or {}
         config = action_response.config or temp_data.get("config", {})
         experiment = action_response.experiment or temp_data.get("experiment", {})
         project_id = action_response.project_id or temp_data.get("selected_project_id")
+
+        # Resolve dataset: prefer dataset_id over dataset_path
+        dataset_id = config.get("dataset_id")
+        dataset_path = config.get("dataset_path")
+        dataset_format = config.get("dataset_format", "imagefolder")
+
+        if dataset_id:
+            # Look up dataset in DB
+            dataset = self.db.query(Dataset).filter(Dataset.id == dataset_id).first()
+            if dataset:
+                # Use dataset info from DB
+                dataset_path = dataset_id  # Training Service will resolve this
+                dataset_format = dataset.format
+                logger.info(f"[START_TRAINING] Using dataset from DB: {dataset_id}")
+            else:
+                logger.warning(f"[START_TRAINING] Dataset ID '{dataset_id}' not found in DB, using path")
 
         # Create training job
         training_job = TrainingJob(
@@ -497,8 +515,9 @@ class ActionHandlers:
             framework=config.get("framework"),
             model_name=config.get("model_name"),
             task_type=config.get("task_type"),
-            dataset_path=config.get("dataset_path"),
-            dataset_format=config.get("dataset_format", "imagefolder"),
+            dataset_id=dataset_id,  # Store dataset ID
+            dataset_path=dataset_path,  # Use resolved path or ID
+            dataset_format=dataset_format,  # Use format from DB or config
             num_classes=config.get("num_classes"),
             epochs=config.get("epochs"),
             batch_size=config.get("batch_size"),
@@ -513,7 +532,7 @@ class ActionHandlers:
         self.db.commit()
         self.db.refresh(training_job)
 
-        logger.info(f"Created training job: ID={training_job.id}")
+        logger.info(f"Created training job: ID={training_job.id}, dataset_id={dataset_id}, dataset_path={dataset_path}")
 
         message = f"학습 작업이 생성되었습니다! (Job ID: {training_job.id})\n\n"
         message += "학습이 시작됩니다. 우측 패널에서 진행 상황을 확인하실 수 있습니다."

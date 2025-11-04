@@ -56,6 +56,7 @@ class TrainingRequest(BaseModel):
     pretrained: bool = True
     checkpoint_path: Optional[str] = None
     resume: bool = False
+    advanced_config: Optional[dict] = None  # Advanced configuration from Backend
 
 
 def run_training(request: TrainingRequest):
@@ -81,11 +82,17 @@ def run_training(request: TrainingRequest):
             "--num_classes", str(request.num_classes),
         ]
 
-        # Execute training
+        # Add advanced_config if provided
+        if request.advanced_config:
+            cmd.extend(["--advanced_config", json.dumps(request.advanced_config)])
+
+        # Execute training (no capture_output to see logs in Railway)
+        print(f"[run_training] Executing command: {' '.join(cmd)}")
+        sys.stdout.flush()
+
         result = subprocess.run(
             cmd,
-            capture_output=True,
-            text=True,
+            capture_output=False,  # Show output in Railway logs for debugging
             timeout=3600  # 1 hour timeout
         )
 
@@ -94,7 +101,7 @@ def run_training(request: TrainingRequest):
         else:
             job_status[job_id] = {
                 "status": "failed",
-                "error": result.stderr
+                "error": f"Training failed with return code {result.returncode}"
             }
 
     except Exception as e:
@@ -207,6 +214,70 @@ async def get_model(model_name: str):
         "model_name": model_name,
         **model_info
     }
+
+
+@app.get("/config-schema")
+async def get_config_schema(task_type: str):
+    """
+    Return configuration schema for this framework and task type.
+
+    This endpoint provides the advanced configuration options available
+    for training jobs, allowing the frontend to dynamically generate
+    configuration forms.
+
+    Args:
+        task_type: Task type (e.g., image_classification, object_detection)
+
+    Returns:
+        ConfigSchema with fields organized by groups
+    """
+    try:
+        # Import config schemas (lightweight, no torch dependencies)
+        # Use conditional imports to handle frameworks that don't have schemas yet
+        from config_schemas import get_timm_schema, get_ultralytics_schema
+
+        # Map framework to schema getter
+        schema_map = {
+            'timm': get_timm_schema,
+            'ultralytics': get_ultralytics_schema,
+        }
+
+        # Try to import huggingface schema if available
+        try:
+            from config_schemas import get_huggingface_schema
+            schema_map['huggingface'] = get_huggingface_schema
+        except ImportError:
+            pass  # huggingface schema not implemented yet
+
+        schema_getter = schema_map.get(FRAMEWORK.lower())
+        if not schema_getter:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No config schema available for framework '{FRAMEWORK}'"
+            )
+
+        # Get schema
+        schema = schema_getter()
+
+        # Use the built-in to_dict() method for proper serialization
+        schema_dict = schema.to_dict()
+
+        return {
+            "framework": FRAMEWORK,
+            "task_type": task_type,
+            "schema": schema_dict
+        }
+
+    except ImportError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Config schemas not available in this Training Service: {e}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting config schema: {e}"
+        )
 
 
 if __name__ == "__main__":

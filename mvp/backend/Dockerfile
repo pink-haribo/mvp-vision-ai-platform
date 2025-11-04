@@ -25,12 +25,15 @@ COPY mvp/backend/ .
 # Copy sample datasets to /app/datasets (shared via volume in production)
 COPY mvp/backend/sample_datasets/ /app/datasets/
 
-# Note: Training code is NOT copied to Backend
-# Backend communicates with Training Services via HTTP API
-# model_registry imports are handled dynamically with try/except
+# Note: Training code is NOT copied to Backend (proper dependency isolation)
+# Backend communicates with Training Services via HTTP API for all training-related operations:
+# - Model registry: GET /models/list, GET /models/{name}
+# - Config schema: GET /config-schema?framework=X&task_type=Y
+# - Training execution: POST /training/start
+# This maintains clean separation between Backend (API/DB) and Training (ML)
 
-# Create necessary directories
-RUN mkdir -p outputs uploads /app/data/outputs /app/data/logs /app/mlruns
+# Create necessary directories (ignore if already exists)
+RUN mkdir -p /app/outputs /app/uploads /app/data/outputs /app/data/logs /app/mlruns || true
 
 # Make start script executable
 RUN chmod +x start.sh

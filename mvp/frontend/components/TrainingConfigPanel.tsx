@@ -61,8 +61,35 @@ export default function TrainingConfigPanel({
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [datasetInfo, setDatasetInfo] = useState<any | null>(null)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
+
+  // R2 Sample Datasets (loaded from Backend API)
   const [availableDatasets, setAvailableDatasets] = useState<any[]>([])
-  const [isLoadingDatasets, setIsLoadingDatasets] = useState(false)
+  const [isLoadingDatasets, setIsLoadingDatasets] = useState(true)
+
+  // Load available datasets from Backend API
+  useEffect(() => {
+    const fetchAvailableDatasets = async () => {
+      try {
+        setIsLoadingDatasets(true)
+        const response = await fetch('/api/v1/datasets/available')
+
+        if (response.ok) {
+          const datasets = await response.json()
+          setAvailableDatasets(datasets)
+        } else {
+          console.error('Failed to fetch datasets:', response.statusText)
+          setAvailableDatasets([])
+        }
+      } catch (error) {
+        console.error('Error fetching datasets:', error)
+        setAvailableDatasets([])
+      } finally {
+        setIsLoadingDatasets(false)
+      }
+    }
+
+    fetchAvailableDatasets()
+  }, [])
 
   // Step 3: Hyperparameters
   const [epochs, setEpochs] = useState(initialConfig?.epochs || 50)

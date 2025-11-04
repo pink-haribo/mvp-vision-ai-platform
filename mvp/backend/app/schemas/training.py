@@ -20,7 +20,10 @@ class TrainingConfig(BaseModel):
     model_name: str = Field(..., description="Model name (e.g., resnet50, yolov8n)")
     task_type: str = Field(..., description="Task type (e.g., image_classification, object_detection)")
     num_classes: Optional[int] = Field(None, ge=2, description="Number of classes (required for classification)")
-    dataset_path: str = Field(..., description="Path to dataset")
+
+    # Dataset specification (provide either dataset_id OR dataset_path)
+    dataset_id: Optional[str] = Field(None, description="Dataset ID from database (preferred)")
+    dataset_path: Optional[str] = Field(None, description="Direct path to dataset (legacy)")
     dataset_format: str = Field("imagefolder", description="Dataset format (imagefolder, coco, yolo, etc.)")
 
     # Basic training parameters (backward compatible)

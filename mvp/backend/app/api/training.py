@@ -41,11 +41,44 @@ async def create_training_job(
     # Validate required fields
     config = job_request.config
 
-    if not config.dataset_path or config.dataset_path == "None":
+    # Must provide either dataset_id or dataset_path
+    if not config.dataset_id and not config.dataset_path:
         raise HTTPException(
             status_code=400,
-            detail="dataset_path is required and cannot be empty"
+            detail="Either dataset_id or dataset_path must be provided"
         )
+
+    # Resolve dataset from database if dataset_id provided
+    dataset_id = None
+    dataset_path = None
+    dataset_format = config.dataset_format
+
+    if config.dataset_id:
+        # Look up dataset in database
+        dataset = db.query(models.Dataset).filter(models.Dataset.id == config.dataset_id).first()
+        if not dataset:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Dataset with id '{config.dataset_id}' not found"
+            )
+
+        # Check access permissions (for now, only public datasets allowed)
+        if dataset.visibility != 'public':
+            raise HTTPException(
+                status_code=403,
+                detail=f"Dataset '{config.dataset_id}' is not publicly accessible"
+            )
+
+        # Use dataset information from DB
+        dataset_id = dataset.id
+        dataset_path = config.dataset_id  # Use ID as path for Training Service
+        dataset_format = dataset.format
+        logger.info(f"[DATASET] Using dataset from DB: {dataset_id} (format: {dataset_format})")
+
+    elif config.dataset_path:
+        # Legacy: direct path provided
+        dataset_path = config.dataset_path
+        logger.info(f"[DATASET] Using direct path (legacy): {dataset_path}")
 
     if not config.model_name:
         raise HTTPException(
@@ -116,8 +149,9 @@ async def create_training_job(
         model_name=job_request.config.model_name,
         task_type=job_request.config.task_type,
         num_classes=job_request.config.num_classes,
-        dataset_path=job_request.config.dataset_path,
-        dataset_format=job_request.config.dataset_format,
+        dataset_id=dataset_id,  # Store dataset ID if from DB
+        dataset_path=dataset_path,  # Use resolved path
+        dataset_format=dataset_format,  # Use format from DB or config
         output_dir=job_output_dir,
         epochs=job_request.config.epochs,
         batch_size=job_request.config.batch_size,
@@ -799,46 +833,61 @@ async def get_config_schema(framework: str, task_type: str = None):
     try:
         logger.info(f"[config-schema] Requested framework={framework}, task_type={task_type}")
 
-        # Add training directory to path for imports
-        import sys
-        from pathlib import Path
-        training_dir = Path(__file__).parent.parent.parent.parent / "training"
-        if str(training_dir) not in sys.path:
-            sys.path.insert(0, str(training_dir))
+        # Use Training Service API to get config schema
+        # This maintains dependency isolation between Backend and Training code
+        from app.utils.training_client import TrainingServiceClient
+        import requests
 
-        # Import config schemas (lightweight, no torch dependencies)
-        from config_schemas import get_timm_schema, get_ultralytics_schema
+        # Initialize Training Service client for the requested framework
+        client = TrainingServiceClient(framework=framework)
 
-        # Map framework name to schema getter function
-        schema_map = {
-            'timm': get_timm_schema,
-            'ultralytics': get_ultralytics_schema,
-        }
+        logger.info(f"[config-schema] Fetching schema from Training Service: {client.base_url}")
 
-        # Get schema getter function
-        schema_getter = schema_map.get(framework.lower())
-        if not schema_getter:
+        # Call Training Service /config-schema endpoint
+        response = requests.get(
+            f"{client.base_url}/config-schema",
+            params={"task_type": task_type or ""},
+            timeout=10
+        )
+
+        # Handle errors
+        if response.status_code == 404:
             raise HTTPException(
                 status_code=404,
-                detail=f"Framework '{framework}' not supported. Available: {list(schema_map.keys())}"
+                detail=f"Framework '{framework}' not supported or config schema not available"
+            )
+        elif response.status_code == 503:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Training Service for framework '{framework}' is not available"
+            )
+        elif response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Training Service error: {response.text}"
             )
 
-        logger.info(f"[config-schema] Getting schema for {framework}")
+        # Parse response
+        schema_data = response.json()
 
-        # Get configuration schema
-        schema = schema_getter()
-        schema_dict = schema.to_dict()
+        logger.info(f"[config-schema] Schema retrieved with {len(schema_data.get('schema', {}).get('fields', []))} fields")
 
-        logger.info(f"[config-schema] Schema retrieved with {len(schema_dict.get('fields', []))} fields")
-
-        return {
-            "framework": framework,
-            "task_type": task_type,
-            "schema": schema_dict
-        }
+        return schema_data
 
     except HTTPException:
         raise
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"[config-schema] Connection error to Training Service: {str(e)}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Training Service for framework '{framework}' is not reachable. Please check deployment."
+        )
+    except requests.exceptions.Timeout as e:
+        logger.error(f"[config-schema] Timeout connecting to Training Service: {str(e)}")
+        raise HTTPException(
+            status_code=504,
+            detail=f"Training Service timeout. Please try again later."
+        )
     except Exception as e:
         import traceback
         logger.error(f"[config-schema] Error: {str(e)}")

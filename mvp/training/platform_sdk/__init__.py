@@ -12,6 +12,8 @@ from .base import (
     ConfigField,
     InferenceResult,
 )
+from .logger import TrainingLogger
+from .storage import get_model_weights, get_dataset
 
 __version__ = "0.1.0"
 __all__ = [
@@ -25,4 +27,7 @@ __all__ = [
     "ConfigSchema",
     "ConfigField",
     "InferenceResult",
+    "TrainingLogger",
+    "get_model_weights",
+    "get_dataset",
 ]

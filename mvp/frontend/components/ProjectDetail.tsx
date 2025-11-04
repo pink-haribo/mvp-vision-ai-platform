@@ -205,10 +205,19 @@ export default function ProjectDetail({
     setError(null)
 
     try {
+      const token = localStorage.getItem('access_token')
+
+      if (!token) {
+        setError('로그인이 필요합니다.')
+        setIsSaving(false)
+        return
+      }
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           name: editName.trim(),
