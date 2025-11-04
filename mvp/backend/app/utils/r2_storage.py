@@ -357,6 +357,107 @@ class R2Storage:
         except Exception as e:
             return False, None, f"Validation error: {str(e)}"
 
+    def generate_presigned_url(
+        self,
+        object_key: str,
+        expiration: int = 3600
+    ) -> Optional[str]:
+        """
+        Generate a presigned URL for downloading an object from R2.
+
+        Args:
+            object_key: R2 object key (e.g., "datasets/{id}/images/000001.jpg")
+            expiration: URL expiration time in seconds (default: 1 hour)
+
+        Returns:
+            Presigned URL string or None if failed
+        """
+        if not self.client:
+            logger.error("R2 client not initialized")
+            return None
+
+        try:
+            url = self.client.generate_presigned_url(
+                'get_object',
+                Params={
+                    'Bucket': self.bucket_name,
+                    'Key': object_key
+                },
+                ExpiresIn=expiration
+            )
+            logger.info(f"Generated presigned URL for: {object_key} (expires in {expiration}s)")
+            return url
+        except Exception as e:
+            logger.error(f"Failed to generate presigned URL for {object_key}: {str(e)}")
+            return None
+
+    def upload_image(
+        self,
+        file_obj,
+        dataset_id: str,
+        image_filename: str,
+        content_type: str = "image/jpeg"
+    ) -> bool:
+        """
+        Upload an individual image to R2.
+
+        Args:
+            file_obj: File-like object
+            dataset_id: Dataset identifier
+            image_filename: Image filename (e.g., "000001.jpg")
+            content_type: MIME type
+
+        Returns:
+            True if successful
+        """
+        object_key = f"datasets/{dataset_id}/images/{image_filename}"
+        return self.upload_fileobj(
+            file_obj,
+            object_key,
+            content_type=content_type
+        )
+
+    def list_images(
+        self,
+        dataset_id: str,
+        prefix: str = "images/"
+    ) -> list[str]:
+        """
+        List all images in a dataset.
+
+        Args:
+            dataset_id: Dataset identifier
+            prefix: Prefix within dataset (default: "images/")
+
+        Returns:
+            List of image keys (relative to dataset root)
+        """
+        if not self.client:
+            logger.error("R2 client not initialized")
+            return []
+
+        try:
+            full_prefix = f"datasets/{dataset_id}/{prefix}"
+            response = self.client.list_objects_v2(
+                Bucket=self.bucket_name,
+                Prefix=full_prefix
+            )
+
+            images = []
+            if 'Contents' in response:
+                for obj in response['Contents']:
+                    # Extract relative path (remove "datasets/{dataset_id}/")
+                    key = obj['Key']
+                    relative_key = key.replace(f"datasets/{dataset_id}/", "")
+                    images.append(relative_key)
+
+            logger.info(f"Listed {len(images)} images for dataset {dataset_id}")
+            return images
+
+        except Exception as e:
+            logger.error(f"Failed to list images for {dataset_id}: {str(e)}")
+            return []
+
 
 # Global R2 client instance
 r2_storage = R2Storage()

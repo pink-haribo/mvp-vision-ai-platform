@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { User, FolderIcon, PlusIcon, Settings, LogOut, Users, FolderKanban, Wand2 } from 'lucide-react'
+import { User, FolderIcon, PlusIcon, Settings, LogOut, Users, FolderKanban, Wand2, Database } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils/cn'
 import { useAuth } from '@/contexts/AuthContext'
@@ -29,6 +29,7 @@ interface SidebarProps {
   onOpenProfile?: () => void
   onOpenAdminProjects?: () => void
   onOpenAdminUsers?: () => void
+  onOpenAdminDatasets?: () => void
   onLogout?: () => void
 }
 
@@ -42,6 +43,7 @@ export default function Sidebar({
   onOpenProfile,
   onOpenAdminProjects,
   onOpenAdminUsers,
+  onOpenAdminDatasets,
   onLogout: onLogoutCallback,
 }: SidebarProps) {
   const router = useRouter()
@@ -275,6 +277,16 @@ export default function Sidebar({
               <Users className="w-4 h-4" />
               <span>사용자 관리</span>
             </button>
+            {/* Dataset Management - Admin only */}
+            {authUser.system_role === 'admin' && (
+              <button
+                onClick={onOpenAdminDatasets}
+                className="w-full px-3 py-2 rounded-lg text-left text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-violet-400 transition-colors flex items-center gap-2"
+              >
+                <Database className="w-4 h-4" />
+                <span>데이터셋 관리</span>
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -13,6 +13,7 @@ import RegisterModal from '@/components/RegisterModal'
 import ProfileModal from '@/components/ProfileModal'
 import AdminProjectsPanel from '@/components/AdminProjectsPanel'
 import AdminUsersPanel from '@/components/AdminUsersPanel'
+import AdminDatasetsPanel from '@/components/AdminDatasetsPanel'
 
 interface TrainingConfig {
   framework?: string
@@ -47,6 +48,7 @@ export default function Home() {
   // Admin panel states
   const [showAdminProjects, setShowAdminProjects] = useState(false)
   const [showAdminUsers, setShowAdminUsers] = useState(false)
+  const [showAdminDatasets, setShowAdminDatasets] = useState(false)
 
   // Image tools state
   const [showImageTools, setShowImageTools] = useState(false)
@@ -90,6 +92,7 @@ export default function Home() {
     setTrainingJobId(null)       // Close training panel if open
     setShowAdminProjects(false)  // Close admin panels if open
     setShowAdminUsers(false)
+    setShowAdminDatasets(false)
   }
 
   const handleCreateProject = () => {
@@ -190,6 +193,7 @@ export default function Home() {
   const handleOpenAdminProjects = () => {
     setShowAdminProjects(true)
     setShowAdminUsers(false)
+    setShowAdminDatasets(false)
     setSelectedProjectId(null)
     setIsCreatingProject(false)
     setIsCreatingTraining(false)
@@ -198,6 +202,18 @@ export default function Home() {
 
   const handleOpenAdminUsers = () => {
     setShowAdminUsers(true)
+    setShowAdminProjects(false)
+    setShowAdminDatasets(false)
+    setShowImageTools(false)
+    setSelectedProjectId(null)
+    setIsCreatingProject(false)
+    setIsCreatingTraining(false)
+    setTrainingJobId(null)
+  }
+
+  const handleOpenAdminDatasets = () => {
+    setShowAdminDatasets(true)
+    setShowAdminUsers(false)
     setShowAdminProjects(false)
     setShowImageTools(false)
     setSelectedProjectId(null)
@@ -210,6 +226,7 @@ export default function Home() {
     setShowImageTools(true)
     setShowAdminProjects(false)
     setShowAdminUsers(false)
+    setShowAdminDatasets(false)
     setSelectedProjectId(null)
     setIsCreatingProject(false)
     setIsCreatingTraining(false)
@@ -221,6 +238,7 @@ export default function Home() {
     setShowImageTools(false)
     setShowAdminUsers(false)
     setShowAdminProjects(false)
+    setShowAdminDatasets(false)
     setSelectedProjectId(null)
     setIsCreatingProject(false)
     setIsCreatingTraining(false)
@@ -241,6 +259,7 @@ export default function Home() {
         onOpenProfile={() => setShowProfileModal(true)}
         onOpenAdminProjects={handleOpenAdminProjects}
         onOpenAdminUsers={handleOpenAdminUsers}
+        onOpenAdminDatasets={handleOpenAdminDatasets}
         onLogout={handleLogout}
       />
 
@@ -280,6 +299,9 @@ export default function Home() {
           ) : showAdminUsers ? (
             // Show admin users panel
             <AdminUsersPanel />
+          ) : showAdminDatasets ? (
+            // Show admin datasets panel
+            <AdminDatasetsPanel />
           ) : isCreatingProject ? (
             // Show create project form
             <CreateProjectForm

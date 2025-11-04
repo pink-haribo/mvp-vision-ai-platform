@@ -483,7 +483,7 @@ async def upload_dataset(
             storage_type="r2",
             storage_path=f"datasets/{dataset_id}.zip",
             visibility=visibility,
-            user_id=user_id,
+            owner_id=None,  # TODO: Get from auth token
             num_classes=metadata['num_classes'],
             num_images=metadata['total_images'],
             class_names=class_names,
