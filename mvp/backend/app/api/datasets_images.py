@@ -8,8 +8,7 @@ This module provides APIs for:
 """
 
 import logging
-import json
-from typing import List, Optional, Set
+from typing import List, Optional
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Path as PathParam
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -39,7 +38,6 @@ class ImageInfo(BaseModel):
     filename: str
     presigned_url: str
     size: Optional[int] = None
-    hasAnnotations: Optional[bool] = None
 
 
 class ImageListResponse(BaseModel):
@@ -166,7 +164,7 @@ async def list_dataset_images(
     db: Session = Depends(get_db)
 ):
     """
-    List all images in a dataset with presigned URLs and annotation status.
+    List all images in a dataset with presigned URLs.
 
     **Use Case:**
     - Labeling tool: Display images for annotation
@@ -177,17 +175,12 @@ async def list_dataset_images(
     - `status`: "success" or "error"
     - `dataset_id`: Dataset identifier
     - `total_images`: Number of images
-    - `images`: List of image information with presigned URLs and hasAnnotations flag
+    - `images`: List of image information with presigned URLs
 
     **Presigned URL:**
     - Valid for 1 hour (3600 seconds)
     - Direct browser access to R2
     - No server load for image delivery
-
-    **Annotation Status:**
-    - Each image includes hasAnnotations field
-    - Eliminates need for separate annotations.json fetch
-    - Optimized for performance (single API call)
     """
     try:
         # 1. Verify dataset exists
@@ -200,35 +193,11 @@ async def list_dataset_images(
             logger.warning(f"User {current_user.id} attempted to list images from dataset {dataset_id} owned by {dataset.owner_id}")
             raise HTTPException(status_code=403, detail="Permission denied: You can only view your own datasets or public datasets")
 
-        # 3. Fetch annotations.json to determine which images are labeled
-        annotated_filenames: Set[str] = set()
-        try:
-            annotations_content = r2_storage.get_file_content(f"datasets/{dataset_id}/annotations.json")
-            if annotations_content:
-                annotations_json = json.loads(annotations_content.decode('utf-8'))
-
-                # Build map of image_id to filename
-                if 'images' in annotations_json and 'annotations' in annotations_json:
-                    image_id_to_filename = {
-                        img['id']: img['file_name']
-                        for img in annotations_json['images']
-                    }
-
-                    # Mark filenames that have annotations
-                    for ann in annotations_json['annotations']:
-                        filename = image_id_to_filename.get(ann['image_id'])
-                        if filename:
-                            annotated_filenames.add(filename)
-
-                    logger.info(f"Found {len(annotated_filenames)} annotated images in dataset {dataset_id}")
-        except Exception as e:
-            logger.info(f"No annotations.json found for dataset {dataset_id} (this is normal for unlabeled datasets): {e}")
-
-        # 4. List images from R2
+        # 3. List images from R2
         logger.info(f"Listing images for dataset {dataset_id}")
         image_keys = r2_storage.list_images(dataset_id, prefix="images/")
 
-        # 5. Generate presigned URLs for each image with annotation status
+        # 3. Generate presigned URLs for each image
         images = []
         for image_key in image_keys:
             # Generate presigned URL
@@ -240,12 +209,9 @@ async def list_dataset_images(
             if presigned_url:
                 # Extract just the filename
                 filename = image_key.replace("images/", "")
-                has_annotations = filename in annotated_filenames
-
                 images.append(ImageInfo(
                     filename=filename,
-                    presigned_url=presigned_url,
-                    hasAnnotations=has_annotations
+                    presigned_url=presigned_url
                 ))
 
         logger.info(f"Found {len(images)} images in dataset {dataset_id}")

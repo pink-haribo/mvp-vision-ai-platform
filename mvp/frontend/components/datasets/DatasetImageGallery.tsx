@@ -17,8 +17,58 @@ export default function DatasetImageGallery({ datasetId }: DatasetImageGalleryPr
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedImage, setSelectedImage] = useState<ImageInfo | null>(null)
+  const [annotatedImages, setAnnotatedImages] = useState<Set<string>>(new Set())
 
   useEffect(() => {
+    const fetchAnnotations = async () => {
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+        const token = localStorage.getItem('access_token')
+
+        if (!token) return
+
+        // Fetch annotations.json to check which images have labels
+        const response = await fetch(`${baseUrl}/datasets/${datasetId}/file/annotations.json`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+
+        if (!response.ok) {
+          // annotations.json might not exist yet - that's okay
+          console.log('No annotations.json found (this is normal for unlabeled datasets)')
+          return
+        }
+
+        const annotations = await response.json()
+
+        // Build set of filenames that have annotations
+        const annotatedFilenames = new Set<string>()
+
+        // annotations.json format: { images: [...], annotations: [...] }
+        if (annotations.images && annotations.annotations) {
+          // Create a map of image_id to filename
+          const imageIdToFilename = new Map<number | string, string>()
+          for (const img of annotations.images) {
+            imageIdToFilename.set(img.id, img.file_name)
+          }
+
+          // For each annotation, mark the image as annotated
+          for (const ann of annotations.annotations) {
+            const filename = imageIdToFilename.get(ann.image_id)
+            if (filename) {
+              annotatedFilenames.add(filename)
+            }
+          }
+        }
+
+        setAnnotatedImages(annotatedFilenames)
+      } catch (err) {
+        console.error('Error fetching annotations:', err)
+        // Don't show error to user - annotations might just not exist yet
+      }
+    }
+
     const fetchImages = async () => {
       try {
         setLoading(true)
@@ -57,6 +107,7 @@ export default function DatasetImageGallery({ datasetId }: DatasetImageGalleryPr
     }
 
     if (datasetId) {
+      fetchAnnotations()
       fetchImages()
     }
   }, [datasetId])
@@ -103,42 +154,46 @@ export default function DatasetImageGallery({ datasetId }: DatasetImageGalleryPr
     <div>
       {/* Image Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        {images.map((image) => (
-          <div
-            key={image.filename}
-            className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-500 transition-all"
-            onClick={() => setSelectedImage(image)}
-          >
-            <Image
-              src={image.presigned_url}
-              alt={image.filename}
-              fill
-              className="object-cover"
-              sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
-            />
+        {images.map((image) => {
+          const hasAnnotations = annotatedImages.has(image.filename)
 
-            {/* Green check badge for labeled images */}
-            {image.hasAnnotations && (
-              <div className="absolute top-2 left-2 bg-green-500 rounded-full p-1 shadow-lg">
-                <svg
-                  className="w-4 h-4 text-white"
-                  fill="currentColor"
-                  viewBox="0 0 20 20"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                    clipRule="evenodd"
-                  />
-                </svg>
+          return (
+            <div
+              key={image.filename}
+              className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-500 transition-all"
+              onClick={() => setSelectedImage(image)}
+            >
+              <Image
+                src={image.presigned_url}
+                alt={image.filename}
+                fill
+                className="object-cover"
+                sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 16vw"
+              />
+
+              {/* Green check badge for labeled images */}
+              {hasAnnotations && (
+                <div className="absolute top-2 left-2 bg-green-500 rounded-full p-1 shadow-lg">
+                  <svg
+                    className="w-4 h-4 text-white"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </div>
+              )}
+
+              <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-60 p-1">
+                <p className="text-white text-xs truncate">{image.filename}</p>
               </div>
-            )}
-
-            <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-60 p-1">
-              <p className="text-white text-xs truncate">{image.filename}</p>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* Image Modal */}
@@ -168,7 +223,7 @@ export default function DatasetImageGallery({ datasetId }: DatasetImageGalleryPr
               <div className="p-4 bg-gray-50 border-t">
                 <div className="flex items-center justify-between">
                   <p className="font-medium text-gray-900">{selectedImage.filename}</p>
-                  {selectedImage.hasAnnotations && (
+                  {annotatedImages.has(selectedImage.filename) && (
                     <div className="flex items-center gap-1.5 bg-green-100 text-green-700 px-2.5 py-1 rounded-full text-xs font-medium">
                       <svg
                         className="w-3.5 h-3.5"
