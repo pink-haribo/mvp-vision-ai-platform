@@ -57,15 +57,11 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
             annotations_by_image[image_id] = []
         annotations_by_image[image_id].append(ann)
 
-    # Create output directories for train and val
-    images_train_dir = output_path / "images" / "train"
+    # Create output directories for labels only (images stay in original location)
     labels_train_dir = output_path / "labels" / "train"
-    images_val_dir = output_path / "images" / "val"
     labels_val_dir = output_path / "labels" / "val"
 
-    images_train_dir.mkdir(parents=True, exist_ok=True)
     labels_train_dir.mkdir(parents=True, exist_ok=True)
-    images_val_dir.mkdir(parents=True, exist_ok=True)
     labels_val_dir.mkdir(parents=True, exist_ok=True)
 
     # Convert annotations
@@ -148,6 +144,10 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
     train_ann_count = 0
     val_ann_count = 0
 
+    # Lists for train.txt and val.txt (text-based split)
+    train_image_paths = []
+    val_image_paths = []
+
     # Process train images
     for image in train_images:
         image_id = image.get('id')
@@ -158,19 +158,20 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
         if not file_name or not image_id:
             continue
 
-        # Copy image file
+        # Find source image (don't copy, just record path)
         src_image = dice_path / "images" / file_name
         if not src_image.exists():
             # Try with just the filename
             possible_files = list((dice_path / "images").glob(f"*{Path(file_name).stem}*"))
             if possible_files:
                 src_image = possible_files[0]
+                file_name = src_image.name  # Use actual filename
             else:
                 print(f"[DICE→YOLO] Warning: Image not found: {src_image}")
                 continue
 
-        dst_image = images_train_dir / file_name
-        shutil.copy2(src_image, dst_image)
+        # Record image path for train.txt (absolute path to original image)
+        train_image_paths.append(str(src_image.absolute()))
 
         # Convert annotations to YOLO format
         image_annotations = annotations_by_image.get(image_id, [])
@@ -217,19 +218,20 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
         if not file_name or not image_id:
             continue
 
-        # Copy image file
+        # Find source image (don't copy, just record path)
         src_image = dice_path / "images" / file_name
         if not src_image.exists():
             # Try with just the filename
             possible_files = list((dice_path / "images").glob(f"*{Path(file_name).stem}*"))
             if possible_files:
                 src_image = possible_files[0]
+                file_name = src_image.name  # Use actual filename
             else:
                 print(f"[DICE→YOLO] Warning: Image not found: {src_image}")
                 continue
 
-        dst_image = images_val_dir / file_name
-        shutil.copy2(src_image, dst_image)
+        # Record image path for val.txt (absolute path to original image)
+        val_image_paths.append(str(src_image.absolute()))
 
         # Convert annotations to YOLO format
         image_annotations = annotations_by_image.get(image_id, [])
@@ -270,14 +272,26 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
     converted_images = train_count + val_count
     converted_annotations = train_ann_count + val_ann_count
 
-    # Create data.yaml with proper train/val split
+    # Create train.txt with absolute paths to original images
+    train_txt_path = output_path / "train.txt"
+    with open(train_txt_path, 'w') as f:
+        f.write('\n'.join(train_image_paths))
+    print(f"[DICE→YOLO] Created train.txt with {len(train_image_paths)} image paths")
+
+    # Create val.txt with absolute paths to original images
+    val_txt_path = output_path / "val.txt"
+    with open(val_txt_path, 'w') as f:
+        f.write('\n'.join(val_image_paths))
+    print(f"[DICE→YOLO] Created val.txt with {len(val_image_paths)} image paths")
+
+    # Create data.yaml with text-file-based split
     data_yaml_content = f"""# YOLO Dataset Configuration
-# Converted from DICE format
+# Converted from DICE format (text-file-based split)
 
 # Paths (relative to this file)
 path: {output_path.absolute()}  # dataset root dir
-train: images/train  # train images ({train_count} images)
-val: images/val  # validation images ({val_count} images)
+train: train.txt  # train image paths ({train_count} images)
+val: val.txt  # validation image paths ({val_count} images)
 
 # Classes
 nc: {len(category_names)}  # number of classes
