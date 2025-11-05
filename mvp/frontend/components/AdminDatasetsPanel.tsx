@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, Database, Tag } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Search, Database, Tag, Globe, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { Dataset } from '@/types/dataset'
 
-type SortField = 'name' | 'format' | 'labeled' | 'num_items' | 'source'
+type SortField = 'name' | 'labeled' | 'num_items' | 'source' | 'visibility'
 type SortDirection = 'asc' | 'desc' | null
 
 const formatNames: Record<string, string> = {
@@ -14,6 +14,39 @@ const formatNames: Record<string, string> = {
   coco: 'COCO',
   pascal_voc: 'Pascal VOC',
   dice: 'DICE Format',
+}
+
+// Avatar helper functions
+const getAvatarColor = (email: string | null | undefined): string => {
+  if (!email) return 'bg-gray-400'
+  const colors = [
+    'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500',
+    'bg-lime-500', 'bg-green-500', 'bg-emerald-500', 'bg-teal-500',
+    'bg-cyan-500', 'bg-sky-500', 'bg-blue-500', 'bg-indigo-500',
+    'bg-violet-500', 'bg-purple-500', 'bg-fuchsia-500', 'bg-pink-500',
+    'bg-rose-500'
+  ]
+  const hash = email.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+  return colors[hash % colors.length]
+}
+
+const getAvatarInitials = (owner_name: string | null | undefined, owner_email: string | null | undefined): string => {
+  if (owner_name) {
+    // Korean name: take first 2 characters
+    if (/[가-힣]/.test(owner_name)) {
+      return owner_name.slice(0, 2)
+    }
+    // English name: take first letter of first and last name
+    const parts = owner_name.split(' ')
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    }
+    return owner_name.slice(0, 2).toUpperCase()
+  }
+  if (owner_email) {
+    return owner_email.slice(0, 2).toUpperCase()
+  }
+  return '?'
 }
 
 export default function AdminDatasetsPanel() {
@@ -66,7 +99,9 @@ export default function AdminDatasetsPanel() {
         d.name.toLowerCase().includes(query) ||
         d.id.toLowerCase().includes(query) ||
         d.description.toLowerCase().includes(query) ||
-        d.format.toLowerCase().includes(query)
+        d.format.toLowerCase().includes(query) ||
+        (d.owner_name && d.owner_name.toLowerCase().includes(query)) ||
+        (d.owner_email && d.owner_email.toLowerCase().includes(query))
       )
     }
 
@@ -219,15 +254,6 @@ export default function AdminDatasetsPanel() {
               </th>
               <th className="px-6 py-3 text-left">
                 <button
-                  onClick={() => handleSort('format')}
-                  className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wider hover:text-indigo-600"
-                >
-                  Format
-                  <SortIcon field="format" />
-                </button>
-              </th>
-              <th className="px-6 py-3 text-left">
-                <button
                   onClick={() => handleSort('num_items')}
                   className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wider hover:text-indigo-600"
                 >
@@ -245,6 +271,20 @@ export default function AdminDatasetsPanel() {
                 </button>
               </th>
               <th className="px-6 py-3 text-left">
+                <button
+                  onClick={() => handleSort('visibility')}
+                  className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wider hover:text-indigo-600"
+                >
+                  Visibility
+                  <SortIcon field="visibility" />
+                </button>
+              </th>
+              <th className="px-6 py-3 text-left">
+                <span className="text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Owner
+                </span>
+              </th>
+              <th className="px-6 py-3 text-left">
                 <span className="text-xs font-semibold text-gray-700 uppercase tracking-wider">
                   Description
                 </span>
@@ -254,7 +294,7 @@ export default function AdminDatasetsPanel() {
           <tbody className="bg-white divide-y divide-gray-200">
             {filteredDatasets.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center">
+                <td colSpan={7} className="px-6 py-12 text-center">
                   <Database className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                   <p className="text-gray-500">No datasets found</p>
                   <p className="text-sm text-gray-400 mt-1">Try adjusting your filters</p>
@@ -262,10 +302,12 @@ export default function AdminDatasetsPanel() {
               </tr>
             ) : (
               filteredDatasets.map((dataset) => {
-                const formatName = formatNames[dataset.format] || dataset.format
                 const labeledBadge = dataset.labeled
                   ? { color: 'bg-green-100 text-green-800', text: 'Labeled' }
                   : { color: 'bg-gray-100 text-gray-600', text: 'Unlabeled' }
+
+                const avatarColor = getAvatarColor(dataset.owner_email)
+                const avatarInitials = getAvatarInitials(dataset.owner_name, dataset.owner_email)
 
                 return (
                   <tr key={dataset.id} className="hover:bg-gray-50 transition-colors">
@@ -281,17 +323,45 @@ export default function AdminDatasetsPanel() {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                        {formatName}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
                       <span className="text-sm font-medium text-gray-900">
                         {dataset.num_items.toLocaleString()}
                       </span>
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-sm text-gray-600 capitalize">{dataset.source}</span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        {dataset.visibility === 'public' ? (
+                          <Globe className="w-4 h-4 text-green-600" />
+                        ) : (
+                          <Lock className="w-4 h-4 text-gray-600" />
+                        )}
+                        <span className="text-sm capitalize">{dataset.visibility || 'private'}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      {dataset.owner_name || dataset.owner_email ? (
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={cn(
+                              'w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white',
+                              avatarColor
+                            )}
+                            title={dataset.owner_email || ''}
+                          >
+                            {avatarInitials}
+                          </div>
+                          <div>
+                            <div className="text-sm">{dataset.owner_name || dataset.owner_email}</div>
+                            {dataset.owner_name && dataset.owner_email && (
+                              <div className="text-xs text-gray-500">{dataset.owner_email}</div>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <p className="text-sm text-gray-600 line-clamp-2">{dataset.description}</p>
