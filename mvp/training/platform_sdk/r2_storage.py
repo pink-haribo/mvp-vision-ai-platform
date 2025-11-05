@@ -139,7 +139,8 @@ class R2Downloader:
         # Check if it's a UUID (8-4-4-4-12 hex digits with hyphens)
         if len(path_str) == 36 and path_str.count('-') == 4:
             parts = path_str.split('-')
-            if len(parts) == 5 and all(len(p) in [8, 4, 4, 4, 12][i] for i, p in enumerate(parts)):
+            expected_lengths = [8, 4, 4, 4, 12]
+            if len(parts) == 5 and all(len(p) == expected_lengths[i] for i, p in enumerate(parts)):
                 try:
                     # Try to parse as hex
                     all(int(p, 16) for p in parts)
