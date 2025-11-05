@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional, Union
 from dataclasses import dataclass, field
 from enum import Enum
 import json
+import os
 
 
 class TaskType(Enum):
@@ -1393,22 +1394,18 @@ class TrainingAdapter(ABC):
                 if should_save_checkpoint:
                     checkpoint_path = self.save_checkpoint(epoch_num, combined_metrics)
                     print(f"Checkpoint saved: {checkpoint_path}")
-
-                    # Log checkpoint to MLflow (non-blocking)
-                    if checkpoint_path:
-                        try:
-                            callbacks.log_artifact(checkpoint_path, "checkpoints")
-                        except Exception as e:
-                            print(f"[WARNING] Failed to upload checkpoint to MLflow: {e}")
-                            print(f"[WARNING] Training continues (checkpoint saved locally)")
+                    # Note: Checkpoints uploaded to R2 at end of training (not per-epoch)
 
                 # Report metrics to callbacks with checkpoint path
                 # (handles both MLflow and database logging)
                 callbacks.on_epoch_end(epoch_num, combined_metrics.metrics, checkpoint_path)
 
-            # End training
+            # End training and upload checkpoints to R2
             final_metrics = all_metrics[-1].metrics if all_metrics else {}
-            callbacks.on_train_end(final_metrics)
+            print(f"\n[TRAINING] Uploading best and last checkpoints to R2...")
+            # Checkpoint directory follows YOLO structure: {output_dir}/job_{job_id}/weights/
+            checkpoint_dir = os.path.join(self.output_dir, f"job_{self.job_id}", "weights")
+            callbacks.on_train_end(final_metrics, checkpoint_dir=checkpoint_dir)
 
         except Exception as e:
             print(f"[ERROR] Training failed: {e}")

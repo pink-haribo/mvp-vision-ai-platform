@@ -830,11 +830,13 @@ class TimmAdapter(TrainingAdapter):
             probabilities=all_probabilities
         )
 
-        # Get checkpoint path for this epoch
-        checkpoint_path = os.path.join(self.output_dir, f"checkpoint_epoch_{epoch}.pt")
+        # Get checkpoint path for this epoch (use last.pt as it's the most recent)
+        # Match YOLO structure: {output_dir}/job_{job_id}/weights/
+        checkpoint_dir = os.path.join(self.output_dir, f"job_{self.job_id}", "weights")
+        checkpoint_path = os.path.join(checkpoint_dir, "last.pt")
         if not os.path.exists(checkpoint_path):
-            # Fallback to best model path
-            best_path = os.path.join(self.output_dir, "best_model.pt")
+            # Fallback to best.pt
+            best_path = os.path.join(checkpoint_dir, "best.pt")
             if os.path.exists(best_path):
                 checkpoint_path = best_path
             else:
@@ -890,13 +892,18 @@ class TimmAdapter(TrainingAdapter):
         )
 
     def save_checkpoint(self, epoch: int, metrics: MetricsResult) -> str:
-        """Save model checkpoint."""
-        os.makedirs(self.output_dir, exist_ok=True)
+        """
+        Save model checkpoint.
 
-        checkpoint_path = os.path.join(
-            self.output_dir,
-            f"checkpoint_epoch_{epoch}.pt"
-        )
+        Saves best.pt and last.pt like ultralytics for consistency.
+        - last.pt: Most recent checkpoint (updated every epoch)
+        - best.pt: Best checkpoint based on validation accuracy
+
+        Storage structure matches YOLO: {output_dir}/job_{job_id}/weights/best.pt
+        """
+        # Create checkpoint directory matching YOLO structure
+        checkpoint_dir = os.path.join(self.output_dir, f"job_{self.job_id}", "weights")
+        os.makedirs(checkpoint_dir, exist_ok=True)
 
         checkpoint = {
             'epoch': epoch,
@@ -913,14 +920,24 @@ class TimmAdapter(TrainingAdapter):
         if self.scheduler:
             checkpoint['scheduler_state_dict'] = self.scheduler.state_dict()
 
-        torch.save(checkpoint, checkpoint_path)
+        # Always save last.pt (most recent checkpoint)
+        last_path = os.path.join(checkpoint_dir, "last.pt")
+        torch.save(checkpoint, last_path)
+        print(f"[CHECKPOINT] Saved last.pt (epoch {epoch})")
 
-        # Also save best model
-        if metrics.metrics.get('val_accuracy', 0) == self.best_val_acc:
-            best_path = os.path.join(self.output_dir, "best_model.pt")
-            torch.save(self.model.state_dict(), best_path)
+        # Save best.pt if this is the best model so far
+        current_accuracy = metrics.metrics.get('val_accuracy', 0)
+        if current_accuracy == self.best_val_acc:
+            best_path = os.path.join(checkpoint_dir, "best.pt")
+            torch.save(checkpoint, best_path)
+            print(f"[CHECKPOINT] Saved best.pt (accuracy: {current_accuracy:.2f}%)")
 
-        return checkpoint_path
+        # Return path to best checkpoint for compatibility
+        best_path = os.path.join(checkpoint_dir, "best.pt")
+        if os.path.exists(best_path):
+            return best_path
+        else:
+            return last_path
 
     def load_checkpoint(
         self,
@@ -951,16 +968,27 @@ class TimmAdapter(TrainingAdapter):
         print(f"[CHECKPOINT] Mode: {'Inference' if inference_mode else 'Training Resume'}")
         print(f"[CHECKPOINT] Device: {device}")
 
-        checkpoint = torch.load(checkpoint_path, map_location=device)
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
         # Load model state
         if 'model_state_dict' in checkpoint:
-            self.model.load_state_dict(checkpoint['model_state_dict'])
+            # Load with strict=False to handle classifier name mismatches
+            missing_keys, unexpected_keys = self.model.load_state_dict(
+                checkpoint['model_state_dict'], strict=False
+            )
             print(f"[CHECKPOINT] Restored model state from epoch {checkpoint.get('epoch', 'unknown')}")
+            if missing_keys:
+                print(f"[CHECKPOINT] Missing keys (expected for classifier): {missing_keys}")
+            if unexpected_keys:
+                print(f"[CHECKPOINT] Unexpected keys (ignored): {unexpected_keys}")
         else:
             # Handle checkpoints that are just state_dict (e.g., best_model.pt)
-            self.model.load_state_dict(checkpoint)
+            missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint, strict=False)
             print(f"[CHECKPOINT] Restored model state (simple format)")
+            if missing_keys:
+                print(f"[CHECKPOINT] Missing keys (expected for classifier): {missing_keys}")
+            if unexpected_keys:
+                print(f"[CHECKPOINT] Unexpected keys (ignored): {unexpected_keys}")
 
         # Set model to appropriate mode
         if inference_mode:
