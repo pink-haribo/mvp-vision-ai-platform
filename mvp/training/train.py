@@ -13,14 +13,12 @@ sys.stderr.reconfigure(line_buffering=True)
 # Add training directory to path
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Load .env file for R2 credentials
+# Load .env file for R2 credentials (silently to avoid repeated logs from DataLoader workers)
 from dotenv import load_dotenv
 dotenv_path = Path(__file__).parent / ".env"
 if dotenv_path.exists():
-    load_dotenv(dotenv_path)
-    print(f"[INFO] Loaded environment variables from {dotenv_path}")
-else:
-    print(f"[WARNING] .env file not found at {dotenv_path}")
+    load_dotenv(dotenv_path, verbose=False)
+    # Note: Don't print here - DataLoader workers will spam logs
 
 from platform_sdk import (
     ModelConfig,

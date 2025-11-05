@@ -741,7 +741,7 @@ class TimmAdapter(TrainingAdapter):
 
         # Compute comprehensive validation metrics using ValidationMetricsCalculator
         validation_metrics = ValidationMetricsCalculator.compute_metrics(
-            task_type=ValidatorTaskType.CLASSIFICATION,
+            task_type=ValidatorTaskType.IMAGE_CLASSIFICATION,
             predictions=all_predictions,
             labels=all_labels,
             class_names=class_names,
