@@ -37,6 +37,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Startup event to run migrations
+@app.on_event("startup")
+async def startup_event():
+    """Run startup tasks."""
+    print("[STARTUP] Running database migrations...")
+    try:
+        from sqlalchemy import create_engine, text, inspect
+        from app.core.config import settings
+
+        db_url = settings.DATABASE_URL
+        engine = create_engine(
+            db_url,
+            connect_args={"check_same_thread": False} if db_url.startswith("sqlite") else {}
+        )
+
+        inspector = inspect(engine)
+
+        # Check if training_jobs table exists
+        if 'training_jobs' in inspector.get_table_names():
+            columns = [col['name'] for col in inspector.get_columns('training_jobs')]
+
+            # Add dataset_id if missing
+            if 'dataset_id' not in columns:
+                print("[MIGRATION] Adding dataset_id column to training_jobs...")
+                with engine.begin() as conn:
+                    if db_url.startswith("sqlite"):
+                        conn.execute(text("ALTER TABLE training_jobs ADD COLUMN dataset_id TEXT"))
+                    else:
+                        conn.execute(text("ALTER TABLE training_jobs ADD COLUMN dataset_id VARCHAR(100)"))
+
+                    conn.execute(text("CREATE INDEX ix_training_jobs_dataset_id ON training_jobs(dataset_id)"))
+                print("[MIGRATION] dataset_id column added successfully")
+            else:
+                print("[MIGRATION] dataset_id column already exists, skipping")
+        else:
+            print("[MIGRATION] training_jobs table not found, skipping migration")
+    except Exception as e:
+        print(f"[WARNING] Migration failed: {e}")
+        print("[INFO] Continuing with startup...")
+
 # Include routers
 app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["auth"])
 app.include_router(chat.router, prefix=f"{settings.API_V1_PREFIX}/chat", tags=["chat"])
