@@ -355,11 +355,31 @@ class TimmAdapter(TrainingAdapter):
                 raise ValueError("Failed to load dataset for num_classes detection")
 
         print(f"Loading timm model: {self.model_config.model_name}")
+        print(f"[CONFIG] Requested num_classes: {self.model_config.num_classes}")
+        print(f"[CONFIG] Pretrained: {self.model_config.pretrained}")
+
         self.model = timm.create_model(
             self.model_config.model_name,
             pretrained=self.model_config.pretrained,
             num_classes=self.model_config.num_classes
         )
+
+        # Verify model output size
+        if hasattr(self.model, 'num_classes'):
+            actual_num_classes = self.model.num_classes
+        elif hasattr(self.model, 'get_classifier'):
+            classifier = self.model.get_classifier()
+            if hasattr(classifier, 'out_features'):
+                actual_num_classes = classifier.out_features
+            else:
+                actual_num_classes = "unknown"
+        else:
+            actual_num_classes = "unknown"
+
+        print(f"[VERIFY] Model actual output classes: {actual_num_classes}")
+
+        if actual_num_classes != "unknown" and actual_num_classes != self.model_config.num_classes:
+            print(f"[WARNING] Model output classes ({actual_num_classes}) != requested ({self.model_config.num_classes})")
 
         # Move to device
         device = torch.device(self.training_config.device if torch.cuda.is_available() else "cpu")

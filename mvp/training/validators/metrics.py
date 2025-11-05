@@ -309,6 +309,20 @@ class ValidationMetricsCalculator:
         # Top-5 accuracy (if probabilities provided)
         top5_accuracy = None
         if probabilities is not None:
+            # Determine actual number of classes from labels and probabilities
+            num_label_classes = len(np.unique(labels))
+            num_prob_classes = probabilities.shape[1]
+
+            print(f"[DEBUG] Validation metrics:")
+            print(f"  - Labels: {labels.shape}, unique classes: {num_label_classes}, range: [{labels.min()}, {labels.max()}]")
+            print(f"  - Probabilities: {probabilities.shape}, num_classes: {num_prob_classes}")
+
+            if num_prob_classes != num_label_classes:
+                print(f"[WARNING] Model output classes ({num_prob_classes}) != dataset classes ({num_label_classes})")
+                print(f"[WARNING] Using only first {num_label_classes} classes for metrics")
+                # Slice probabilities to match actual number of classes
+                probabilities = probabilities[:, :num_label_classes]
+
             if probabilities.shape[1] >= 5:
                 top5_accuracy = top_k_accuracy_score(
                     labels, probabilities, k=min(5, probabilities.shape[1])
