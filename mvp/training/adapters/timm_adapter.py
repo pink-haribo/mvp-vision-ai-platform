@@ -334,6 +334,8 @@ class TimmAdapter(TrainingAdapter):
                 "timm not installed. Install with: pip install timm"
             )
 
+        import torch.nn as nn  # Import at function level to avoid scope issues
+
         # If num_classes not provided, detect from dataset first
         if self.model_config.num_classes is None:
             print("[INFO] num_classes not provided, loading dataset to auto-detect...")
@@ -404,7 +406,6 @@ class TimmAdapter(TrainingAdapter):
                 print(f"[WARNING] Model does not have reset_classifier method")
 
             # Method 2: Directly replace classifier layer
-            import torch.nn as nn
             if hasattr(self.model, 'get_classifier'):
                 old_classifier = self.model.get_classifier()
                 if hasattr(old_classifier, 'in_features'):

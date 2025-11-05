@@ -231,12 +231,23 @@ def main():
         normalized_task_type = args.task_type.replace('-', '_')
         print(f"[CONFIG] Task type: {args.task_type} → {normalized_task_type}")
 
+        # For image classification with DICE/ImageFolder format:
+        # Force auto-detection of num_classes from dataset (more reliable than pre-computed)
+        final_num_classes = args.num_classes
+        if normalized_task_type == 'image_classification' and args.dataset_format in ['dice', 'imagefolder']:
+            if args.num_classes and args.num_classes != 10:  # 10 is reasonable, 1000 is ImageNet default (wrong)
+                print(f"[CONFIG] WARNING: num_classes={args.num_classes} provided, but will auto-detect from dataset")
+                print(f"[CONFIG] Reason: Classification task with {args.dataset_format} format - dataset determines classes")
+                final_num_classes = None  # Force auto-detection
+            elif args.num_classes == 10:
+                print(f"[CONFIG] num_classes=10 provided, will verify against dataset")
+
         model_config = ModelConfig(
             framework=args.framework,
             task_type=TaskType(normalized_task_type),
             model_name=args.model_name,
             pretrained=args.pretrained,
-            num_classes=args.num_classes,
+            num_classes=final_num_classes,
             image_size=image_size,
         )
 
