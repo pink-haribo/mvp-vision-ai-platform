@@ -380,6 +380,22 @@ class TimmAdapter(TrainingAdapter):
 
         if actual_num_classes != "unknown" and actual_num_classes != self.model_config.num_classes:
             print(f"[WARNING] Model output classes ({actual_num_classes}) != requested ({self.model_config.num_classes})")
+            print(f"[FIX] Attempting to reset classifier to {self.model_config.num_classes} classes...")
+
+            # Try to reset classifier
+            if hasattr(self.model, 'reset_classifier'):
+                self.model.reset_classifier(self.model_config.num_classes)
+                print(f"[FIX] Successfully called reset_classifier({self.model_config.num_classes})")
+
+                # Verify again
+                if hasattr(self.model, 'get_classifier'):
+                    classifier = self.model.get_classifier()
+                    if hasattr(classifier, 'out_features'):
+                        new_num_classes = classifier.out_features
+                        print(f"[VERIFY] After reset: {new_num_classes} classes")
+            else:
+                print(f"[ERROR] Model does not have reset_classifier method!")
+                raise ValueError(f"Cannot set num_classes to {self.model_config.num_classes}")
 
         # Move to device
         device = torch.device(self.training_config.device if torch.cuda.is_available() else "cpu")
@@ -615,6 +631,15 @@ class TimmAdapter(TrainingAdapter):
             # Forward pass
             self.optimizer.zero_grad()
             outputs = self.model(inputs)
+
+            # Debug: Check output shape on first batch
+            if batch_idx == 0 and epoch == 0:
+                print(f"\n[DEBUG] Training - First batch:")
+                print(f"  - Input shape: {inputs.shape}")
+                print(f"  - Output shape: {outputs.shape}")
+                print(f"  - Target shape: {targets.shape}, range: [{targets.min().item()}, {targets.max().item()}]")
+                print(f"  - Model output classes: {outputs.shape[1]}")
+
             loss = self.criterion(outputs, targets)
 
             # Backward pass
