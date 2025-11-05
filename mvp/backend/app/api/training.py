@@ -93,46 +93,15 @@ async def create_training_job(
             detail="task_type is required"
         )
 
-    # For classification tasks, num_classes is required
+    # For classification tasks, use num_classes from Dataset if available (optional optimization)
     if config.task_type == "image_classification" and not config.num_classes:
-        # Try to get num_classes from Dataset record if dataset_id provided
-        if dataset is not None:
-            # Dataset was already queried above (line 59)
-            if dataset.num_classes and dataset.num_classes > 0:
-                config.num_classes = dataset.num_classes
-                logger.info(f"[training] Using num_classes from Dataset: {config.num_classes}")
-            else:
-                # Dataset exists but num_classes not set
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Dataset '{dataset.id}' does not have num_classes information. "
-                           f"Please re-analyze or re-upload the dataset to populate metadata."
-                )
-        elif config.dataset_path:
-            # Legacy path: try to analyze directly from filesystem
-            try:
-                from app.utils.dataset_analyzer import analyze_dataset
-                dataset_info = analyze_dataset(config.dataset_path)
-                detected_num_classes = dataset_info.get("num_classes")
-
-                if detected_num_classes and detected_num_classes > 0:
-                    config.num_classes = detected_num_classes
-                    logger.info(f"[training] Auto-detected num_classes: {detected_num_classes}")
-                else:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Could not auto-detect num_classes from path: {config.dataset_path}"
-                    )
-            except Exception as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"num_classes is required for image classification. Auto-detection failed: {str(e)}"
-                )
+        if dataset is not None and dataset.num_classes and dataset.num_classes > 0:
+            # Use pre-computed num_classes from Dataset (faster)
+            config.num_classes = dataset.num_classes
+            logger.info(f"[training] Using num_classes from Dataset: {config.num_classes}")
         else:
-            raise HTTPException(
-                status_code=400,
-                detail="num_classes is required for image classification tasks"
-            )
+            # num_classes will be auto-detected by Training Service during dataset loading
+            logger.info(f"[training] num_classes not provided - will be auto-detected by Training Service")
 
     # Verify session exists (if provided)
     if job_request.session_id:

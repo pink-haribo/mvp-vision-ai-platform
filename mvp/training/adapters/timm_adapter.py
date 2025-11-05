@@ -334,6 +334,26 @@ class TimmAdapter(TrainingAdapter):
                 "timm not installed. Install with: pip install timm"
             )
 
+        # If num_classes not provided, detect from dataset first
+        if self.model_config.num_classes is None:
+            print("[INFO] num_classes not provided, loading dataset to auto-detect...")
+            self.prepare_dataset()  # This will load dataset and populate self.train_loader
+
+            # Get num_classes from loaded dataset
+            if hasattr(self, 'train_loader') and self.train_loader:
+                dataset = self.train_loader.dataset
+                if hasattr(dataset, 'classes'):
+                    self.model_config.num_classes = len(dataset.classes)
+                elif hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'classes'):
+                    # For Subset, access underlying dataset
+                    self.model_config.num_classes = len(dataset.dataset.classes)
+                else:
+                    raise ValueError("Cannot determine num_classes from dataset")
+
+                print(f"[INFO] Auto-detected num_classes: {self.model_config.num_classes}")
+            else:
+                raise ValueError("Failed to load dataset for num_classes detection")
+
         print(f"Loading timm model: {self.model_config.model_name}")
         self.model = timm.create_model(
             self.model_config.model_name,
@@ -392,6 +412,11 @@ class TimmAdapter(TrainingAdapter):
 
     def prepare_dataset(self):
         """Prepare dataset for training with advanced config transforms."""
+        # Skip if already loaded (avoids double loading when called from prepare_model)
+        if hasattr(self, 'train_loader') and self.train_loader is not None:
+            print("[INFO] Dataset already loaded, skipping...")
+            return
+
         import os
         from torchvision import datasets
 
