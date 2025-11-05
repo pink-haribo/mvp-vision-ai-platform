@@ -99,45 +99,37 @@ class DiceSplitGenerator:
 
     def extract_image_classes(self, annotations: Dict) -> None:
         """
-        Extract primary class for each image.
+        Extract class information from platform DICE format.
 
-        Strategy: If image has multiple objects, use most common class.
+        Platform DICE format:
+        {
+          "classes": [{"id": 0, "name": "cat"}, ...],
+          "images": [{
+            "file_name": "...",
+            "annotation": {"class_id": 0, "class_name": "cat"}
+          }]
+        }
         """
-        # Build category mapping (COCO category_id -> class_name)
-        for category in annotations['categories']:
-            self.class_id_to_name[category['id']] = category['name']
+        # Build class mappings from "classes" array
+        for cls in annotations['classes']:
+            self.class_id_to_name[cls['id']] = cls['name']
+            self.class_name_to_id[cls['name']] = cls['id']
 
-        # Build 0-indexed class mapping (class_name -> class_id)
-        sorted_class_names = sorted(self.class_id_to_name.values())
-        for idx, class_name in enumerate(sorted_class_names):
-            self.class_name_to_id[class_name] = idx
-
-        # Build image ID to filename mapping
-        image_id_to_filename = {}
+        # Extract image classes (annotation is embedded in each image)
         for img in annotations['images']:
-            image_id_to_filename[img['id']] = img['file_name']
+            filename = img['file_name']
 
-        # Count objects per class for each image
-        image_class_counts = defaultdict(Counter)
-        for ann in annotations['annotations']:
-            image_id = ann['image_id']
-            category_id = ann['category_id']
-            class_name = self.class_id_to_name[category_id]
-            image_class_counts[image_id][class_name] += 1
-
-        # Assign primary class to each image
-        for image_id, class_counter in image_class_counts.items():
-            most_common_class = class_counter.most_common(1)[0][0]
-            filename = image_id_to_filename.get(image_id)
-            if filename:
-                self.image_to_class[filename] = most_common_class
-                self.class_distribution[most_common_class] += 1
+            # Get class from embedded annotation
+            if 'annotation' in img and img['annotation']:
+                class_name = img['annotation']['class_name']
+                self.image_to_class[filename] = class_name
+                self.class_distribution[class_name] += 1
 
         print(f"\n[DiceSplit] Extracted classes for {len(self.image_to_class)} images")
         print(f"[DiceSplit] Found {len(self.class_name_to_id)} classes:")
         for class_name, class_id in sorted(self.class_name_to_id.items(), key=lambda x: x[1]):
             count = self.class_distribution[class_name]
-            percentage = (count / len(self.image_to_class)) * 100
+            percentage = (count / len(self.image_to_class)) * 100 if len(self.image_to_class) > 0 else 0
             print(f"  [{class_id}] {class_name}: {count} images ({percentage:.1f}%)")
 
     def split_dataset(self) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
