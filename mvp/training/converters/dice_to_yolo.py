@@ -57,15 +57,24 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
             annotations_by_image[image_id] = []
         annotations_by_image[image_id].append(ann)
 
-    # Create output directories
+    # Create output directories for train and val
     images_train_dir = output_path / "images" / "train"
     labels_train_dir = output_path / "labels" / "train"
+    images_val_dir = output_path / "images" / "val"
+    labels_val_dir = output_path / "labels" / "val"
+
     images_train_dir.mkdir(parents=True, exist_ok=True)
     labels_train_dir.mkdir(parents=True, exist_ok=True)
+    images_val_dir.mkdir(parents=True, exist_ok=True)
+    labels_val_dir.mkdir(parents=True, exist_ok=True)
 
     # Convert annotations
     converted_images = 0
     converted_annotations = 0
+
+    # For train/val split (80/20)
+    import random
+    random.seed(42)  # For reproducibility
 
     # If images list is empty, reconstruct from annotations
     if not images:
@@ -125,7 +134,22 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
 
         print(f"[DICE→YOLO] Reconstructed {len(images)} image entries")
 
-    for image in images:
+    # Shuffle and split images into train/val (80/20)
+    random.shuffle(images)
+    split_idx = int(len(images) * 0.8)
+    train_images = images[:split_idx]
+    val_images = images[split_idx:]
+
+    print(f"[DICE→YOLO] Split: {len(train_images)} train, {len(val_images)} val")
+
+    # Track conversion stats separately
+    train_count = 0
+    val_count = 0
+    train_ann_count = 0
+    val_ann_count = 0
+
+    # Process train images
+    for image in train_images:
         image_id = image.get('id')
         file_name = image.get('file_name')
         width = image.get('width', 640)
@@ -175,22 +199,85 @@ def convert_dice_to_yolo(dice_dataset_dir: str, output_dir: str) -> Dict[str, an
             class_idx = category_id_to_idx.get(category_id, 0)
 
             yolo_lines.append(f"{class_idx} {x_center:.6f} {y_center:.6f} {w_norm:.6f} {h_norm:.6f}")
-            converted_annotations += 1
+            train_ann_count += 1
 
         # Write label file
         with open(label_file, 'w') as f:
             f.write('\n'.join(yolo_lines))
 
-        converted_images += 1
+        train_count += 1
 
-    # Create data.yaml
+    # Process val images
+    for image in val_images:
+        image_id = image.get('id')
+        file_name = image.get('file_name')
+        width = image.get('width', 640)
+        height = image.get('height', 480)
+
+        if not file_name or not image_id:
+            continue
+
+        # Copy image file
+        src_image = dice_path / "images" / file_name
+        if not src_image.exists():
+            # Try with just the filename
+            possible_files = list((dice_path / "images").glob(f"*{Path(file_name).stem}*"))
+            if possible_files:
+                src_image = possible_files[0]
+            else:
+                print(f"[DICE→YOLO] Warning: Image not found: {src_image}")
+                continue
+
+        dst_image = images_val_dir / file_name
+        shutil.copy2(src_image, dst_image)
+
+        # Convert annotations to YOLO format
+        image_annotations = annotations_by_image.get(image_id, [])
+
+        # Create label file (for val images)
+        label_file = labels_val_dir / f"{Path(file_name).stem}.txt"
+        yolo_lines = []
+
+        for ann in image_annotations:
+            bbox = ann.get('bbox')
+            category_id = ann.get('category_id')
+
+            if not bbox or category_id is None:
+                continue
+
+            # DICE/COCO bbox format: [x, y, width, height] (top-left corner)
+            x, y, w, h = bbox
+
+            # Convert to YOLO format: [x_center, y_center, width, height] (normalized)
+            x_center = (x + w / 2) / width
+            y_center = (y + h / 2) / height
+            w_norm = w / width
+            h_norm = h / height
+
+            # Get class index
+            class_idx = category_id_to_idx.get(category_id, 0)
+
+            yolo_lines.append(f"{class_idx} {x_center:.6f} {y_center:.6f} {w_norm:.6f} {h_norm:.6f}")
+            val_ann_count += 1
+
+        # Write label file
+        with open(label_file, 'w') as f:
+            f.write('\n'.join(yolo_lines))
+
+        val_count += 1
+
+    # Update total counts
+    converted_images = train_count + val_count
+    converted_annotations = train_ann_count + val_ann_count
+
+    # Create data.yaml with proper train/val split
     data_yaml_content = f"""# YOLO Dataset Configuration
 # Converted from DICE format
 
 # Paths (relative to this file)
 path: {output_path.absolute()}  # dataset root dir
-train: images/train  # train images
-val: images/train  # using train for both (split later if needed)
+train: images/train  # train images ({train_count} images)
+val: images/val  # validation images ({val_count} images)
 
 # Classes
 nc: {len(category_names)}  # number of classes
@@ -201,7 +288,7 @@ names: {category_names}  # class names
     with open(data_yaml_path, 'w') as f:
         f.write(data_yaml_content)
 
-    print(f"[DICE→YOLO] Converted {converted_images} images with {converted_annotations} annotations")
+    print(f"[DICE→YOLO] Converted {converted_images} images ({train_count} train, {val_count} val) with {converted_annotations} annotations ({train_ann_count} train, {val_ann_count} val)")
     print(f"[DICE→YOLO] Output: {output_path}")
     print(f"[DICE→YOLO] Classes: {category_names}")
 
@@ -211,7 +298,11 @@ names: {category_names}  # class names
         'num_classes': len(category_names),
         'class_names': category_names,
         'num_images': converted_images,
-        'num_annotations': converted_annotations
+        'num_annotations': converted_annotations,
+        'train_images': train_count,
+        'val_images': val_count,
+        'train_annotations': train_ann_count,
+        'val_annotations': val_ann_count
     }
 
 
