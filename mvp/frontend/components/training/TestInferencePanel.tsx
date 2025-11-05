@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { Upload, Settings, Play, AlertCircle, Terminal, Info, CheckCircle, XCircle } from 'lucide-react'
+import { Upload, Settings, Play, AlertCircle, Terminal, Info, CheckCircle, XCircle, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { SlidePanel } from '../SlidePanel'
 import ImageUploadList from './ImageUploadList'
@@ -74,6 +74,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   // Canvas ref for bbox visualization
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Logs state
   interface LogEntry {
@@ -87,10 +88,6 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   // Helper to add log entry
   const addLog = (level: LogEntry['level'], message: string) => {
     setLogs(prev => [...prev, { timestamp: new Date(), level, message }])
-    // Auto-scroll to bottom
-    setTimeout(() => {
-      logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }, 100)
   }
 
   // Fetch job details
@@ -485,7 +482,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Task Type Header */}
       <div className="bg-gradient-to-r from-violet-50 to-purple-50 rounded-lg border border-violet-200 p-4">
         <div className="flex items-center justify-between">
@@ -516,28 +513,61 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
         </div>
       </div>
 
-      {/* Upload and Settings Section */}
-      <div className="grid grid-cols-2 gap-6">
-        {/* Image Upload - Using unified component */}
-        <ImageUploadList
-          images={images}
-          selectedImageId={selectedImageId}
-          onImagesAdd={addImages}
-          onImageSelect={handleImageSelect}
-          onImageRemove={handleImageRemove}
-          onClearAll={handleClearAll}
-        />
+      {/* Top Row - Image Uploader (2) + Inference Settings (8) */}
+      <div className="grid grid-cols-10 gap-3">
+        {/* Image Uploader - No thumbnails */}
+        <div className="col-span-2 bg-white rounded-lg border border-gray-200 p-6">
+          <h3 className="text-sm font-semibold text-gray-900 mb-4">이미지 업로드</h3>
 
-        {/* Inference Settings */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Settings className="w-4 h-4 text-gray-500" />
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*"
+            onChange={(e) => {
+              const files = Array.from(e.target.files || [])
+              if (files.length > 0) {
+                addImages(files)
+              }
+              e.target.value = ''
+            }}
+            className="hidden"
+          />
+
+          {/* Drop Zone */}
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            onDrop={(e) => {
+              e.preventDefault()
+              const files = Array.from(e.dataTransfer.files).filter(file =>
+                file.type.startsWith('image/')
+              )
+              if (files.length > 0) {
+                addImages(files)
+              }
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            className={cn(
+              'border-2 border-dashed border-gray-300 rounded-lg py-8',
+              'flex items-center justify-center cursor-pointer',
+              'hover:border-violet-400 hover:bg-violet-50/50',
+              'transition-colors'
+            )}
+          >
+            <Upload className="w-12 h-12 text-gray-300" />
+          </div>
+        </div>
+
+        {/* Inference Settings - 8 columns */}
+        <div className="col-span-8 bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center gap-2 mb-6">
+            <Settings className="w-5 h-5 text-violet-600" />
             <h3 className="text-sm font-semibold text-gray-900">추론 설정</h3>
           </div>
 
-          <div className="space-y-4">
+          <div className="grid grid-cols-12 gap-4 items-end">
             {/* Epoch Selection */}
-            <div>
+            <div className="col-span-3">
               <label className="block text-xs font-medium text-gray-700 mb-2">
                 모델 가중치 선택
               </label>
@@ -558,12 +588,9 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                   'bg-white'
                 )}
               >
-                {/* Pretrained weight option - always available */}
                 <option value="pretrained">
                   🔷 Pretrained Weight (사전학습 모델)
                 </option>
-
-                {/* Trained epochs */}
                 {epochMetrics.length > 0 && (
                   <optgroup label="학습된 체크포인트">
                     {epochMetrics.map(metric => (
@@ -581,8 +608,6 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                   </optgroup>
                 )}
               </select>
-
-              {/* Info text */}
               {!selectedEpoch && (
                 <p className="text-xs text-gray-500 mt-1.5">
                   💡 ImageNet, COCO 등으로 사전학습된 가중치를 사용합니다
@@ -592,7 +617,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
 
             {/* Task-specific settings */}
             {job.task_type === 'image_classification' && (
-              <div>
+              <div className="col-span-2">
                 <label className="block text-xs font-medium text-gray-700 mb-2">
                   Top-K Predictions
                 </label>
@@ -611,11 +636,11 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
               </div>
             )}
 
-            {job.task_type === 'object_detection' && (
+            {(job.task_type === 'object_detection' || job.task_type === 'instance_segmentation') && (
               <>
-                <div>
+                <div className="col-span-2">
                   <label className="block text-xs font-medium text-gray-700 mb-2">
-                    Confidence Threshold: {confidenceThreshold.toFixed(2)}
+                    Confidence: {confidenceThreshold.toFixed(2)}
                   </label>
                   <input
                     type="range"
@@ -624,12 +649,12 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                     min={0}
                     max={1}
                     step={0.05}
-                    className="w-full"
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-violet-600"
                   />
                 </div>
-                <div>
+                <div className="col-span-2">
                   <label className="block text-xs font-medium text-gray-700 mb-2">
-                    IoU Threshold: {iouThreshold.toFixed(2)}
+                    IoU: {iouThreshold.toFixed(2)}
                   </label>
                   <input
                     type="range"
@@ -638,10 +663,10 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                     min={0}
                     max={1}
                     step={0.05}
-                    className="w-full"
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-violet-600"
                   />
                 </div>
-                <div>
+                <div className="col-span-2">
                   <label className="block text-xs font-medium text-gray-700 mb-2">
                     Max Detections
                   </label>
@@ -661,73 +686,176 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
               </>
             )}
 
-            {/* Run Inference Button */}
-            <button
-              onClick={runInference}
-              disabled={images.length === 0 || isRunning || Boolean(selectedEpoch && !selectedEpoch.checkpoint_path)}
-              className={cn(
-                'w-full px-4 py-2.5',
-                'bg-violet-600 hover:bg-violet-700',
-                'text-white font-semibold text-sm',
-                'rounded-lg shadow-md',
-                'transition-all duration-200',
-                'disabled:opacity-40 disabled:cursor-not-allowed',
-                'flex items-center justify-center gap-2'
-              )}
-            >
-              <Play className="w-4 h-4" />
-              {isRunning ? '추론 실행 중...' : '추론 시작'}
-            </button>
+            {/* Spacer */}
+            {job.task_type !== 'image_classification' &&
+             job.task_type !== 'object_detection' &&
+             job.task_type !== 'instance_segmentation' && (
+              <div className="col-span-6"></div>
+            )}
 
-            {/* Status text */}
-            {images.length === 0 && (
-              <p className="text-xs text-gray-500 text-center">
-                이미지를 업로드하세요
-              </p>
-            )}
-            {!selectedEpoch && images.length > 0 && (
-              <p className="text-xs text-green-600 text-center">
-                ✓ Pretrained weight로 추론 가능
-              </p>
-            )}
+            {/* Run Button */}
+            <div className={cn(
+              "col-span-3",
+              job.task_type === 'image_classification' ? 'col-start-10' : ''
+            )}>
+              <button
+                onClick={runInference}
+                disabled={images.length === 0 || isRunning || Boolean(selectedEpoch && !selectedEpoch.checkpoint_path)}
+                className={cn(
+                  'w-full px-6 py-2.5',
+                  'bg-violet-600 hover:bg-violet-700',
+                  'text-white font-semibold text-sm',
+                  'rounded-lg shadow-md',
+                  'transition-all duration-200',
+                  'disabled:opacity-40 disabled:cursor-not-allowed',
+                  'flex items-center justify-center gap-2'
+                )}
+              >
+                <Play className="w-4 h-4" />
+                {isRunning ? '추론 실행 중...' : '추론 시작'}
+              </button>
+              {images.length === 0 && (
+                <p className="text-xs text-gray-500 text-center mt-2">
+                  이미지를 업로드하세요
+                </p>
+              )}
+              {!selectedEpoch && images.length > 0 && (
+                <p className="text-xs text-green-600 text-center mt-2">
+                  ✓ Pretrained weight로 추론 가능
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Results Section - Full Width Layout */}
-      {images.length > 0 && selectedImage && (
-        <div className="grid grid-cols-2 gap-6 h-[600px]">
-          {/* Image Viewer */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h4 className="text-xs font-semibold text-gray-900 mb-3">이미지 뷰어</h4>
-            {selectedImage ? (
-              <div className="flex items-center justify-center h-[calc(100%-2rem)] relative">
-                <div className="relative">
-                  <img
-                    ref={imageRef}
-                    src={selectedImage.preview}
-                    alt={selectedImage.file.name}
-                    className="max-w-full max-h-full object-contain rounded"
-                    onLoad={handleImageLoad}
-                  />
-                  <canvas
-                    ref={canvasRef}
-                    className="absolute top-0 left-0 pointer-events-none"
-                    style={{ maxWidth: '100%', maxHeight: '100%' }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-[calc(100%-2rem)] text-gray-400">
-                이미지를 선택하세요
-              </div>
+      {/* Bottom Row - Image List (2) + Image Viewer (5) + Results (3) */}
+      <div className="grid grid-cols-10 gap-3 h-[600px]">
+        {/* Image List - 1 column thumbnails */}
+        <div className="col-span-2 bg-white rounded-lg border border-gray-200 p-6 overflow-y-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-xs font-semibold text-gray-900">
+              이미지 목록 {images.length > 0 && `(${images.length})`}
+            </h4>
+            {images.length > 0 && (
+              <button
+                onClick={handleClearAll}
+                className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                title="전체 삭제"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
             )}
           </div>
+          {images.length === 0 ? (
+            <div className="text-center text-gray-400 py-8">
+              <p className="text-xs">업로드된 이미지가 없습니다</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {images.map((image) => (
+                <div
+                  key={image.id}
+                  onClick={() => handleImageSelect(image.id)}
+                  className={cn(
+                    'relative group cursor-pointer rounded-lg border-2 p-2 transition-all',
+                    selectedImageId === image.id
+                      ? 'border-violet-600 bg-violet-50 shadow-md'
+                      : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+                  )}
+                >
+                  {/* Image */}
+                  <div className="relative">
+                    <img
+                      src={image.preview}
+                      alt={image.file.name}
+                      className="w-full h-32 object-cover rounded mb-2"
+                    />
 
-          {/* Inference Results */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6 overflow-y-auto">
-            <h4 className="text-xs font-semibold text-gray-900 mb-3">추론 결과</h4>
-            {selectedImage?.result ? (
+                    {/* Status Badge */}
+                    <div className="absolute top-1 right-1">
+                      <span className={cn(
+                        'text-xs px-1.5 py-0.5 rounded font-medium',
+                        image.status === 'completed' && 'bg-green-500 text-white',
+                        image.status === 'pending' && 'bg-gray-500 text-white',
+                        image.status === 'processing' && 'bg-blue-500 text-white',
+                        image.status === 'failed' && 'bg-red-500 text-white'
+                      )}>
+                        {image.status === 'completed' && '✓'}
+                        {image.status === 'pending' && '⏳'}
+                        {image.status === 'processing' && '⚙️'}
+                        {image.status === 'failed' && '✗'}
+                      </span>
+                    </div>
+
+                    {/* Remove Button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleImageRemove(image.id)
+                      }}
+                      className={cn(
+                        'absolute top-1 left-1 p-1 rounded-full',
+                        'bg-red-500 text-white',
+                        'opacity-0 group-hover:opacity-100',
+                        'transition-opacity hover:bg-red-600'
+                      )}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  {/* Filename */}
+                  <p className="text-xs text-gray-600 truncate" title={image.file.name}>
+                    {image.file.name}
+                  </p>
+
+                  {/* Error */}
+                  {image.error && image.status === 'failed' && (
+                    <p className="text-xs text-red-600 mt-1 truncate" title={image.error}>
+                      {image.error}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Image Viewer - 5 columns */}
+        <div className="col-span-5 bg-white rounded-lg border border-gray-200 p-6">
+          <h4 className="text-xs font-semibold text-gray-900 mb-3">이미지 뷰어</h4>
+          {selectedImage ? (
+            <div className="flex items-center justify-center h-[calc(100%-2rem)] relative">
+              <div className="relative">
+                <img
+                  ref={imageRef}
+                  src={selectedImage.preview}
+                  alt={selectedImage.file.name}
+                  className="max-w-full max-h-full object-contain rounded"
+                  onLoad={handleImageLoad}
+                />
+                <canvas
+                  ref={canvasRef}
+                  className="absolute top-0 left-0 pointer-events-none"
+                  style={{ maxWidth: '100%', maxHeight: '100%' }}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-[calc(100%-2rem)] text-gray-400">
+              <div className="text-center">
+                <Upload className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                <p className="text-sm">이미지를 선택하세요</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Inference Results - 3 columns */}
+        <div className="col-span-3 bg-white rounded-lg border border-gray-200 p-6 overflow-y-auto">
+          <h4 className="text-xs font-semibold text-gray-900 mb-3">추론 결과</h4>
+          {selectedImage?.result ? (
               <div className="space-y-4">
                 {/* Performance Metrics */}
                 <div className="pb-3 border-b border-gray-200">
@@ -945,7 +1073,6 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             )}
           </div>
         </div>
-      )}
 
       {logs.length > 0 && (
         <div className="bg-white rounded-lg border border-gray-200">
@@ -1001,19 +1128,6 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             ))}
             <div ref={logsEndRef} />
           </div>
-        </div>
-      )}
-
-      {/* Empty State */}
-      {images.length === 0 && (
-        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
-          <Upload className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-          <p className="text-sm text-gray-500 mb-2">
-            이미지를 업로드하여 추론을 시작하세요
-          </p>
-          <p className="text-xs text-gray-400">
-            학습된 모델을 사용하여 새로운 이미지에 대한 예측을 수행할 수 있습니다
-          </p>
         </div>
       )}
 

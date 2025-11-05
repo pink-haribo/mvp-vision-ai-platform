@@ -158,8 +158,8 @@ export default function ImageUploadList({
         className="hidden"
       />
 
-      {/* Grid List */}
-      <div className="grid grid-cols-4 gap-3 max-h-[400px] overflow-y-auto">
+      {/* Grid List - 2 columns */}
+      <div className="grid grid-cols-2 gap-3 max-h-[500px] overflow-y-auto">
         {images.map((image) => (
           <div
             key={image.id}
