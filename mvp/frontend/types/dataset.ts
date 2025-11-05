@@ -17,6 +17,7 @@ export interface Dataset {
   owner_id?: number | null;
   owner_name?: string | null;
   owner_email?: string | null;
+  owner_badge_color?: string | null;
 }
 
 export interface DatasetAnalysis {

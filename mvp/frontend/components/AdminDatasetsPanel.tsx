@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { ArrowUpDown, ArrowUp, ArrowDown, Search, Database, Tag, Globe, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { Dataset } from '@/types/dataset'
+import { getAvatarColorStyle } from '@/lib/utils/avatarColors'
 
 type SortField = 'name' | 'labeled' | 'num_items' | 'source' | 'visibility'
 type SortDirection = 'asc' | 'desc' | null
@@ -16,20 +17,7 @@ const formatNames: Record<string, string> = {
   dice: 'DICE Format',
 }
 
-// Avatar helper functions
-const getAvatarColor = (email: string | null | undefined): string => {
-  if (!email) return 'bg-gray-400'
-  const colors = [
-    'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500',
-    'bg-lime-500', 'bg-green-500', 'bg-emerald-500', 'bg-teal-500',
-    'bg-cyan-500', 'bg-sky-500', 'bg-blue-500', 'bg-indigo-500',
-    'bg-violet-500', 'bg-purple-500', 'bg-fuchsia-500', 'bg-pink-500',
-    'bg-rose-500'
-  ]
-  const hash = email.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
-  return colors[hash % colors.length]
-}
-
+// Avatar helper function
 const getAvatarInitials = (owner_name: string | null | undefined, owner_email: string | null | undefined): string => {
   if (owner_name) {
     // Korean name: take first 2 characters
@@ -318,8 +306,11 @@ export default function AdminDatasetsPanel() {
                   ? { color: 'bg-green-100 text-green-800', text: 'Labeled' }
                   : { color: 'bg-gray-100 text-gray-600', text: 'Unlabeled' }
 
-                const avatarColor = getAvatarColor(dataset.owner_email)
                 const avatarInitials = getAvatarInitials(dataset.owner_name, dataset.owner_email)
+                const avatarColorStyle = getAvatarColorStyle(dataset.owner_badge_color)
+                const ownerTooltip = dataset.owner_name
+                  ? `${dataset.owner_name} (${dataset.owner_email})`
+                  : dataset.owner_email || 'Unknown'
 
                 return (
                   <tr key={dataset.id} className="hover:bg-gray-50 transition-colors">
@@ -354,22 +345,12 @@ export default function AdminDatasetsPanel() {
                     </td>
                     <td className="px-6 py-4">
                       {dataset.owner_name || dataset.owner_email ? (
-                        <div className="flex items-center gap-2">
-                          <div
-                            className={cn(
-                              'w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white',
-                              avatarColor
-                            )}
-                            title={dataset.owner_email || ''}
-                          >
-                            {avatarInitials}
-                          </div>
-                          <div>
-                            <div className="text-sm">{dataset.owner_name || dataset.owner_email}</div>
-                            {dataset.owner_name && dataset.owner_email && (
-                              <div className="text-xs text-gray-500">{dataset.owner_email}</div>
-                            )}
-                          </div>
+                        <div
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white cursor-pointer hover:ring-2 hover:ring-offset-2 transition-all"
+                          style={avatarColorStyle}
+                          title={ownerTooltip}
+                        >
+                          {avatarInitials}
                         </div>
                       ) : (
                         <span className="text-gray-400">-</span>

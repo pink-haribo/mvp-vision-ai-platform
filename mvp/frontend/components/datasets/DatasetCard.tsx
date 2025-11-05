@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Globe, Lock } from 'lucide-react';
 import { Dataset } from '@/types/dataset';
 import { cn } from '@/lib/utils/cn';
+import { getAvatarColorStyle } from '@/lib/utils/avatarColors';
 
 interface DatasetCardProps {
   dataset: Dataset;
@@ -18,20 +19,7 @@ const formatNames: Record<string, string> = {
   dice: 'DICE Format',
 };
 
-// Avatar helper functions
-const getAvatarColor = (email: string | null | undefined): string => {
-  if (!email) return 'bg-gray-400';
-  const colors = [
-    'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500',
-    'bg-lime-500', 'bg-green-500', 'bg-emerald-500', 'bg-teal-500',
-    'bg-cyan-500', 'bg-sky-500', 'bg-blue-500', 'bg-indigo-500',
-    'bg-violet-500', 'bg-purple-500', 'bg-fuchsia-500', 'bg-pink-500',
-    'bg-rose-500'
-  ];
-  const hash = email.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return colors[hash % colors.length];
-};
-
+// Avatar helper function
 const getAvatarInitials = (owner_name: string | null | undefined, owner_email: string | null | undefined): string => {
   if (owner_name) {
     if (/[가-힣]/.test(owner_name)) {
@@ -55,8 +43,11 @@ export default function DatasetCard({ dataset, onSelect, selected }: DatasetCard
     ? { color: 'bg-green-100 text-green-800', text: 'Labeled' }
     : { color: 'bg-gray-100 text-gray-600', text: 'Unlabeled' };
 
-  const avatarColor = getAvatarColor(dataset.owner_email);
   const avatarInitials = getAvatarInitials(dataset.owner_name, dataset.owner_email);
+  const avatarColorStyle = getAvatarColorStyle(dataset.owner_badge_color);
+  const ownerTooltip = dataset.owner_name
+    ? `${dataset.owner_name} (${dataset.owner_email})`
+    : dataset.owner_email || 'Unknown';
 
   return (
     <div
@@ -111,18 +102,13 @@ export default function DatasetCard({ dataset, onSelect, selected }: DatasetCard
 
       {/* Owner */}
       {(dataset.owner_name || dataset.owner_email) && (
-        <div className="mb-3 flex items-center gap-2">
+        <div className="mb-3">
           <div
-            className={cn(
-              'w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold text-white',
-              avatarColor
-            )}
-            title={dataset.owner_email || ''}
+            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold text-white cursor-pointer hover:ring-2 hover:ring-offset-2 transition-all"
+            style={avatarColorStyle}
+            title={ownerTooltip}
           >
             {avatarInitials}
-          </div>
-          <div className="text-xs text-gray-600">
-            {dataset.owner_name || dataset.owner_email}
           </div>
         </div>
       )}

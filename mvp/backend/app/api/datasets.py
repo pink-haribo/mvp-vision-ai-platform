@@ -214,6 +214,7 @@ class SampleDatasetInfo(BaseModel):
     owner_id: Optional[int] = None
     owner_name: Optional[str] = None
     owner_email: Optional[str] = None
+    owner_badge_color: Optional[str] = None
 
 
 class DatasetListItem(BaseModel):
@@ -297,6 +298,7 @@ async def list_sample_datasets(
             "owner_id": ds.owner_id,
             "owner_name": ds.owner.full_name if ds.owner else None,
             "owner_email": ds.owner.email if ds.owner else None,
+            "owner_badge_color": ds.owner.badge_color if ds.owner else None,
         })
 
     return result
