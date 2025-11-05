@@ -1394,9 +1394,13 @@ class TrainingAdapter(ABC):
                     checkpoint_path = self.save_checkpoint(epoch_num, combined_metrics)
                     print(f"Checkpoint saved: {checkpoint_path}")
 
-                    # Log checkpoint to MLflow
+                    # Log checkpoint to MLflow (non-blocking)
                     if checkpoint_path:
-                        callbacks.log_artifact(checkpoint_path, "checkpoints")
+                        try:
+                            callbacks.log_artifact(checkpoint_path, "checkpoints")
+                        except Exception as e:
+                            print(f"[WARNING] Failed to upload checkpoint to MLflow: {e}")
+                            print(f"[WARNING] Training continues (checkpoint saved locally)")
 
                 # Report metrics to callbacks with checkpoint path
                 # (handles both MLflow and database logging)

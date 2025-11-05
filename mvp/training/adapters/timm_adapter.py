@@ -354,10 +354,14 @@ class TimmAdapter(TrainingAdapter):
             else:
                 raise ValueError("Failed to load dataset for num_classes detection")
 
+        print("\n" + "="*80)
+        print("MODEL INITIALIZATION")
+        print("="*80)
         print(f"Loading timm model: {self.model_config.model_name}")
         print(f"[CONFIG] Requested num_classes: {self.model_config.num_classes}")
         print(f"[CONFIG] Pretrained: {self.model_config.pretrained}")
 
+        # First try: Load with num_classes parameter
         self.model = timm.create_model(
             self.model_config.model_name,
             pretrained=self.model_config.pretrained,
@@ -365,37 +369,68 @@ class TimmAdapter(TrainingAdapter):
         )
 
         # Verify model output size
-        if hasattr(self.model, 'num_classes'):
-            actual_num_classes = self.model.num_classes
-        elif hasattr(self.model, 'get_classifier'):
-            classifier = self.model.get_classifier()
-            if hasattr(classifier, 'out_features'):
-                actual_num_classes = classifier.out_features
-            else:
-                actual_num_classes = "unknown"
-        else:
-            actual_num_classes = "unknown"
+        def get_actual_num_classes(model):
+            """Helper to get actual output classes from model"""
+            if hasattr(model, 'num_classes'):
+                return model.num_classes
+            elif hasattr(model, 'get_classifier'):
+                classifier = model.get_classifier()
+                if hasattr(classifier, 'out_features'):
+                    return classifier.out_features
+                elif hasattr(classifier, 'weight'):
+                    return classifier.weight.shape[0]
+            # Try to get from fc/head layer
+            for name in ['fc', 'head', 'classifier']:
+                if hasattr(model, name):
+                    layer = getattr(model, name)
+                    if hasattr(layer, 'out_features'):
+                        return layer.out_features
+                    elif hasattr(layer, 'weight'):
+                        return layer.weight.shape[0]
+            return None
 
+        actual_num_classes = get_actual_num_classes(self.model)
         print(f"[VERIFY] Model actual output classes: {actual_num_classes}")
 
-        if actual_num_classes != "unknown" and actual_num_classes != self.model_config.num_classes:
+        if actual_num_classes != self.model_config.num_classes:
             print(f"[WARNING] Model output classes ({actual_num_classes}) != requested ({self.model_config.num_classes})")
-            print(f"[FIX] Attempting to reset classifier to {self.model_config.num_classes} classes...")
+            print(f"[FIX] Force reset classifier to {self.model_config.num_classes} classes...")
 
-            # Try to reset classifier
+            # Method 1: Try reset_classifier (timm standard method)
             if hasattr(self.model, 'reset_classifier'):
                 self.model.reset_classifier(self.model_config.num_classes)
-                print(f"[FIX] Successfully called reset_classifier({self.model_config.num_classes})")
-
-                # Verify again
-                if hasattr(self.model, 'get_classifier'):
-                    classifier = self.model.get_classifier()
-                    if hasattr(classifier, 'out_features'):
-                        new_num_classes = classifier.out_features
-                        print(f"[VERIFY] After reset: {new_num_classes} classes")
+                print(f"[FIX] Called reset_classifier({self.model_config.num_classes})")
             else:
-                print(f"[ERROR] Model does not have reset_classifier method!")
-                raise ValueError(f"Cannot set num_classes to {self.model_config.num_classes}")
+                print(f"[WARNING] Model does not have reset_classifier method")
+
+            # Method 2: Directly replace classifier layer
+            import torch.nn as nn
+            if hasattr(self.model, 'get_classifier'):
+                old_classifier = self.model.get_classifier()
+                if hasattr(old_classifier, 'in_features'):
+                    in_features = old_classifier.in_features
+                    new_classifier = nn.Linear(in_features, self.model_config.num_classes)
+                    # Try to set new classifier
+                    for name in ['fc', 'head', 'classifier']:
+                        if hasattr(self.model, name):
+                            setattr(self.model, name, new_classifier)
+                            print(f"[FIX] Replaced model.{name} with Linear({in_features}, {self.model_config.num_classes})")
+                            break
+
+            # Verify again
+            new_num_classes = get_actual_num_classes(self.model)
+            print(f"[VERIFY] After fix: {new_num_classes} classes")
+
+            if new_num_classes != self.model_config.num_classes:
+                print(f"[ERROR] Failed to set num_classes!")
+                print(f"[ERROR] Expected {self.model_config.num_classes}, got {new_num_classes}")
+                raise ValueError(f"Cannot set model to {self.model_config.num_classes} classes")
+            else:
+                print(f"[SUCCESS] Model successfully configured with {self.model_config.num_classes} classes")
+        else:
+            print(f"[SUCCESS] Model correctly initialized with {self.model_config.num_classes} classes")
+
+        print("="*80 + "\n")
 
         # Move to device
         device = torch.device(self.training_config.device if torch.cuda.is_available() else "cpu")
