@@ -185,8 +185,7 @@ export default function DatasetFolderUpload({ onSuccess }: DatasetFolderUploadPr
                   type="file"
                   onChange={handleFolderSelect}
                   disabled={uploading}
-                  webkitdirectory=""
-                  directory=""
+                  {...({ webkitdirectory: "", directory: "" } as any)}
                   multiple
                   className="hidden"
                 />
