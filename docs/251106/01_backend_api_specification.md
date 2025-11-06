@@ -7,14 +7,15 @@
 ## 목차
 
 1. [개요](#개요)
-2. [인증](#인증)
-3. [Training API](#training-api)
-4. [Dataset API](#dataset-api)
-5. [Model API](#model-api)
-6. [Validation API](#validation-api)
-7. [Inference API](#inference-api)
-8. [Internal API](#internal-api)
-9. [에러 코드](#에러-코드)
+2. [API 엔드포인트 목록](#api-엔드포인트-목록)
+3. [인증](#인증)
+4. [Training API](#training-api)
+5. [Dataset API](#dataset-api)
+6. [Model API](#model-api)
+7. [Validation API](#validation-api)
+8. [Inference API](#inference-api)
+9. [Internal API](#internal-api)
+10. [에러 코드](#에러-코드)
 
 ---
 
@@ -38,6 +39,63 @@ Production: https://mvp-vision-ai-platform-production.up.railway.app
 - Request: `application/json`
 - Response: `application/json`
 - File Upload: `multipart/form-data`
+
+---
+
+## API 엔드포인트 목록
+
+### 인증 (Authentication)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/auth/login` | 로그인 및 JWT 토큰 발급 |
+
+### Training API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/training/jobs` | 새로운 학습 작업 생성 |
+| POST | `/api/v1/training/jobs/{job_id}/start` | 학습 작업 시작 |
+| GET | `/api/v1/training/jobs/{job_id}` | 학습 작업 상세 조회 |
+| GET | `/api/v1/training/jobs/{job_id}/metrics` | 학습 메트릭 조회 |
+| GET | `/api/v1/training/jobs/{job_id}/logs` | 학습 로그 조회 |
+| POST | `/api/v1/training/stop/{job_id}` | 학습 작업 중지 |
+| GET | `/api/v1/training/config-schema` | 고급 설정 스키마 조회 |
+
+### Dataset API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/datasets` | 데이터셋 생성 (multipart/form-data) |
+| GET | `/api/v1/datasets` | 데이터셋 목록 조회 |
+| GET | `/api/v1/datasets/{dataset_id}` | 데이터셋 상세 조회 |
+
+### Model API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/models/list` | 사용 가능한 모델 목록 조회 |
+
+### Validation API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/validation/results/{job_id}` | Validation 결과 조회 |
+| GET | `/api/v1/validation/images/{validation_result_id}` | 이미지별 validation 결과 조회 |
+
+### Inference API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/test-inference` | 체크포인트 기반 추론 (multipart/form-data) |
+
+### Internal API
+
+> Training Services와 Backend 간 통신용 (Internal use only)
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| POST | `/api/v1/internal/training/callback` | Training Service → Backend 콜백 | X-Internal-Auth |
 
 ---
 
