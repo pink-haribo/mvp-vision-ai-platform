@@ -7,6 +7,8 @@ uvicorn[standard]==0.25.0
 python-multipart==0.0.6
 
 # Deep Learning Framework
+# Install with: pip install torch==2.1.1 torchvision==0.16.1 --index-url https://download.pytorch.org/whl/cpu
+# Using CPU version to avoid Windows CUDA DLL loading issues
 torch==2.1.1
 torchvision==0.16.1
 
@@ -14,9 +16,9 @@ torchvision==0.16.1
 ultralytics>=8.3.0
 
 # Common
-numpy<2.0
+numpy<2.0,>=1.23.0  # MLflow requires <2.0, ultralytics requires >=1.23.0
 pillow==10.1.0
-opencv-python-headless==4.8.1.78
+opencv-python==4.8.1.78  # Use opencv-python instead of headless for ultralytics compatibility
 
 # S3/R2 Storage
 boto3==1.34.19

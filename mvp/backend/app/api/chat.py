@@ -5,6 +5,7 @@ Uses ConversationManager with state machine + structured actions
 """
 
 import logging
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session as DBSession
 
@@ -13,6 +14,7 @@ from app.db.models import Session as SessionModel, Message as MessageModel, Trai
 from app.schemas import chat
 from app.services.conversation_manager import ConversationManager
 from app.utils.dependencies import get_current_user
+from app.core.config import settings
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -26,304 +28,235 @@ async def get_capabilities():
     """
     Get platform capabilities including supported models and parameters.
 
+    Dynamically fetches model information from Training Services.
+
     Returns information about:
     - Available frameworks
-    - Available models per framework
+    - Available models per framework (from Training Service APIs)
     - Supported task types
     - Configurable parameters
     - Default values
     """
+    # Framework configuration
+    frameworks_config = {
+        "timm": {
+            "name": "timm",
+            "display_name": "PyTorch Image Models (timm)",
+            "description": "Image classification with pretrained models",
+            "url": settings.TIMM_SERVICE_URL,
+            "supported": True
+        },
+        "ultralytics": {
+            "name": "ultralytics",
+            "display_name": "Ultralytics YOLO",
+            "description": "Object detection, segmentation, and pose estimation",
+            "url": settings.ULTRALYTICS_SERVICE_URL,
+            "supported": True
+        },
+        "huggingface": {
+            "name": "transformers",
+            "display_name": "HuggingFace Transformers",
+            "description": "Vision transformers for classification, detection, segmentation, and super-resolution",
+            "url": settings.HUGGINGFACE_SERVICE_URL,
+            "supported": False  # Not yet implemented
+        }
+    }
+
+    # Static frameworks info (without URL)
+    frameworks = []
+    for framework in frameworks_config.values():
+        frameworks.append({
+            "name": framework["name"],
+            "display_name": framework["display_name"],
+            "description": framework["description"],
+            "supported": framework["supported"]
+        })
+
+    # Dynamically fetch models from Training Services
+    all_models = []
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for framework_key, framework in frameworks_config.items():
+            if not framework["supported"]:
+                continue
+
+            try:
+                response = await client.get(f"{framework['url']}/models/list")
+                if response.status_code == 200:
+                    models_data = response.json()
+                    # Add to all_models list
+                    all_models.extend(models_data)
+                    logger.info(f"Fetched {len(models_data)} models from {framework['name']} service")
+                else:
+                    logger.warning(f"Failed to fetch models from {framework['name']} service: {response.status_code}")
+            except Exception as e:
+                logger.error(f"Error fetching models from {framework['name']} service: {str(e)}")
+                # Continue with other services
+
+    # Static task types (these are defined by the platform)
+    task_types = [
+        {
+            "name": "image_classification",
+            "display_name": "이미지 분류",
+            "description": "이미지를 여러 클래스 중 하나로 분류",
+            "frameworks": ["timm", "ultralytics"],
+            "supported": True
+        },
+        {
+            "name": "object_detection",
+            "display_name": "객체 탐지",
+            "description": "이미지 내 객체의 위치와 클래스 탐지",
+            "frameworks": ["ultralytics"],
+            "supported": True
+        },
+        {
+            "name": "instance_segmentation",
+            "display_name": "인스턴스 분할",
+            "description": "이미지 내 각 객체를 픽셀 단위로 분할",
+            "frameworks": ["ultralytics"],
+            "supported": True
+        },
+        {
+            "name": "pose_estimation",
+            "display_name": "자세 추정",
+            "description": "이미지 내 사람의 자세 키포인트 탐지",
+            "frameworks": ["ultralytics"],
+            "supported": True
+        },
+        {
+            "name": "semantic_segmentation",
+            "display_name": "시맨틱 분할",
+            "description": "이미지의 모든 픽셀을 클래스별로 분할",
+            "frameworks": ["transformers"],
+            "supported": False  # Not yet implemented
+        },
+        {
+            "name": "super_resolution",
+            "display_name": "초해상화",
+            "description": "저해상도 이미지를 고해상도로 업스케일",
+            "frameworks": ["transformers"],
+            "supported": False  # Not yet implemented
+        }
+    ]
+
+    # Static dataset formats
+    dataset_formats = [
+        {
+            "name": "imagefolder",
+            "display_name": "ImageFolder",
+            "description": "PyTorch ImageFolder 형식 (class/image.jpg)",
+            "task_types": ["image_classification"],
+            "supported": True
+        },
+        {
+            "name": "yolo",
+            "display_name": "YOLO Format",
+            "description": "Ultralytics YOLO 형식 (images/, labels/, data.yaml)",
+            "task_types": ["object_detection", "instance_segmentation", "pose_estimation"],
+            "supported": True
+        },
+        {
+            "name": "coco",
+            "display_name": "COCO Format",
+            "description": "MS COCO JSON 형식",
+            "task_types": ["object_detection", "instance_segmentation"],
+            "supported": False
+        }
+    ]
+
+    # Static parameters
+    parameters = [
+        {
+            "name": "framework",
+            "display_name": "프레임워크",
+            "description": "사용할 딥러닝 프레임워크",
+            "type": "string",
+            "required": True,
+            "options": ["timm", "ultralytics", "transformers"],
+            "default": "timm"
+        },
+        {
+            "name": "task_type",
+            "display_name": "작업 유형",
+            "description": "수행할 작업의 종류",
+            "type": "string",
+            "required": True,
+            "options": ["image_classification", "object_detection", "instance_segmentation", "pose_estimation", "semantic_segmentation", "super_resolution"],
+            "default": "image_classification"
+        },
+        {
+            "name": "model_name",
+            "display_name": "모델 이름",
+            "description": "사용할 모델",
+            "type": "string",
+            "required": True,
+            "default": None
+        },
+        {
+            "name": "num_classes",
+            "display_name": "클래스 수",
+            "description": "분류할 클래스의 개수 (classification 작업에만 필요)",
+            "type": "integer",
+            "required": False,
+            "min": 2,
+            "max": 1000,
+            "default": None
+        },
+        {
+            "name": "dataset_format",
+            "display_name": "데이터셋 형식",
+            "description": "데이터셋의 저장 형식",
+            "type": "string",
+            "required": False,
+            "options": ["imagefolder", "yolo", "coco"],
+            "default": "imagefolder"
+        },
+        {
+            "name": "epochs",
+            "display_name": "에포크",
+            "description": "학습 반복 횟수",
+            "type": "integer",
+            "required": False,
+            "min": 1,
+            "max": 1000,
+            "default": 50
+        },
+        {
+            "name": "batch_size",
+            "display_name": "배치 크기",
+            "description": "한 번에 처리할 이미지 수",
+            "type": "integer",
+            "required": False,
+            "min": 1,
+            "max": 256,
+            "default": 32
+        },
+        {
+            "name": "learning_rate",
+            "display_name": "학습률",
+            "description": "모델 가중치 업데이트 비율",
+            "type": "float",
+            "required": False,
+            "min": 0.00001,
+            "max": 0.1,
+            "default": 0.001
+        },
+        {
+            "name": "dataset_path",
+            "display_name": "데이터셋 경로",
+            "description": "학습 데이터가 있는 폴더 경로",
+            "type": "string",
+            "required": True,
+            "default": None
+        }
+    ]
+
     return {
-        "frameworks": [
-            {
-                "name": "timm",
-                "display_name": "PyTorch Image Models (timm)",
-                "description": "Image classification with pretrained models",
-                "supported": True
-            },
-            {
-                "name": "ultralytics",
-                "display_name": "Ultralytics YOLO",
-                "description": "Object detection, segmentation, and pose estimation",
-                "supported": True
-            },
-            {
-                "name": "transformers",
-                "display_name": "HuggingFace Transformers",
-                "description": "Vision transformers for classification, detection, segmentation, and super-resolution",
-                "supported": True
-            }
-        ],
-        "models": [
-            # timm models
-            {
-                "name": "resnet50",
-                "display_name": "ResNet-50",
-                "description": "50-layer Residual Network",
-                "framework": "timm",
-                "task_types": ["image_classification"],
-                "supported": True
-            },
-            {
-                "name": "resnet18",
-                "display_name": "ResNet-18",
-                "description": "18-layer Residual Network",
-                "framework": "timm",
-                "task_types": ["image_classification"],
-                "supported": True
-            },
-            {
-                "name": "efficientnet_b0",
-                "display_name": "EfficientNet-B0",
-                "description": "Efficient convolutional network",
-                "framework": "timm",
-                "task_types": ["image_classification"],
-                "supported": True
-            },
-            # Ultralytics models
-            {
-                "name": "yolov8n",
-                "display_name": "YOLOv8 Nano",
-                "description": "Lightweight object detection model",
-                "framework": "ultralytics",
-                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
-                "supported": True
-            },
-            {
-                "name": "yolov8s",
-                "display_name": "YOLOv8 Small",
-                "description": "Small object detection model",
-                "framework": "ultralytics",
-                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
-                "supported": True
-            },
-            {
-                "name": "yolov8m",
-                "display_name": "YOLOv8 Medium",
-                "description": "Medium object detection model",
-                "framework": "ultralytics",
-                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
-                "supported": True
-            },
-            # Ultralytics YOLOv11 models
-            {
-                "name": "yolo11n",
-                "display_name": "YOLO11 Nano",
-                "description": "Latest lightweight YOLO model",
-                "framework": "ultralytics",
-                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
-                "supported": True
-            },
-            {
-                "name": "yolo11s",
-                "display_name": "YOLO11 Small",
-                "description": "Latest small YOLO model",
-                "framework": "ultralytics",
-                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
-                "supported": True
-            },
-            {
-                "name": "yolo11m",
-                "display_name": "YOLO11 Medium",
-                "description": "Latest medium YOLO model",
-                "framework": "ultralytics",
-                "task_types": ["object_detection", "instance_segmentation", "pose_estimation", "image_classification"],
-                "supported": True
-            },
-            # HuggingFace Transformers models
-            {
-                "name": "google/vit-base-patch16-224",
-                "display_name": "Vision Transformer (ViT) Base",
-                "description": "Transformer-based image classification",
-                "framework": "transformers",
-                "task_types": ["image_classification"],
-                "supported": True
-            },
-            {
-                "name": "ustc-community/dfine-x-coco",
-                "display_name": "D-FINE",
-                "description": "SOTA real-time object detector",
-                "framework": "transformers",
-                "task_types": ["object_detection"],
-                "supported": True
-            },
-            {
-                "name": "nvidia/segformer-b0-finetuned-ade-512-512",
-                "display_name": "SegFormer-B0 (ADE20K)",
-                "description": "Efficient semantic segmentation",
-                "framework": "transformers",
-                "task_types": ["semantic_segmentation"],
-                "supported": True
-            },
-            {
-                "name": "caidas/swin2SR-classical-sr-x2-64",
-                "display_name": "Swin2SR (2x)",
-                "description": "2x super-resolution",
-                "framework": "transformers",
-                "task_types": ["super_resolution"],
-                "supported": True
-            },
-            {
-                "name": "caidas/swin2SR-classical-sr-x4-64",
-                "display_name": "Swin2SR (4x)",
-                "description": "4x super-resolution",
-                "framework": "transformers",
-                "task_types": ["super_resolution"],
-                "supported": True
-            }
-        ],
-        "task_types": [
-            {
-                "name": "image_classification",
-                "display_name": "이미지 분류",
-                "description": "이미지를 여러 클래스 중 하나로 분류",
-                "frameworks": ["timm", "ultralytics"],
-                "supported": True
-            },
-            {
-                "name": "object_detection",
-                "display_name": "객체 탐지",
-                "description": "이미지 내 객체의 위치와 클래스 탐지",
-                "frameworks": ["ultralytics"],
-                "supported": True
-            },
-            {
-                "name": "instance_segmentation",
-                "display_name": "인스턴스 분할",
-                "description": "이미지 내 각 객체를 픽셀 단위로 분할",
-                "frameworks": ["ultralytics"],
-                "supported": True
-            },
-            {
-                "name": "pose_estimation",
-                "display_name": "자세 추정",
-                "description": "이미지 내 사람의 자세 키포인트 탐지",
-                "frameworks": ["ultralytics"],
-                "supported": True
-            },
-            {
-                "name": "semantic_segmentation",
-                "display_name": "시맨틱 분할",
-                "description": "이미지의 모든 픽셀을 클래스별로 분할",
-                "frameworks": ["transformers"],
-                "supported": True
-            },
-            {
-                "name": "super_resolution",
-                "display_name": "초해상화",
-                "description": "저해상도 이미지를 고해상도로 업스케일",
-                "frameworks": ["transformers"],
-                "supported": True
-            }
-        ],
-        "dataset_formats": [
-            {
-                "name": "imagefolder",
-                "display_name": "ImageFolder",
-                "description": "PyTorch ImageFolder 형식 (class/image.jpg)",
-                "task_types": ["image_classification"],
-                "supported": True
-            },
-            {
-                "name": "yolo",
-                "display_name": "YOLO Format",
-                "description": "Ultralytics YOLO 형식 (images/, labels/, data.yaml)",
-                "task_types": ["object_detection", "instance_segmentation", "pose_estimation"],
-                "supported": True
-            },
-            {
-                "name": "coco",
-                "display_name": "COCO Format",
-                "description": "MS COCO JSON 형식",
-                "task_types": ["object_detection", "instance_segmentation"],
-                "supported": False
-            }
-        ],
-        "parameters": [
-            {
-                "name": "framework",
-                "display_name": "프레임워크",
-                "description": "사용할 딥러닝 프레임워크",
-                "type": "string",
-                "required": True,
-                "options": ["timm", "ultralytics", "transformers"],
-                "default": "timm"
-            },
-            {
-                "name": "task_type",
-                "display_name": "작업 유형",
-                "description": "수행할 작업의 종류",
-                "type": "string",
-                "required": True,
-                "options": ["image_classification", "object_detection", "instance_segmentation", "pose_estimation", "semantic_segmentation", "super_resolution"],
-                "default": "image_classification"
-            },
-            {
-                "name": "model_name",
-                "display_name": "모델 이름",
-                "description": "사용할 모델",
-                "type": "string",
-                "required": True,
-                "default": None
-            },
-            {
-                "name": "num_classes",
-                "display_name": "클래스 수",
-                "description": "분류할 클래스의 개수 (classification 작업에만 필요)",
-                "type": "integer",
-                "required": False,
-                "min": 2,
-                "max": 1000,
-                "default": None
-            },
-            {
-                "name": "dataset_format",
-                "display_name": "데이터셋 형식",
-                "description": "데이터셋의 저장 형식",
-                "type": "string",
-                "required": False,
-                "options": ["imagefolder", "yolo", "coco"],
-                "default": "imagefolder"
-            },
-            {
-                "name": "epochs",
-                "display_name": "에포크",
-                "description": "학습 반복 횟수",
-                "type": "integer",
-                "required": False,
-                "min": 1,
-                "max": 1000,
-                "default": 50
-            },
-            {
-                "name": "batch_size",
-                "display_name": "배치 크기",
-                "description": "한 번에 처리할 이미지 수",
-                "type": "integer",
-                "required": False,
-                "min": 1,
-                "max": 256,
-                "default": 32
-            },
-            {
-                "name": "learning_rate",
-                "display_name": "학습률",
-                "description": "모델 가중치 업데이트 비율",
-                "type": "float",
-                "required": False,
-                "min": 0.00001,
-                "max": 0.1,
-                "default": 0.001
-            },
-            {
-                "name": "dataset_path",
-                "display_name": "데이터셋 경로",
-                "description": "학습 데이터가 있는 폴더 경로",
-                "type": "string",
-                "required": True,
-                "default": None
-            }
-        ]
+        "frameworks": frameworks,
+        "models": all_models,  # Dynamically fetched from Training Services
+        "task_types": task_types,
+        "dataset_formats": dataset_formats,
+        "parameters": parameters
     }
 
 

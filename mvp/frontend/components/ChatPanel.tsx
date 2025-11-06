@@ -513,36 +513,8 @@ export default function ChatPanel({
           </div>
         )}
 
-        {/* Phase 1: Model Recommendations Card */}
-        {modelRecommendations && modelRecommendations.length > 0 && (
-          <div className="bg-gradient-to-br from-violet-50 to-purple-50 rounded-lg p-4 border border-violet-200">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">🤖 추천 모델</h3>
-            <div className="space-y-2">
-              {modelRecommendations.map((model: any, idx: number) => (
-                <div key={idx} className="bg-white rounded p-3 text-xs">
-                  <div className="flex items-start justify-between mb-1">
-                    <div className="font-medium text-gray-900">{model.name}</div>
-                    <span className="px-2 py-0.5 bg-violet-100 text-violet-800 rounded text-xs">
-                      {model.framework}
-                    </span>
-                  </div>
-                  {model.description && (
-                    <div className="text-gray-600 mb-1">{model.description}</div>
-                  )}
-                  {model.task_types && (
-                    <div className="flex flex-wrap gap-1">
-                      {model.task_types.map((task: string, taskIdx: number) => (
-                        <span key={taskIdx} className="px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">
-                          {task}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Phase 1: Model Recommendations Card - DISABLED per user request */}
+        {/* Removed to prevent screen clutter when asking about supported models */}
 
         {/* Phase 1: Training Status Card */}
         {trainingStatus && (

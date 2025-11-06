@@ -62,6 +62,11 @@ class Settings(BaseSettings):
             abs_path = project_root / rel_path
             self.DATABASE_URL = f'sqlite:///{abs_path}'
 
+    # Training Service URLs
+    TIMM_SERVICE_URL: str = "http://localhost:8001"
+    ULTRALYTICS_SERVICE_URL: str = "http://localhost:8002"
+    HUGGINGFACE_SERVICE_URL: str = "http://localhost:8003"
+
     # Training Defaults
     DEFAULT_BATCH_SIZE: int = 32
     DEFAULT_EPOCHS: int = 50
