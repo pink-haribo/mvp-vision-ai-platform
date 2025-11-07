@@ -31,23 +31,102 @@ Frontend (Next.js) ←→ API Gateway ←→ Backend Services
 
 ## 🚀 Quick Start
 
+> **처음 시작하시나요?** [GETTING_STARTED.md](GETTING_STARTED.md) - 5분 안에 Training 실행하기
+
 ### Prerequisites
 
 ```bash
 - Docker Desktop 4.26+
-- Node.js 20.x
-- Python 3.11+
+- Kind (Kubernetes in Docker)
 - kubectl 1.28+
 ```
 
-### 로컬 실행 (5분 안에)
+**설치 (Windows):**
+```powershell
+# Kind 설치
+winget install -e --id Kubernetes.kind
 
-```bash
+# kubectl 설치
+winget install -e --id Kubernetes.kubectl
+```
+
+### 로컬 개발 환경 시작 (한 번에!)
+
+```powershell
 # 1. 레포지토리 클론
 git clone https://github.com/your-org/vision-platform.git
 cd vision-platform
 
-# 2. 환경 변수 설정
+# 2. 개발 환경 시작 (처음 실행 시 10-15분 소요)
+.\dev-start.ps1
+
+# 완료! 다음 서비스에 접근 가능:
+# - MLflow:     http://localhost:30500
+# - Grafana:    http://localhost:30030 (admin/admin)
+# - Prometheus: http://localhost:30090
+# - MinIO:      http://localhost:30901 (minioadmin/minioadmin)
+```
+
+**이후 실행 (빠른 시작):**
+```powershell
+# 이미지 빌드 스킵 (2-3분 소요)
+.\dev-start.ps1 -SkipBuild
+```
+
+**상태 확인:**
+```powershell
+# 현재 환경 상태 확인
+.\dev-status.ps1
+
+# 실시간 모니터링
+.\dev-status.ps1 -Watch
+```
+
+**환경 종료:**
+```powershell
+# 중지 (데이터 유지)
+.\dev-stop.ps1
+
+# 완전 삭제
+.\dev-stop.ps1 -DeleteCluster
+```
+
+[개발 스크립트 상세 가이드 →](DEV_SCRIPTS.md)
+
+---
+
+### 개발 워크플로우 (Training 코드 수정 시)
+
+**매번 Docker 이미지를 빌드하지 않고 빠르게 개발:**
+
+**1. 로컬 개발 (가장 빠름 ⚡)**
+```powershell
+# Python으로 직접 실행 (MLflow, MinIO는 K8s 사용)
+.\dev-train-local.ps1 -Script mvp/training/train.py
+
+# 코드 수정 → 즉시 실행 → 결과 확인 (초 단위)
+```
+
+**2. K8s 테스트 (ConfigMap 주입)**
+```powershell
+# 이미지 빌드 없이 K8s에서 실행
+.\dev-train-k8s.ps1 -Watch
+
+# 코드를 ConfigMap으로 주입 → 기존 이미지 사용 (분 단위)
+```
+
+**3. 이미지 빌드 (최종 배포)**
+```powershell
+# 코드가 안정화되었을 때만
+cd mvp/training/docker
+.\build.ps1 -Target ultralytics
+```
+
+[개발 워크플로우 상세 가이드 →](DEV_WORKFLOW.md)
+
+---
+
+### 수동 설정 (고급 사용자)
 cp .env.example .env
 
 # 3. 의존성 설치 & 실행

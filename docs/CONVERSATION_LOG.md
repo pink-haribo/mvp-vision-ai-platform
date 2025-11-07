@@ -7,6 +7,322 @@
 
 ---
 
+## [2025-11-07 19:00] 로컬 개발 워크플로우 최적화 - Docker 빌드 제거
+
+### 논의 주제
+- Training 코드 수정 시 매번 Docker 이미지 빌드 문제 해결
+- Frontend + Backend + Training 전체 통합 테스트 방법
+- Framework별 Training Service 실행 방식
+- 로컬 개발 환경 설정 및 자동화
+
+### 주요 결정사항
+
+#### 1. 3단계 개발 워크플로우 확립 ✅
+- **Tier 1: 로컬 개발 (subprocess)** - 99% 사용 ⚡⚡⚡
+  - Backend가 Python subprocess로 train.py 직접 실행
+  - Framework별 가상환경 사용 (venv-timm, venv-ultralytics, venv-huggingface)
+  - 실행 속도: 5-30초 (Docker 빌드 불필요)
+  - 시간 절약: **145분/일** (10회 반복 기준)
+
+- **Tier 2: K8s 테스트 (ConfigMap 주입)** - 배포 전 검증 ⚡⚡
+  - 코드를 ConfigMap으로 주입하여 K8s Job 실행
+  - 이미지 재빌드 불필요 (1-3분 소요)
+  - 실제 K8s 환경 테스트 가능
+
+- **Tier 3: Production 배포** - 최종 단계만 ⚡
+  - Docker 이미지 빌드 및 배포
+  - 10-15분 소요
+  - 배포 직전에만 실행
+
+#### 2. 로컬 개발 인프라 구성 ✅
+**Kind 클러스터 기반 서비스**:
+- MLflow (Port 30500): Experiment tracking, SQLite backend
+- MinIO (Port 30900/30901): S3-compatible object storage (R2 대체)
+- Prometheus (Port 30090): Metrics collection
+- Grafana (Port 30030): Monitoring dashboard
+
+**데이터 영속성**:
+- MLflow PVC: 5Gi (SQLite database)
+- MinIO PVC: 20Gi (datasets, checkpoints, results)
+
+**R2 → MinIO 전환 이유**:
+- 로컬 개발에 인터넷 불필요
+- Credentials 관리 불필요
+- 무료 (비용 절감)
+- S3-compatible API 동일
+
+#### 3. Framework별 Training Service 구조 ✅
+**현재 구현 상태**:
+```
+Backend API (Port 8000)
+  ↓ HTTP
+TrainingServiceClient (framework 기반 라우팅)
+  ↓
+api_server.py (Training Service)
+  ↓
+subprocess.Popen([venv-{framework}/python, train.py])
+  ↓
+Adapter Pattern (TimmAdapter, UltralyticsAdapter, HuggingFaceAdapter)
+```
+
+**Framework별 가상환경**:
+```
+mvp/training/
+├── venv-timm/          # timm 전용 의존성
+├── venv-ultralytics/   # ultralytics 전용 의존성
+├── venv-huggingface/   # huggingface 전용 의존성
+└── train.py            # 공통 Adapter 패턴
+```
+
+**동작 방식**:
+1. Backend: `TrainingServiceClient(framework="ultralytics")`
+2. Training Service: `venv-ultralytics/python train.py --framework=ultralytics`
+3. train.py: `UltralyticsAdapter` 선택 및 실행
+
+#### 4. 일상 개발 플로우 (전체 통합 테스트)
+
+**환경 시작 (아침 한 번)**:
+```powershell
+# K8s 서비스 시작 (MLflow, MinIO)
+.\dev-start.ps1 -SkipBuild  # 2-3분 소요
+```
+
+**개발 (3개 터미널)**:
+```powershell
+# Terminal 1: Backend
+cd mvp/backend
+.\venv\Scripts\activate
+python -m uvicorn app.main:app --reload --port 8000
+
+# Terminal 2: Frontend
+cd mvp/frontend
+npm run dev
+
+# Terminal 3: 브라우저
+start http://localhost:3000
+```
+
+**Training 실행**:
+1. Frontend에서 자연어 입력: "ResNet50으로 고양이/개 분류 학습해줘"
+2. Backend가 TrainingJob 생성
+3. Backend가 subprocess로 train.py 실행 (Framework별 venv 사용)
+4. MLflow에 실시간 메트릭 기록
+5. Frontend에서 결과 확인
+
+**환경 종료 (저녁)**:
+```powershell
+.\dev-stop.ps1
+```
+
+### 구현 내용
+
+#### 자동화 스크립트 (6개 생성)
+
+**환경 관리**:
+- `dev-start.ps1`: K8s 환경 자동 시작
+  - Kind 클러스터 생성/검증
+  - Docker 이미지 빌드 (선택적 `-SkipBuild`)
+  - K8s 리소스 배포 (MLflow, MinIO, Prometheus, Grafana)
+  - 서비스 Ready 대기
+  - MinIO 버킷 생성
+
+- `dev-stop.ps1`: K8s 환경 종료
+  - `-DeleteCluster`: 완전 삭제
+  - 기본: 중지 (데이터 유지)
+
+- `dev-status.ps1`: 환경 상태 확인
+  - 클러스터 상태
+  - 서비스 상태
+  - 리소스 사용량
+  - `-Watch`: 실시간 모니터링
+
+**Training 실행**:
+- `dev-train-local.ps1`: 로컬 Python 직접 실행
+  - 환경변수 자동 설정 (MLflow, MinIO)
+  - subprocess 실행
+  - 가장 빠름 (초 단위)
+
+- `dev-train-k8s.ps1`: K8s Job (ConfigMap 주입)
+  - 코드를 ConfigMap으로 생성
+  - 기존 Docker 이미지 사용
+  - 이미지 재빌드 불필요 (분 단위)
+
+**K8s 설정**:
+- `mvp/k8s/minio-config.yaml`: MinIO 배포
+- `mvp/k8s/minio-pvc.yaml`: MinIO 영속 스토리지 (20Gi)
+- `mvp/k8s/mlflow-config.yaml`: MLflow 배포 (수정)
+- `mvp/k8s/mlflow-pvc.yaml`: MLflow 영속 스토리지 (5Gi)
+
+#### 문서화
+
+**가이드 문서** (4개 생성):
+- `GETTING_STARTED.md`: 5분 안에 시작하기
+  - 실전 예제 (고양이/개 분류)
+  - 일반적인 개발 사이클
+  - 트러블슈팅
+
+- `DEV_WORKFLOW.md`: 개발 워크플로우 상세 가이드
+  - 3단계 접근법 설명
+  - 스크립트 상세 사용법
+  - 실전 팁
+
+- `QUICK_DEV_GUIDE.md`: 한 페이지 빠른 참조
+  - 핵심 명령어만
+  - 개발 효율성 비교
+  - TL;DR
+
+- `README.md`: 업데이트
+  - Getting Started 링크 추가
+  - 개발 워크플로우 섹션 추가
+
+**인프라 문서** (4개 생성):
+- `mvp/k8s/MINIO_SETUP.md`: MinIO 사용법
+- `mvp/k8s/MLFLOW_SETUP.md`: MLflow 사용법
+- `mvp/k8s/DATA_PERSISTENCE.md`: 데이터 영속성 설명
+- `mvp/k8s/DOCKER_VS_K8S.md`: Docker vs K8s 비교
+
+**기술 문서**:
+- `docs/k8s/20251107_development_workflow_setup.md`: 전체 설계 문서
+  - 배경 및 컨텍스트
+  - 3단계 워크플로우 상세
+  - 대안 비교
+  - 비용 분석
+  - 마이그레이션 경로
+
+### 샘플 데이터셋
+
+**sample_dataset (고양이/개 분류)**:
+- 위치: `mvp/data/datasets/sample_dataset/`
+- 구조:
+  ```
+  sample_dataset/
+  ├── train/
+  │   ├── cats/  (20장)
+  │   └── dogs/  (20장)
+  └── val/
+      ├── cats/  (5장)
+      └── dogs/  (5장)
+  ```
+- Format: ImageFolder (image_classification)
+- 용도: 로컬 개발 테스트
+
+### 환경 변수 설정
+
+**dev-train-local.ps1 자동 설정**:
+```powershell
+MLFLOW_TRACKING_URI    = http://localhost:30500
+MLFLOW_S3_ENDPOINT_URL = http://localhost:30900
+AWS_ACCESS_KEY_ID      = minioadmin
+AWS_SECRET_ACCESS_KEY  = minioadmin
+MLFLOW_S3_IGNORE_TLS   = true
+JOB_ID                 = local-20251107-143000
+MODEL_NAME             = yolo11n
+FRAMEWORK              = ultralytics
+NUM_EPOCHS             = 10
+```
+
+### 개발 효율성 비교
+
+| 방법 | 시간 | 사용 시기 | 빈도 |
+|------|------|-----------|------|
+| **로컬 실행 (subprocess)** | 5-30초 | 일상 개발 | 99% |
+| ConfigMap 주입 (K8s) | 1-3분 | 통합 테스트 | 배포 전 1회 |
+| Docker 이미지 빌드 | 10-15분 | 최종 배포 | 배포 시만 |
+
+**시간 절약 계산**:
+```
+기존 방식: 10회 반복 × 15분 = 150분
+새 방식: 10회 반복 × 30초 = 5분
+절약: 145분/일 (약 2.4시간)
+```
+
+### 다음 단계
+
+#### 즉시 가능 (테스트)
+- [ ] 로컬 환경 시작: `.\dev-start.ps1 -SkipBuild`
+- [ ] Backend + Frontend 실행
+- [ ] 전체 플로우 테스트 (Frontend → Backend → Training → MLflow)
+
+#### 향후 개선
+- [ ] Docker Compose 대안 제공 (Kind 대신)
+- [ ] Health check 개선 (Training Service)
+- [ ] 자동 실행 스크립트 (`dev-all.ps1` - Backend + Frontend 동시 시작)
+
+### 관련 문서
+- **가이드**: [GETTING_STARTED.md](../GETTING_STARTED.md), [DEV_WORKFLOW.md](../DEV_WORKFLOW.md), [QUICK_DEV_GUIDE.md](../QUICK_DEV_GUIDE.md)
+- **인프라**: [mvp/k8s/MINIO_SETUP.md](../mvp/k8s/MINIO_SETUP.md), [mvp/k8s/MLFLOW_SETUP.md](../mvp/k8s/MLFLOW_SETUP.md)
+- **설계**: [docs/k8s/20251107_development_workflow_setup.md](../docs/k8s/20251107_development_workflow_setup.md)
+
+### 핵심 통찰
+
+#### Docker 빌드 제거의 임팩트
+- **개발 속도**: 30배 향상 (15분 → 30초)
+- **개발자 경험**: 즉각적 피드백 가능
+- **비용**: 컴퓨팅 리소스 절약
+
+#### Microservice 아키텍처 일관성
+- **로컬 = Production**: 동일한 구조
+- **Framework 격리**: 가상환경으로 의존성 충돌 방지
+- **subprocess**: 개발 시 빠름, Production은 K8s Job
+
+#### 데이터 영속성
+- **PVC 활용**: Kind 재시작해도 데이터 유지
+- **MLflow 메타데이터**: SQLite + PVC (5Gi)
+- **MinIO 객체**: PVC (20Gi)
+
+### 기술 노트
+
+#### ConfigMap 코드 주입 방식
+```yaml
+# ConfigMap 생성
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: training-code-dev-123
+data:
+  train.py: |
+    # 실제 train.py 내용
+
+# Job에서 마운트
+volumes:
+- name: training-code
+  configMap:
+    name: training-code-dev-123
+volumeMounts:
+- name: training-code
+  mountPath: /code/train.py
+  subPath: train.py
+```
+
+#### Framework별 subprocess 실행
+```python
+# api_server.py:99-106
+venv_python = f"venv-{request.framework}/Scripts/python.exe"
+if os.path.exists(venv_python):
+    python_exe = venv_python  # Framework-specific venv
+else:
+    python_exe = "python"  # Fallback
+
+cmd = [python_exe, "train.py", "--framework", request.framework, ...]
+process = subprocess.Popen(cmd)
+```
+
+#### Kind 클러스터 Port Mapping
+```yaml
+# dev-start.ps1에서 생성
+kind: Cluster
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - containerPort: 30500  # MLflow
+  - containerPort: 30900  # MinIO API
+  - containerPort: 30901  # MinIO Console
+  - containerPort: 30090  # Prometheus
+  - containerPort: 30030  # Grafana
+```
+
+---
+
 ## [2025-11-07 14:30] Kubernetes Training 방식 FAQ - 핵심 질문 4가지 해결
 
 ### 논의 주제
