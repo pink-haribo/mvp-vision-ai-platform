@@ -4,10 +4,14 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env file before anything else
+# Load .env file before anything else (only for local development)
+# Railway provides environment variables directly, no .env file needed
 env_path = Path(__file__).parent.parent / ".env"
-load_dotenv(dotenv_path=env_path)
-print(f"[STARTUP] Loaded .env from: {env_path}")
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path)
+    print(f"[STARTUP] Loaded .env from: {env_path}")
+else:
+    print(f"[STARTUP] No .env file found at {env_path}, using environment variables")
 
 # Add parent directory to sys.path for training module access
 project_root = Path(__file__).parent.parent.parent

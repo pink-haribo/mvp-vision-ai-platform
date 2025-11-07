@@ -1165,53 +1165,32 @@ class UltralyticsAdapter(TrainingAdapter):
         primary_metric_mode = None
 
         try:
-            import sqlite3
-            from pathlib import Path
+            from platform_sdk.db_utils import get_db_connection, close_db_connection
 
-            # Get database URL (support both Railway and local)
-            database_url = os.getenv('DATABASE_URL')
+            # Get database connection
+            conn, cursor, placeholder = get_db_connection()
 
-            if database_url:
-                # Railway/production: use PostgreSQL
-                import psycopg2
-                conn = psycopg2.connect(database_url)
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT primary_metric, primary_metric_mode FROM training_jobs WHERE id = %s",
-                    (self.job_id,)
-                )
+            cursor.execute(
+                f"SELECT primary_metric, primary_metric_mode FROM training_jobs WHERE id = {placeholder}",
+                (self.job_id,)
+            )
+
+            result = cursor.fetchone()
+            close_db_connection(conn, cursor)
+
+            if result:
+                primary_metric, primary_metric_mode = result
+                print(f"[YOLO INFO] Primary metric for best checkpoint: {primary_metric} ({primary_metric_mode})")
+                print(f"[YOLO INFO] YOLO will save best.pt based on its internal fitness calculation")
             else:
-                # Local: use SQLite
-                training_dir = Path(__file__).parent.parent
-                mvp_dir = training_dir.parent
-                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+                print(f"[YOLO WARNING] Job {self.job_id} not found in database")
 
-                if db_path.exists():
-                    conn = sqlite3.connect(str(db_path))
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "SELECT primary_metric, primary_metric_mode FROM training_jobs WHERE id = ?",
-                        (self.job_id,)
-                    )
-                else:
-                    print(f"[YOLO WARNING] Database not found at {db_path}")
-                    conn = None
-                    cursor = None
-
-            if conn and cursor:
-                result = cursor.fetchone()
-                conn.close()
-
-                if result:
-                    primary_metric, primary_metric_mode = result
-                    print(f"[YOLO INFO] Primary metric for best checkpoint: {primary_metric} ({primary_metric_mode})")
-                    print(f"[YOLO INFO] YOLO will save best.pt based on its internal fitness calculation")
-                else:
-                    print(f"[YOLO WARNING] Job {self.job_id} not found in database")
-            else:
-                print(f"[YOLO WARNING] Database not found at {db_path}")
         except Exception as e:
-            print(f"[YOLO WARNING] Failed to load primary metric config: {e}")
+            print(f"[YOLO ERROR] Failed to load primary metric config: {e}")
+            print(f"[YOLO ERROR] Training requires database access")
+            import traceback
+            traceback.print_exc()
+            raise
 
         # Start training (creates MLflow run)
         callbacks.on_train_begin()
@@ -2375,32 +2354,13 @@ class UltralyticsAdapter(TrainingAdapter):
             image_results: List of dicts with image_path, true_boxes, predicted_boxes
             class_names: List of class names
         """
-        import sqlite3
         import json
-        from pathlib import Path
         from datetime import datetime
+        from platform_sdk.db_utils import get_db_connection, close_db_connection
 
         try:
-            # Get database URL (support both Railway and local)
-            database_url = os.getenv('DATABASE_URL')
-
-            if database_url:
-                # Railway/production: use PostgreSQL
-                import psycopg2
-                conn = psycopg2.connect(database_url)
-                cursor = conn.cursor()
-            else:
-                # Local: use SQLite
-                training_dir = Path(__file__).parent.parent
-                mvp_dir = training_dir.parent
-                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
-
-                if not db_path.exists():
-                    print(f"[WARNING] Database not found at {db_path}")
-                    return
-
-                conn = sqlite3.connect(str(db_path))
-                cursor = conn.cursor()
+            # Get database connection
+            conn, cursor, placeholder = get_db_connection()
 
             records = []
             for img_result in image_results:
@@ -2454,7 +2414,6 @@ class UltralyticsAdapter(TrainingAdapter):
                 ))
 
             # Batch insert (use appropriate placeholder for database type)
-            placeholder = '%s' if database_url else '?'
             sql = f"""
                 INSERT INTO validation_image_results
                 (validation_result_id, job_id, epoch, image_path, image_name, image_index,
@@ -2466,16 +2425,18 @@ class UltralyticsAdapter(TrainingAdapter):
             cursor.executemany(sql, records)
 
             conn.commit()
-            conn.close()
+            close_db_connection(conn, cursor)
 
             print(f"[YOLO] Saved {len(records)} detection image results to database (epoch {epoch})")
             sys.stdout.flush()
 
         except Exception as e:
-            print(f"[WARNING] Failed to save detection image results: {e}")
+            print(f"[ERROR] Failed to save detection image results: {e}")
+            print(f"[ERROR] Training requires database access")
             import traceback
             traceback.print_exc()
             sys.stdout.flush()
+            raise
 
     def save_checkpoint(self, epoch: int, metrics: MetricsResult) -> str:
         """

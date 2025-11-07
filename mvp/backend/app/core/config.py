@@ -22,8 +22,9 @@ class Settings(BaseSettings):
         """Parse CORS origins from comma-separated string."""
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
 
-    # Database
-    DATABASE_URL: str = "sqlite:///./mvp/data/db/vision_platform.db"
+    # Database (set via DATABASE_URL environment variable)
+    # If not set, will use local SQLite in __init__
+    DATABASE_URL: Optional[str] = None
 
     # LLM
     GOOGLE_API_KEY: str
@@ -56,11 +57,26 @@ class Settings(BaseSettings):
                 abs_path = project_root / path_value.lstrip('./')
                 setattr(self, attr, str(abs_path))
 
-        # Also handle DATABASE_URL if it contains relative path
-        if self.DATABASE_URL.startswith('sqlite:///./'):
+        # Handle DATABASE_URL
+        if not self.DATABASE_URL:
+            # No DATABASE_URL set - use local SQLite
+            db_path = project_root / 'data' / 'db' / 'vision_platform.db'
+            self.DATABASE_URL = f'sqlite:///{db_path}'
+            print(f"[CONFIG] Using local SQLite database: {db_path}")
+        elif self.DATABASE_URL.startswith('sqlite:///./'):
+            # Relative SQLite path - convert to absolute
             rel_path = self.DATABASE_URL.replace('sqlite:///./', '')
             abs_path = project_root / rel_path
             self.DATABASE_URL = f'sqlite:///{abs_path}'
+            print(f"[CONFIG] Using SQLite database: {abs_path}")
+        elif 'postgresql' in self.DATABASE_URL or 'postgres' in self.DATABASE_URL:
+            # PostgreSQL URL from Railway - use as-is
+            # Mask password for logging
+            masked_url = self.DATABASE_URL.split('@')[0].split(':')[0] + ':***@' + self.DATABASE_URL.split('@')[1] if '@' in self.DATABASE_URL else self.DATABASE_URL
+            print(f"[CONFIG] Using PostgreSQL database: {masked_url}")
+        else:
+            # Unknown database URL format
+            print(f"[CONFIG] Using database URL: {self.DATABASE_URL}")
 
     # Training Service URLs
     TIMM_SERVICE_URL: str = "http://localhost:8001"
@@ -73,7 +89,9 @@ class Settings(BaseSettings):
     DEFAULT_LEARNING_RATE: float = 0.001
 
     class Config:
-        env_file = ".env.mvp"
+        # Don't load .env file - use environment variables directly
+        # Railway provides environment variables, not .env files
+        # For local development, use .env file loaded by main.py
         case_sensitive = True
         extra = "ignore"
 

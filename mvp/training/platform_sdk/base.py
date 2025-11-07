@@ -505,11 +505,9 @@ class TrainingAdapter(ABC):
             val_result_id = self._save_validation_result(epoch, val_metrics, checkpoint_path)
         """
         try:
-            import sqlite3
             import json
-            import os
-            from pathlib import Path
             from datetime import datetime
+            from platform_sdk.db_utils import get_db_connection, close_db_connection
 
             # Get task-specific metrics
             task_metrics = validation_metrics.get_task_metrics()
@@ -556,28 +554,8 @@ class TrainingAdapter(ABC):
                 if pose.per_keypoint_pck:
                     per_class_metrics_json = json.dumps(pose.per_keypoint_pck)
 
-            # Get database connection (support both Railway and local)
-            database_url = os.getenv('DATABASE_URL')
-
-            if database_url:
-                # Railway/production: use PostgreSQL
-                import psycopg2
-                conn = psycopg2.connect(database_url)
-                cursor = conn.cursor()
-                placeholder = '%s'
-            else:
-                # Local: use SQLite
-                training_dir = Path(__file__).parent.parent
-                mvp_dir = training_dir.parent
-                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
-
-                if not db_path.exists():
-                    print(f"[WARNING] Database not found at {db_path}, skipping validation result save")
-                    return
-
-                conn = sqlite3.connect(str(db_path))
-                cursor = conn.cursor()
-                placeholder = '?'
+            # Get database connection
+            conn, cursor, placeholder = get_db_connection()
 
             # Insert into database with appropriate placeholder
             cursor.execute(
@@ -607,7 +585,7 @@ class TrainingAdapter(ABC):
 
             validation_result_id = cursor.lastrowid
             conn.commit()
-            conn.close()
+            close_db_connection(conn, cursor)
 
             print(f"[Validation] Saved validation result to database (epoch {epoch}, id={validation_result_id})")
             print(f"  Task: {task_type}")
@@ -616,10 +594,11 @@ class TrainingAdapter(ABC):
             return validation_result_id
 
         except Exception as e:
-            print(f"[WARNING] Failed to save validation result to database: {e}")
+            print(f"[ERROR] Failed to save validation result to database: {e}")
+            print(f"[ERROR] This is a critical error - training cannot continue without database access")
             import traceback
             traceback.print_exc()
-            return None
+            raise
 
     def _save_validation_image_results(
         self,
@@ -638,11 +617,9 @@ class TrainingAdapter(ABC):
             class_names: List of class names for label mapping
         """
         try:
-            import sqlite3
             import json
-            import os
-            from pathlib import Path
             from datetime import datetime
+            from platform_sdk.db_utils import get_db_connection, close_db_connection
 
             # Prepare batch insert data
             records = []
@@ -680,28 +657,8 @@ class TrainingAdapter(ABC):
                     datetime.utcnow().isoformat()
                 ))
 
-            # Get database connection (support both Railway and local)
-            database_url = os.getenv('DATABASE_URL')
-
-            if database_url:
-                # Railway/production: use PostgreSQL
-                import psycopg2
-                conn = psycopg2.connect(database_url)
-                cursor = conn.cursor()
-                placeholder = '%s'
-            else:
-                # Local: use SQLite
-                training_dir = Path(__file__).parent.parent
-                mvp_dir = training_dir.parent
-                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
-
-                if not db_path.exists():
-                    print(f"[WARNING] Database not found at {db_path}, skipping image results save")
-                    return
-
-                conn = sqlite3.connect(str(db_path))
-                cursor = conn.cursor()
-                placeholder = '?'
+            # Get database connection
+            conn, cursor, placeholder = get_db_connection()
 
             # Batch insert with appropriate placeholder
             placeholders = ', '.join([placeholder] * 23)  # 23 fields
@@ -718,7 +675,7 @@ class TrainingAdapter(ABC):
             )
 
             conn.commit()
-            conn.close()
+            close_db_connection(conn, cursor)
 
             # Count how many have actual paths vs placeholders
             with_paths = sum(1 for r in records if r[3] is not None)  # r[3] is image_path
@@ -727,9 +684,11 @@ class TrainingAdapter(ABC):
             print(f"             - {len(records) - with_paths} with placeholder names only")
 
         except Exception as e:
-            print(f"[WARNING] Failed to save image results to database: {e}")
+            print(f"[ERROR] Failed to save image results to database: {e}")
+            print(f"[ERROR] This is a critical error - training cannot continue without database access")
             import traceback
             traceback.print_exc()
+            raise
 
     def _clear_validation_results(self) -> None:
         """
@@ -739,32 +698,10 @@ class TrainingAdapter(ABC):
         to remove old validation data from previous training runs.
         """
         try:
-            import sqlite3
-            import os
-            from pathlib import Path
+            from platform_sdk.db_utils import get_db_connection, close_db_connection
 
-            # Get database connection (support both Railway and local)
-            database_url = os.getenv('DATABASE_URL')
-
-            if database_url:
-                # Railway/production: use PostgreSQL
-                import psycopg2
-                conn = psycopg2.connect(database_url)
-                cursor = conn.cursor()
-                placeholder = '%s'
-            else:
-                # Local: use SQLite
-                training_dir = Path(__file__).parent.parent
-                mvp_dir = training_dir.parent
-                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
-
-                if not db_path.exists():
-                    print(f"[WARNING] Database not found at {db_path}, skipping validation clear")
-                    return
-
-                conn = sqlite3.connect(str(db_path))
-                cursor = conn.cursor()
-                placeholder = '?'
+            # Get database connection
+            conn, cursor, placeholder = get_db_connection()
 
             # Delete image results first (foreign key constraint)
             cursor.execute(
@@ -781,7 +718,7 @@ class TrainingAdapter(ABC):
             deleted_results = cursor.rowcount
 
             conn.commit()
-            conn.close()
+            close_db_connection(conn, cursor)
 
             if deleted_results > 0 or deleted_images > 0:
                 print(f"[INFO] Cleared previous validation data for job {self.job_id}:")
@@ -789,9 +726,11 @@ class TrainingAdapter(ABC):
                 print(f"       - {deleted_images} image results")
 
         except Exception as e:
-            print(f"[WARNING] Failed to clear validation results: {e}")
+            print(f"[ERROR] Failed to clear validation results: {e}")
+            print(f"[ERROR] This is a critical error - training cannot continue without database access")
             import traceback
             traceback.print_exc()
+            raise
 
     @abstractmethod
     def save_checkpoint(self, epoch: int, metrics: MetricsResult) -> str:
@@ -1302,60 +1241,38 @@ class TrainingAdapter(ABC):
         best_metric_value = None
 
         try:
-            import sqlite3
-            import os
-            from pathlib import Path
+            from platform_sdk.db_utils import get_db_connection, close_db_connection
 
-            # Get database connection (support both Railway and local)
-            database_url = os.getenv('DATABASE_URL')
+            # Get database connection
+            conn, cursor, placeholder = get_db_connection()
 
-            if database_url:
-                # Railway/production: use PostgreSQL
-                import psycopg2
-                conn = psycopg2.connect(database_url)
-                cursor = conn.cursor()
+            # Query job's primary metric configuration
+            cursor.execute(
+                f"SELECT primary_metric, primary_metric_mode FROM training_jobs WHERE id = {placeholder}",
+                (self.job_id,)
+            )
 
-                # Query job's primary metric configuration
-                cursor.execute(
-                    "SELECT primary_metric, primary_metric_mode FROM training_jobs WHERE id = %s",
-                    (self.job_id,)
-                )
+            result = cursor.fetchone()
+            close_db_connection(conn, cursor)
+
+            if result:
+                primary_metric, primary_metric_mode = result
+                # Initialize best_metric_value based on mode
+                if primary_metric_mode == 'max':
+                    best_metric_value = float('-inf')
+                else:  # 'min'
+                    best_metric_value = float('inf')
+
+                print(f"[INFO] Best checkpoint selection: {primary_metric} ({primary_metric_mode})")
             else:
-                # Local: use SQLite
-                training_dir = Path(__file__).parent.parent
-                mvp_dir = training_dir.parent
-                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+                print(f"[WARNING] Job {self.job_id} not found in database")
 
-                if not db_path.exists():
-                    print(f"[WARNING] Database not found at {db_path}")
-                    conn = None
-                else:
-                    conn = sqlite3.connect(str(db_path))
-                    cursor = conn.cursor()
-
-                    # Query job's primary metric configuration
-                    cursor.execute(
-                        "SELECT primary_metric, primary_metric_mode FROM training_jobs WHERE id = ?",
-                        (self.job_id,)
-                    )
-
-            if conn:
-                result = cursor.fetchone()
-                conn.close()
-
-                if result:
-                    primary_metric, primary_metric_mode = result
-                    # Initialize best_metric_value based on mode
-                    if primary_metric_mode == 'max':
-                        best_metric_value = float('-inf')
-                    else:  # 'min'
-                        best_metric_value = float('inf')
-
-                    print(f"[INFO] Best checkpoint selection: {primary_metric} ({primary_metric_mode})")
-                else:
-                    print(f"[WARNING] Job {self.job_id} not found in database")
         except Exception as e:
-            print(f"[WARNING] Failed to load primary metric config: {e}")
+            print(f"[ERROR] Failed to load primary metric config: {e}")
+            print(f"[ERROR] Training requires database access to determine primary metric")
+            import traceback
+            traceback.print_exc()
+            raise
 
         # 4. Start training
         callbacks.on_train_begin()
@@ -1611,34 +1528,31 @@ class TrainingCallbacks:
                 self.db_session.commit()
                 print(f"[Callbacks] Updated DB with MLflow IDs")
         else:
-            # If no db_session provided, use direct SQLite connection
+            # If no db_session provided, use direct database connection
             try:
-                import sqlite3
-                from pathlib import Path
+                from platform_sdk.db_utils import get_db_connection, close_db_connection
 
-                # Get database path
-                training_dir = Path(__file__).parent.parent
-                mvp_dir = training_dir.parent
-                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+                # Get database connection
+                conn, cursor, placeholder = get_db_connection()
 
-                if db_path.exists():
-                    conn = sqlite3.connect(str(db_path))
-                    cursor = conn.cursor()
+                # Update MLflow IDs using direct SQL
+                cursor.execute(
+                    f"UPDATE training_jobs SET mlflow_experiment_id = {placeholder}, mlflow_run_id = {placeholder} WHERE id = {placeholder}",
+                    (self.mlflow_experiment_id, self.mlflow_run_id, self.job_id)
+                )
+                conn.commit()
+                close_db_connection(conn, cursor)
 
-                    # Update MLflow IDs using direct SQL
-                    cursor.execute(
-                        "UPDATE training_jobs SET mlflow_experiment_id = ?, mlflow_run_id = ? WHERE id = ?",
-                        (self.mlflow_experiment_id, self.mlflow_run_id, self.job_id)
-                    )
-                    conn.commit()
-                    conn.close()
-
-                    print(f"[Callbacks] Updated DB with MLflow IDs")
-                    print(f"  Job ID: {self.job_id}")
-                    print(f"  Experiment ID: {self.mlflow_experiment_id}")
-                    print(f"  Run ID: {self.mlflow_run_id}")
+                print(f"[Callbacks] Updated DB with MLflow IDs")
+                print(f"  Job ID: {self.job_id}")
+                print(f"  Experiment ID: {self.mlflow_experiment_id}")
+                print(f"  Run ID: {self.mlflow_run_id}")
             except Exception as e:
-                print(f"[Callbacks WARNING] Failed to update DB with MLflow IDs: {e}")
+                print(f"[ERROR] Failed to update DB with MLflow IDs: {e}")
+                print(f"[ERROR] Training requires database access")
+                import traceback
+                traceback.print_exc()
+                raise
 
     def on_epoch_begin(self, epoch: int):
         """
@@ -1729,47 +1643,47 @@ class TrainingCallbacks:
             self.db_session.add(metric_record)
             self.db_session.commit()
         else:
-            # Fallback: Use direct SQLite connection when no db_session available
+            # Use direct database connection when no db_session available
             try:
-                import sqlite3
                 import json
-                from pathlib import Path
+                from datetime import datetime
+                from platform_sdk.db_utils import get_db_connection, close_db_connection
 
-                # Get database path
-                training_dir = Path(__file__).parent.parent
-                mvp_dir = training_dir.parent
-                db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+                # Get database connection
+                conn, cursor, placeholder = get_db_connection()
 
-                if db_path.exists():
-                    conn = sqlite3.connect(str(db_path))
-                    cursor = conn.cursor()
+                # Build placeholder string for query
+                placeholders = ', '.join([placeholder] * 9)
 
-                    # Insert metric using direct SQL
-                    from datetime import datetime
-                    cursor.execute(
-                        """
-                        INSERT INTO training_metrics
-                        (job_id, epoch, step, loss, accuracy, learning_rate, checkpoint_path, extra_metrics, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            self.job_id,
-                            epoch,
-                            epoch,
-                            train_loss,
-                            accuracy,
-                            lr,
-                            checkpoint_path,
-                            json.dumps(metrics),
-                            datetime.utcnow().isoformat()
-                        )
+                # Insert metric using direct SQL
+                cursor.execute(
+                    f"""
+                    INSERT INTO training_metrics
+                    (job_id, epoch, step, loss, accuracy, learning_rate, checkpoint_path, extra_metrics, created_at)
+                    VALUES ({placeholders})
+                    """,
+                    (
+                        self.job_id,
+                        epoch,
+                        epoch,
+                        train_loss,
+                        accuracy,
+                        lr,
+                        checkpoint_path,
+                        json.dumps(metrics),
+                        datetime.utcnow().isoformat()
                     )
-                    conn.commit()
-                    conn.close()
+                )
+                conn.commit()
+                close_db_connection(conn, cursor)
 
-                    print(f"[Callbacks] Saved metric to database (epoch {epoch})")
+                print(f"[Callbacks] Saved metric to database (epoch {epoch})")
             except Exception as e:
-                print(f"[Callbacks WARNING] Failed to save metric to database: {e}")
+                print(f"[ERROR] Failed to save metric to database: {e}")
+                print(f"[ERROR] Training requires database access")
+                import traceback
+                traceback.print_exc()
+                raise
 
         # Console output
         print(f"[Callbacks] Epoch {epoch}: ", end="")
@@ -1942,38 +1856,28 @@ class TrainingCallbacks:
             Epoch number with highest primary_metric_value, or None if not found
         """
         try:
-            import sqlite3
-            from pathlib import Path
+            from platform_sdk.db_utils import get_db_connection, close_db_connection
 
-            # Get database path
-            training_dir = Path(__file__).parent.parent
-            mvp_dir = training_dir.parent
-            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
-
-            if not db_path.exists():
-                print(f"[Callbacks] Database not found at {db_path}")
-                return None
-
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.cursor()
+            # Get database connection
+            conn, cursor, placeholder = get_db_connection()
 
             # Find epoch with highest primary_metric_value
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT epoch
                 FROM validation_results
-                WHERE job_id = ?
+                WHERE job_id = {placeholder}
                   AND primary_metric_value IS NOT NULL
                 ORDER BY primary_metric_value DESC
                 LIMIT 1
             """, (self.job_id,))
 
             result = cursor.fetchone()
-            conn.close()
+            close_db_connection(conn, cursor)
 
             return result[0] if result else None
 
         except Exception as e:
-            print(f"[Callbacks] Warning: Failed to find best epoch: {e}")
+            print(f"[ERROR] Failed to find best epoch: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -1986,35 +1890,25 @@ class TrainingCallbacks:
             Maximum epoch number, or None if not found
         """
         try:
-            import sqlite3
-            from pathlib import Path
+            from platform_sdk.db_utils import get_db_connection, close_db_connection
 
-            # Get database path
-            training_dir = Path(__file__).parent.parent
-            mvp_dir = training_dir.parent
-            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
-
-            if not db_path.exists():
-                print(f"[Callbacks] Database not found at {db_path}")
-                return None
-
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.cursor()
+            # Get database connection
+            conn, cursor, placeholder = get_db_connection()
 
             # Find max epoch
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT MAX(epoch)
                 FROM validation_results
-                WHERE job_id = ?
+                WHERE job_id = {placeholder}
             """, (self.job_id,))
 
             result = cursor.fetchone()
-            conn.close()
+            close_db_connection(conn, cursor)
 
             return result[0] if result and result[0] else None
 
         except Exception as e:
-            print(f"[Callbacks] Warning: Failed to find last epoch: {e}")
+            print(f"[ERROR] Failed to find last epoch: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -2027,40 +1921,31 @@ class TrainingCallbacks:
             checkpoints: Dictionary mapping epoch number to R2 checkpoint path
         """
         try:
-            import sqlite3
-            from pathlib import Path
-
             if not checkpoints:
                 return
 
-            # Get database path
-            training_dir = Path(__file__).parent.parent
-            mvp_dir = training_dir.parent
-            db_path = mvp_dir / 'data' / 'db' / 'vision_platform.db'
+            from platform_sdk.db_utils import get_db_connection, close_db_connection
 
-            if not db_path.exists():
-                print(f"[Callbacks] Database not found at {db_path}")
-                return
-
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.cursor()
+            # Get database connection
+            conn, cursor, placeholder = get_db_connection()
 
             # Update checkpoint_path for each epoch
             for epoch, r2_path in checkpoints.items():
-                cursor.execute("""
+                cursor.execute(f"""
                     UPDATE validation_results
-                    SET checkpoint_path = ?
-                    WHERE job_id = ? AND epoch = ?
+                    SET checkpoint_path = {placeholder}
+                    WHERE job_id = {placeholder} AND epoch = {placeholder}
                 """, (r2_path, self.job_id, epoch))
 
                 print(f"[Callbacks] Updated epoch {epoch} checkpoint_path: {r2_path}")
 
             conn.commit()
-            conn.close()
+            close_db_connection(conn, cursor)
 
             print(f"[Callbacks] Successfully updated {len(checkpoints)} checkpoint paths in database")
 
         except Exception as e:
-            print(f"[Callbacks] Warning: Failed to update checkpoint paths: {e}")
+            print(f"[ERROR] Failed to update checkpoint paths: {e}")
             import traceback
             traceback.print_exc()
+            raise
