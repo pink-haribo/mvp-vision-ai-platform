@@ -2,6 +2,16 @@
 
 This directory contains all project documentation organized by category.
 
+## ⚠️ Important: Document Status
+
+**Current Implementation**: MVP Phase with K8s + Railway + SQLite/PostgreSQL
+
+Many documents were written for the full architecture (Temporal, MongoDB, etc.) but MVP uses a simplified stack.
+
+👉 **See [OUTDATED_FILES.md](./OUTDATED_FILES.md)** for a complete list of outdated documents and recommended alternatives.
+
+---
+
 ## 📁 Directory Structure
 
 ### `/architecture` - System Architecture & Design
@@ -40,22 +50,31 @@ This directory contains all project documentation organized by category.
 
 ## 🔍 Quick Reference
 
-### For New Developers
-1. Start with [README.md](../README.md) in the root
-2. Read [ARCHITECTURE.md](./architecture/ARCHITECTURE.md) to understand the system
-3. Follow [DEVELOPMENT.md](./development/DEVELOPMENT.md) for setup
-4. Review [API_SPECIFICATION.md](./api/API_SPECIFICATION.md) for API contracts
+### For New Developers (⭐ Recommended for MVP)
+1. Start with [GETTING_STARTED.md](../GETTING_STARTED.md) and [DEV_WORKFLOW.md](../DEV_WORKFLOW.md) in the root
+2. Read [251106/01_backend_api_specification.md](./251106/01_backend_api_specification.md) for current API
+3. Review [k8s/](./k8s/) folder for K8s training setup
+4. Check [production/RAILWAY_SETUP_GUIDE.md](./production/RAILWAY_SETUP_GUIDE.md) for deployment
 
-### For Designers
-1. [DESIGN_SYSTEM.md](./design/DESIGN_SYSTEM.md) - Design tokens and guidelines
-2. [UI_COMPONENTS.md](./design/UI_COMPONENTS.md) - Component library
+**⚠️ Avoid**:
+- ~~[ARCHITECTURE.md](./architecture/ARCHITECTURE.md)~~ (uses Temporal, MongoDB - not in MVP)
+- ~~[DEVELOPMENT.md](./development/DEVELOPMENT.md)~~ (outdated setup instructions)
+- ~~[API_SPECIFICATION.md](./api/API_SPECIFICATION.md)~~ (full architecture API)
 
-### For Product Managers
-1. [MVP_PLAN.md](./planning/MVP_PLAN.md) - Implementation roadmap
-2. [ARCHITECTURE.md](./architecture/ARCHITECTURE.md) - Technical capabilities
+### For Understanding Current Implementation
+1. **Backend API**: [251106/01_backend_api_specification.md](./251106/01_backend_api_specification.md)
+2. **SDK/Adapter**: [251106/02_sdk_adapter_pattern.md](./251106/02_sdk_adapter_pattern.md)
+3. **K8s Training**: [k8s/20251107_development_workflow_setup.md](./k8s/20251107_development_workflow_setup.md)
+4. **Railway Deployment**: [production/RAILWAY_SETUP_GUIDE.md](./production/RAILWAY_SETUP_GUIDE.md)
+
+### For MVP Planning
+1. [planning/MVP_PLAN.md](./planning/MVP_PLAN.md) - Implementation roadmap
+2. [planning/MVP_STRUCTURE.md](./planning/MVP_STRUCTURE.md) - Folder structure
+3. [planning/MVP_DESIGN_GUIDE.md](./planning/MVP_DESIGN_GUIDE.md) - Design decisions
 
 ### For Contributors
 - See [CONTRIBUTING.md](../CONTRIBUTING.md) in the root
+- Check [OUTDATED_FILES.md](./OUTDATED_FILES.md) to avoid using outdated docs
 
 ---
 
@@ -68,4 +87,4 @@ This directory contains all project documentation organized by category.
 
 ---
 
-**Last Updated**: 2025-10-23
+**Last Updated**: 2025-11-07
