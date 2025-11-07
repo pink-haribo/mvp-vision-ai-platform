@@ -31,6 +31,11 @@ env/
 .env.*
 *.env
 
+# But allow .env example files (templates for configuration)
+!.env.*.example
+!**/.env.example
+!**/.env.*.example
+
 # IDE
 .vscode/
 .idea/
