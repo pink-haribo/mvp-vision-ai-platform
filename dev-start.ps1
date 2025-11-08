@@ -236,13 +236,17 @@ Wait-ForPods -Namespace "monitoring" -LabelSelector "app=grafana" -TimeoutSecond
 
 Write-Host ""
 
-# 8. Create MinIO buckets
+# 8. Create MinIO buckets (Dual Storage Architecture)
 Write-Host "Step 8: Setting up MinIO buckets..." -ForegroundColor Yellow
-$bucketCheck = kubectl exec -n storage deployment/minio -- sh -c "ls -d /data/training-* 2>/dev/null" 2>$null
+$bucketCheck = kubectl exec -n storage deployment/minio -- sh -c "ls -d /data/model-* 2>/dev/null" 2>$null
 
 if (-not $bucketCheck) {
-    kubectl exec -n storage deployment/minio -- sh -c "mkdir -p /data/training-datasets /data/training-checkpoints /data/training-results" >$null 2>&1
-    Write-Host "✓ MinIO buckets created" -ForegroundColor Green
+    kubectl exec -n storage deployment/minio -- sh -c "mkdir -p /data/model-weights /data/training-checkpoints /data/config-schemas /data/training-datasets" >$null 2>&1
+    Write-Host "✓ MinIO buckets created:" -ForegroundColor Green
+    Write-Host "  - model-weights (internal)" -ForegroundColor Gray
+    Write-Host "  - training-checkpoints (internal)" -ForegroundColor Gray
+    Write-Host "  - config-schemas (internal)" -ForegroundColor Gray
+    Write-Host "  - training-datasets (external)" -ForegroundColor Gray
 } else {
     Write-Host "✓ MinIO buckets already exist" -ForegroundColor Green
 }
@@ -251,8 +255,8 @@ Write-Host ""
 # 9. Upload training configuration schemas
 Write-Host "Step 9: Uploading training configuration schemas..." -ForegroundColor Yellow
 
-# Create schemas directory in MinIO
-kubectl exec -n storage deployment/minio -- mkdir -p /data/training-results/schemas >$null 2>&1
+# Create schemas directory in MinIO (config-schemas bucket)
+kubectl exec -n storage deployment/minio -- mkdir -p /data/config-schemas/schemas >$null 2>&1
 
 # Check if schema files exist locally
 $schemasExist = Test-Path "mvp/training/schemas/ultralytics-schema.json"
@@ -270,7 +274,7 @@ if ($schemasExist) {
             $localPath = "mvp/training/schemas/$schema"
             if (Test-Path $localPath) {
                 $targetName = $schema -replace "-schema", ""  # ultralytics-schema.json -> ultralytics.json
-                kubectl cp $localPath "storage/${minioPod}:/data/training-results/schemas/$targetName" >$null 2>&1
+                kubectl cp $localPath "storage/${minioPod}:/data/config-schemas/schemas/$targetName" >$null 2>&1
                 if ($?) {
                     $uploadCount++
                     Write-Host "  ✓ Uploaded $targetName" -ForegroundColor Gray

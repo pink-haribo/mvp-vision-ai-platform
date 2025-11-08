@@ -836,25 +836,19 @@ async def get_config_schema(framework: str, task_type: str = None):
     """
     logger.info(f"[config-schema] Requested framework={framework}, task_type={task_type}")
 
-    # Load schema from storage (uploaded by training/scripts/upload_schema_to_storage.py)
+    # Load schema from INTERNAL storage (uploaded by training/scripts/upload_schema_to_storage.py)
     # This maintains complete dependency isolation between Backend and Training
-    from app.utils.storage_utils import get_storage_client
+    from app.utils.dual_storage import dual_storage
     import json
 
     try:
-        storage = get_storage_client()
-        schema_key = f"schemas/{framework}.json"
+        logger.info(f"[config-schema] Loading schema from internal storage: schemas/{framework}.json")
 
-        logger.info(f"[config-schema] Loading schema from storage: {schema_key}")
-
-        # Get schema from storage
-        schema_bytes = storage.get_file_content(
-            schema_key,
-            bucket=storage.bucket_results  # schemas stored in results bucket
-        )
+        # Get schema from internal storage (config-schemas bucket)
+        schema_bytes = dual_storage.get_schema(framework)
 
         if not schema_bytes:
-            logger.warning(f"[config-schema] Schema not found in storage: {schema_key}")
+            logger.warning(f"[config-schema] Schema not found in internal storage: {framework}")
             raise HTTPException(
                 status_code=404,
                 detail=f"Configuration schema for framework '{framework}' not found. "
