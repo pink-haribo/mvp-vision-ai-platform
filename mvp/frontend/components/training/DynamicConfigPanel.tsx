@@ -62,7 +62,11 @@ export default function DynamicConfigPanel({
         }
 
         const data = await response.json()
-        setSchema(data.schema)
+        // Backend returns { framework, fields, presets } directly
+        setSchema({
+          fields: data.fields || [],
+          presets: data.presets || {}
+        })
         setError(null)
       } catch (err) {
         console.error('Error fetching config schema:', err)

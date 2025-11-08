@@ -248,7 +248,51 @@ if (-not $bucketCheck) {
 }
 Write-Host ""
 
-# 9. Display access information
+# 9. Upload training configuration schemas
+Write-Host "Step 9: Uploading training configuration schemas..." -ForegroundColor Yellow
+
+# Create schemas directory in MinIO
+kubectl exec -n storage deployment/minio -- mkdir -p /data/training-results/schemas >$null 2>&1
+
+# Check if schema files exist locally
+$schemasExist = Test-Path "mvp/training/schemas/ultralytics-schema.json"
+
+if ($schemasExist) {
+    # Get MinIO pod name
+    $minioPod = kubectl get pods -n storage -l app=minio -o jsonpath='{.items[0].metadata.name}' 2>$null
+
+    if ($minioPod) {
+        # Copy schema files to MinIO
+        $schemas = @("ultralytics-schema.json", "timm-schema.json")
+        $uploadCount = 0
+
+        foreach ($schema in $schemas) {
+            $localPath = "mvp/training/schemas/$schema"
+            if (Test-Path $localPath) {
+                $targetName = $schema -replace "-schema", ""  # ultralytics-schema.json -> ultralytics.json
+                kubectl cp $localPath "storage/${minioPod}:/data/training-results/schemas/$targetName" >$null 2>&1
+                if ($?) {
+                    $uploadCount++
+                    Write-Host "  ✓ Uploaded $targetName" -ForegroundColor Gray
+                }
+            }
+        }
+
+        if ($uploadCount -gt 0) {
+            Write-Host "✓ Uploaded $uploadCount training configuration schemas" -ForegroundColor Green
+        } else {
+            Write-Host "⚠ No schemas uploaded (files may not exist)" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "⚠ MinIO pod not found, skipping schema upload" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "⚠ Schema files not found in mvp/training/schemas/" -ForegroundColor Yellow
+    Write-Host "  Run manually: cd mvp/training && python scripts/upload_schema_to_storage.py --all" -ForegroundColor Gray
+}
+Write-Host ""
+
+# 10. Display access information
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Development Environment Ready!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
