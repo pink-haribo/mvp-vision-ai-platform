@@ -40,7 +40,11 @@ class S3Storage:
         self.endpoint_url = os.getenv("AWS_S3_ENDPOINT_URL")
         self.access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
         self.secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
-        self.bucket_name = os.getenv("S3_BUCKET", "vision-platform-dev")
+
+        # Separate buckets for different purposes
+        self.bucket_datasets = os.getenv("S3_BUCKET_DATASETS", "training-datasets")
+        self.bucket_checkpoints = os.getenv("S3_BUCKET_CHECKPOINTS", "training-checkpoints")
+        self.bucket_results = os.getenv("S3_BUCKET_RESULTS", "training-results")
 
         if not all([self.endpoint_url, self.access_key_id, self.secret_access_key]):
             logger.warning(
@@ -76,13 +80,14 @@ class S3Storage:
         elif "amazonaws.com" in self.endpoint_url:
             storage_type = "AWS S3"
 
-        logger.info(f"S3 Storage initialized: type={storage_type}, bucket={self.bucket_name}, endpoint={self.endpoint_url}")
+        logger.info(f"S3 Storage initialized: type={storage_type}, buckets=[datasets={self.bucket_datasets}, checkpoints={self.bucket_checkpoints}, results={self.bucket_results}], endpoint={self.endpoint_url}")
 
     def upload_file(
         self,
         file_path: Path,
         object_key: str,
         content_type: Optional[str] = None,
+        bucket: Optional[str] = None,
     ) -> bool:
         """
         Upload a file to S3 storage.
@@ -91,6 +96,7 @@ class S3Storage:
             file_path: Local file path
             object_key: S3 object key (e.g., "datasets/my-dataset.zip")
             content_type: MIME type (optional, auto-detected if not provided)
+            bucket: Bucket name (defaults to datasets bucket)
 
         Returns:
             True if successful, False otherwise
@@ -99,6 +105,8 @@ class S3Storage:
             logger.error("S3 client not initialized")
             return False
 
+        bucket_name = bucket or self.bucket_datasets
+
         try:
             extra_args = {}
             if content_type:
@@ -106,12 +114,12 @@ class S3Storage:
 
             self.client.upload_file(
                 str(file_path),
-                self.bucket_name,
+                bucket_name,
                 object_key,
                 ExtraArgs=extra_args
             )
 
-            logger.info(f"Uploaded file to storage: {object_key}")
+            logger.info(f"Uploaded file to storage: {bucket_name}/{object_key}")
             return True
 
         except ClientError as e:
@@ -123,6 +131,7 @@ class S3Storage:
         file_obj: BinaryIO,
         object_key: str,
         content_type: Optional[str] = None,
+        bucket: Optional[str] = None,
     ) -> bool:
         """
         Upload a file object to storage.
@@ -131,6 +140,7 @@ class S3Storage:
             file_obj: File-like object
             object_key: S3 object key
             content_type: MIME type
+            bucket: Bucket name (defaults to datasets bucket)
 
         Returns:
             True if successful
@@ -139,6 +149,8 @@ class S3Storage:
             logger.error("S3 client not initialized")
             return False
 
+        bucket_name = bucket or self.bucket_datasets
+
         try:
             extra_args = {}
             if content_type:
@@ -146,12 +158,12 @@ class S3Storage:
 
             self.client.upload_fileobj(
                 file_obj,
-                self.bucket_name,
+                bucket_name,
                 object_key,
                 ExtraArgs=extra_args
             )
 
-            logger.info(f"Uploaded file object to storage: {object_key}")
+            logger.info(f"Uploaded file object to storage: {bucket_name}/{object_key}")
             return True
 
         except ClientError as e:
@@ -191,7 +203,8 @@ class S3Storage:
     def download_file(
         self,
         object_key: str,
-        file_path: Path
+        file_path: Path,
+        bucket: Optional[str] = None,
     ) -> bool:
         """
         Download a file from storage.
@@ -199,6 +212,7 @@ class S3Storage:
         Args:
             object_key: S3 object key
             file_path: Local destination path
+            bucket: Bucket name (defaults to datasets bucket)
 
         Returns:
             True if successful
@@ -207,28 +221,31 @@ class S3Storage:
             logger.error("S3 client not initialized")
             return False
 
+        bucket_name = bucket or self.bucket_datasets
+
         try:
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
             self.client.download_file(
-                self.bucket_name,
+                bucket_name,
                 object_key,
                 str(file_path)
             )
 
-            logger.info(f"Downloaded file from storage: {object_key}")
+            logger.info(f"Downloaded file from storage: {bucket_name}/{object_key}")
             return True
 
         except ClientError as e:
             logger.error(f"Failed to download file from storage: {e}")
             return False
 
-    def get_file_content(self, object_key: str) -> Optional[bytes]:
+    def get_file_content(self, object_key: str, bucket: Optional[str] = None) -> Optional[bytes]:
         """
         Get file content from storage as bytes.
 
         Args:
             object_key: S3 object key
+            bucket: Bucket name (defaults to datasets bucket)
 
         Returns:
             File content as bytes, or None if not found
@@ -237,14 +254,16 @@ class S3Storage:
             logger.error("S3 client not initialized")
             return None
 
+        bucket_name = bucket or self.bucket_datasets
+
         try:
             response = self.client.get_object(
-                Bucket=self.bucket_name,
+                Bucket=bucket_name,
                 Key=object_key
             )
 
             content = response['Body'].read()
-            logger.info(f"Retrieved file content from storage: {object_key} ({len(content)} bytes)")
+            logger.info(f"Retrieved file content from storage: {bucket_name}/{object_key} ({len(content)} bytes)")
             return content
 
         except ClientError as e:
@@ -257,12 +276,13 @@ class S3Storage:
             logger.error(f"Unexpected error getting file content: {e}")
             return None
 
-    def delete_file(self, object_key: str) -> bool:
+    def delete_file(self, object_key: str, bucket: Optional[str] = None) -> bool:
         """
         Delete a file from storage.
 
         Args:
             object_key: S3 object key
+            bucket: Bucket name (defaults to datasets bucket)
 
         Returns:
             True if successful
@@ -271,25 +291,28 @@ class S3Storage:
             logger.error("S3 client not initialized")
             return False
 
+        bucket_name = bucket or self.bucket_datasets
+
         try:
             self.client.delete_object(
-                Bucket=self.bucket_name,
+                Bucket=bucket_name,
                 Key=object_key
             )
 
-            logger.info(f"Deleted file from storage: {object_key}")
+            logger.info(f"Deleted file from storage: {bucket_name}/{object_key}")
             return True
 
         except ClientError as e:
             logger.error(f"Failed to delete file from storage: {e}")
             return False
 
-    def file_exists(self, object_key: str) -> bool:
+    def file_exists(self, object_key: str, bucket: Optional[str] = None) -> bool:
         """
         Check if a file exists in storage.
 
         Args:
             object_key: S3 object key
+            bucket: Bucket name (defaults to datasets bucket)
 
         Returns:
             True if file exists
@@ -297,9 +320,11 @@ class S3Storage:
         if not self.client:
             return False
 
+        bucket_name = bucket or self.bucket_datasets
+
         try:
             self.client.head_object(
-                Bucket=self.bucket_name,
+                Bucket=bucket_name,
                 Key=object_key
             )
             return True
@@ -310,7 +335,8 @@ class S3Storage:
     def generate_presigned_url(
         self,
         object_key: str,
-        expiration: int = 3600
+        expiration: int = 3600,
+        bucket: Optional[str] = None,
     ) -> Optional[str]:
         """
         Generate a presigned URL for temporary access.
@@ -318,6 +344,7 @@ class S3Storage:
         Args:
             object_key: S3 object key
             expiration: URL expiration time in seconds (default: 1 hour)
+            bucket: Bucket name (defaults to datasets bucket)
 
         Returns:
             Presigned URL or None if failed
@@ -326,17 +353,19 @@ class S3Storage:
             logger.error("S3 client not initialized")
             return None
 
+        bucket_name = bucket or self.bucket_datasets
+
         try:
             url = self.client.generate_presigned_url(
                 "get_object",
                 Params={
-                    "Bucket": self.bucket_name,
+                    "Bucket": bucket_name,
                     "Key": object_key
                 },
                 ExpiresIn=expiration
             )
 
-            logger.info(f"Generated presigned URL for {object_key}")
+            logger.info(f"Generated presigned URL for {bucket_name}/{object_key}")
             return url
 
         except ClientError as e:
@@ -451,40 +480,6 @@ class S3Storage:
         except Exception as e:
             return False, None, f"Validation error: {str(e)}"
 
-    def generate_presigned_url(
-        self,
-        object_key: str,
-        expiration: int = 3600
-    ) -> Optional[str]:
-        """
-        Generate a presigned URL for downloading an object from storage.
-
-        Args:
-            object_key: S3 object key (e.g., "datasets/{id}/images/000001.jpg")
-            expiration: URL expiration time in seconds (default: 1 hour)
-
-        Returns:
-            Presigned URL string or None if failed
-        """
-        if not self.client:
-            logger.error("S3 client not initialized")
-            return None
-
-        try:
-            url = self.client.generate_presigned_url(
-                'get_object',
-                Params={
-                    'Bucket': self.bucket_name,
-                    'Key': object_key
-                },
-                ExpiresIn=expiration
-            )
-            logger.info(f"Generated presigned URL for: {object_key} (expires in {expiration}s)")
-            return url
-        except Exception as e:
-            logger.error(f"Failed to generate presigned URL for {object_key}: {str(e)}")
-            return None
-
     def upload_image(
         self,
         file_obj,
@@ -514,7 +509,8 @@ class S3Storage:
     def list_images(
         self,
         dataset_id: str,
-        prefix: str = "images/"
+        prefix: str = "images/",
+        bucket: Optional[str] = None,
     ) -> list[str]:
         """
         List all images in a dataset.
@@ -522,6 +518,7 @@ class S3Storage:
         Args:
             dataset_id: Dataset identifier
             prefix: Prefix within dataset (default: "images/")
+            bucket: Bucket name (defaults to datasets bucket)
 
         Returns:
             List of image keys (relative to dataset root)
@@ -530,10 +527,12 @@ class S3Storage:
             logger.error("S3 client not initialized")
             return []
 
+        bucket_name = bucket or self.bucket_datasets
+
         try:
             full_prefix = f"datasets/{dataset_id}/{prefix}"
             response = self.client.list_objects_v2(
-                Bucket=self.bucket_name,
+                Bucket=bucket_name,
                 Prefix=full_prefix
             )
 
@@ -552,12 +551,13 @@ class S3Storage:
             logger.error(f"Failed to list images for {dataset_id}: {str(e)}")
             return []
 
-    def delete_all_with_prefix(self, prefix: str) -> int:
+    def delete_all_with_prefix(self, prefix: str, bucket: Optional[str] = None) -> int:
         """
         Delete all objects with a given prefix.
 
         Args:
             prefix: Prefix to filter objects (e.g., "datasets/abc-123/")
+            bucket: Bucket name (defaults to datasets bucket)
 
         Returns:
             Number of objects deleted
@@ -566,6 +566,8 @@ class S3Storage:
             logger.error("S3 client not initialized")
             return 0
 
+        bucket_name = bucket or self.bucket_datasets
+
         try:
             deleted_count = 0
             continuation_token = None
@@ -573,7 +575,7 @@ class S3Storage:
             while True:
                 # List objects with prefix
                 list_params = {
-                    'Bucket': self.bucket_name,
+                    'Bucket': bucket_name,
                     'Prefix': prefix
                 }
                 if continuation_token:
@@ -587,7 +589,7 @@ class S3Storage:
 
                     if objects_to_delete:
                         delete_response = self.client.delete_objects(
-                            Bucket=self.bucket_name,
+                            Bucket=bucket_name,
                             Delete={'Objects': objects_to_delete}
                         )
                         deleted_count += len(delete_response.get('Deleted', []))
@@ -598,7 +600,7 @@ class S3Storage:
                 else:
                     break
 
-            logger.info(f"Deleted {deleted_count} objects with prefix: {prefix}")
+            logger.info(f"Deleted {deleted_count} objects from {bucket_name} with prefix: {prefix}")
             return deleted_count
 
         except Exception as e:
