@@ -836,80 +836,52 @@ async def get_config_schema(framework: str, task_type: str = None):
     """
     logger.info(f"[config-schema] Requested framework={framework}, task_type={task_type}")
 
-    # K8s Job 방식에서는 Training Service가 HTTP로 실행되지 않으므로,
-    # 정적 스키마를 반환합니다. (의존성 격리 유지)
-    # 실제 Training은 K8s Job으로 실행되므로 HTTP Training Service 불필요
+    # Load schema from storage (uploaded by training/scripts/upload_schema_to_storage.py)
+    # This maintains complete dependency isolation between Backend and Training
+    from app.utils.storage_utils import get_storage_client
+    import json
 
-    if framework == "ultralytics":
-        return {
-            "framework": "ultralytics",
-            "task_type": task_type or "object_detection",
-            "description": "Ultralytics YOLO - Object Detection, Segmentation, Pose Estimation",
-            "schema": {
-                "fields": [
-                    {
-                        "name": "imgsz",
-                        "type": "int",
-                        "default": 640,
-                        "description": "Image size for training",
-                        "required": False
-                    },
-                    {
-                        "name": "patience",
-                        "type": "int",
-                        "default": 50,
-                        "description": "Early stopping patience",
-                        "required": False
-                    },
-                    {
-                        "name": "augment",
-                        "type": "boolean",
-                        "default": True,
-                        "description": "Enable data augmentation",
-                        "required": False
-                    }
-                ],
-                "presets": {
-                    "quick": {"epochs": 10, "batch_size": 16, "imgsz": 640},
-                    "balanced": {"epochs": 50, "batch_size": 16, "imgsz": 640},
-                    "best": {"epochs": 100, "batch_size": 8, "imgsz": 1280}
-                }
-            }
-        }
-    elif framework == "timm":
-        return {
-            "framework": "timm",
-            "task_type": "image_classification",
-            "description": "PyTorch Image Models - Image Classification",
-            "schema": {
-                "fields": [
-                    {
-                        "name": "optimizer_type",
-                        "type": "select",
-                        "default": "adam",
-                        "options": ["adam", "adamw", "sgd"],
-                        "description": "Optimizer algorithm",
-                        "required": False
-                    },
-                    {
-                        "name": "weight_decay",
-                        "type": "float",
-                        "default": 0.0001,
-                        "description": "L2 regularization",
-                        "required": False
-                    }
-                ],
-                "presets": {
-                    "quick": {"epochs": 10, "batch_size": 32},
-                    "balanced": {"epochs": 50, "batch_size": 32},
-                    "best": {"epochs": 100, "batch_size": 16}
-                }
-            }
-        }
-    else:
+    try:
+        storage = get_storage_client()
+        schema_key = f"schemas/{framework}.json"
+
+        logger.info(f"[config-schema] Loading schema from storage: {schema_key}")
+
+        # Get schema from storage
+        schema_bytes = storage.get_file_content(
+            schema_key,
+            bucket=storage.bucket_results  # schemas stored in results bucket
+        )
+
+        if not schema_bytes:
+            logger.warning(f"[config-schema] Schema not found in storage: {schema_key}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Configuration schema for framework '{framework}' not found. "
+                       f"Please run: mvp/training/scripts/upload_schema_to_storage.py --framework {framework}"
+            )
+
+        # Parse JSON
+        schema_dict = json.loads(schema_bytes.decode('utf-8'))
+
+        logger.info(f"[config-schema] Schema loaded: {len(schema_dict.get('fields', []))} fields, "
+                   f"{len(schema_dict.get('presets', {}))} presets")
+
+        return schema_dict
+
+    except HTTPException:
+        raise
+    except json.JSONDecodeError as e:
+        logger.error(f"[config-schema] Invalid JSON in schema file: {str(e)}")
         raise HTTPException(
-            status_code=404,
-            detail=f"Framework '{framework}' not supported"
+            status_code=500,
+            detail=f"Schema file is corrupted. Please re-upload."
+        )
+    except Exception as e:
+        logger.error(f"[config-schema] Error loading schema: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load configuration schema: {str(e)}"
         )
 
 
