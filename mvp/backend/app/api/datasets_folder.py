@@ -12,7 +12,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from collections import defaultdict
 
-from app.utils.r2_storage import r2_storage
+from app.utils.storage_utils import get_storage_client, get_storage_type
 from app.db.database import get_db
 from app.db.models import Dataset, User
 from app.utils.dependencies import get_current_user
@@ -54,6 +54,9 @@ async def upload_folder(
         FolderUploadResponse with upload status and metadata
     """
     try:
+        # Get storage client
+        storage = get_storage_client()
+
         if not files:
             raise HTTPException(status_code=400, detail="No files provided")
 
@@ -166,23 +169,23 @@ async def upload_folder(
 
             # R2 path: datasets/{id}/{path_without_root}
             # Ensure forward slashes (replace any backslashes from Windows paths)
-            r2_key = f"datasets/{dataset_id}/{path_without_root}".replace('\\', '/')
+            storage_key = f"datasets/{dataset_id}/{path_without_root}".replace('\\', '/')
 
             # Upload to R2
             try:
                 await file_obj.seek(0)
                 file_bytes = await file_obj.read()
 
-                success = r2_storage.upload_bytes(
+                success = storage.upload_bytes(
                     file_bytes,
-                    r2_key,
+                    storage_key,
                     content_type=content_type
                 )
 
                 if success:
                     uploaded_count += 1
                     # Generate presigned URL for this image
-                    presigned_url = r2_storage.generate_presigned_url(r2_key, expiration=86400 * 365)  # 1 year
+                    presigned_url = storage.generate_presigned_url(storage_key, expiration=86400 * 365)  # 1 year
                     if presigned_url:
                         # Store mapping from original path to R2 URL
                         image_path_mapping[relative_path] = presigned_url
@@ -229,16 +232,16 @@ async def upload_folder(
 
             # Determine filename (annotations.json or annotation.json)
             annotation_filename = "annotations.json" if annotation_file.filename.endswith("annotations.json") else "annotation.json"
-            annotation_r2_key = f"datasets/{dataset_id}/{annotation_filename}"
+            annotation_storage_key = f"datasets/{dataset_id}/{annotation_filename}"
             annotation_bytes = json.dumps(annotation_data, indent=2).encode('utf-8')
 
-            r2_storage.upload_bytes(
+            storage.upload_bytes(
                 annotation_bytes,
-                annotation_r2_key,
+                annotation_storage_key,
                 content_type="application/json"
             )
-            annotation_path = annotation_r2_key
-            logger.info(f"Uploaded {annotation_filename} to: {annotation_r2_key} with {len(updated_annotations)} annotations")
+            annotation_path = annotation_storage_key
+            logger.info(f"Uploaded {annotation_filename} to: {annotation_storage_key} with {len(updated_annotations)} annotations")
 
         # Update existing Dataset record in DB
         dataset.labeled = labeled

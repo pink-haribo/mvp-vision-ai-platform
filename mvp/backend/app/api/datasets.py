@@ -17,7 +17,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.utils.dataset_analyzer import DatasetAnalyzer
-from app.utils.r2_storage import r2_storage
+from app.utils.storage_utils import get_storage_client, get_storage_type
 from app.db.database import get_db
 from app.db.models import Dataset, User
 from app.utils.dependencies import get_current_user
@@ -443,7 +443,7 @@ async def create_dataset(
             description=request.description or f"Dataset: {request.name}",
             format="dice",  # Default format
             labeled=False,  # No annotations yet
-            storage_type="r2",
+            storage_type=get_storage_type(),  # Auto-detect from environment (r2, minio, s3)
             storage_path=f"datasets/{dataset_id}/",  # Reserve storage path
             visibility=request.visibility,
             owner_id=current_user.id,  # Set owner to current user
@@ -529,14 +529,15 @@ async def delete_dataset(
                 message="Permission denied: You can only delete your own datasets"
             )
 
-        # Delete all images from R2 storage
+        # Delete all images from storage
         try:
+            storage = get_storage_client()
             prefix = f"datasets/{dataset_id}/"
-            deleted_count = r2_storage.delete_all_with_prefix(prefix)
-            logger.info(f"Deleted {deleted_count} objects from R2 with prefix: {prefix}")
+            deleted_count = storage.delete_all_with_prefix(prefix)
+            logger.info(f"Deleted {deleted_count} objects from storage with prefix: {prefix}")
         except Exception as e:
-            logger.warning(f"Error deleting R2 objects for dataset {dataset_id}: {str(e)}")
-            # Continue with database deletion even if R2 deletion fails
+            logger.warning(f"Error deleting storage objects for dataset {dataset_id}: {str(e)}")
+            # Continue with database deletion even if storage deletion fails
 
         # Delete dataset record from database
         db.delete(dataset)
@@ -581,13 +582,14 @@ async def get_dataset_file(
         if dataset.owner_id != current_user.id and dataset.visibility != 'public':
             raise HTTPException(status_code=403, detail="Access denied")
 
-        # Construct R2 key for the file
-        r2_key = f"datasets/{dataset_id}/{filename}"
+        # Construct storage key for the file
+        storage_key = f"datasets/{dataset_id}/{filename}"
 
-        logger.info(f"Fetching file from R2: {r2_key}")
+        logger.info(f"Fetching file from storage: {storage_key}")
 
-        # Get file content from R2
-        file_content = r2_storage.get_file_content(r2_key)
+        # Get file content from storage
+        storage = get_storage_client()
+        file_content = storage.get_file_content(storage_key)
 
         if file_content is None:
             raise HTTPException(

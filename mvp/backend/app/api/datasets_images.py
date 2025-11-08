@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from app.db.database import get_db
 from app.db.models import Dataset, User
-from app.utils.r2_storage import r2_storage
+from app.utils.storage_utils import get_storage_client, get_storage_type
 from app.utils.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -120,7 +120,7 @@ async def upload_image_to_dataset(
         from io import BytesIO
         file_obj = BytesIO(file_content)
 
-        success = r2_storage.upload_image(
+        success = storage.upload_image(
             file_obj=file_obj,
             dataset_id=dataset_id,
             image_filename=filename,
@@ -183,6 +183,9 @@ async def list_dataset_images(
     - No server load for image delivery
     """
     try:
+        # Get storage client
+        storage = get_storage_client()
+
         # 1. Verify dataset exists
         dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
         if not dataset:
@@ -195,13 +198,13 @@ async def list_dataset_images(
 
         # 3. List images from R2
         logger.info(f"Listing images for dataset {dataset_id}")
-        image_keys = r2_storage.list_images(dataset_id, prefix="images/")
+        image_keys = storage.list_images(dataset_id, prefix="images/")
 
         # 3. Generate presigned URLs for each image
         images = []
         for image_key in image_keys:
             # Generate presigned URL
-            presigned_url = r2_storage.generate_presigned_url(
+            presigned_url = storage.generate_presigned_url(
                 object_key=f"datasets/{dataset_id}/{image_key}",
                 expiration=3600  # 1 hour
             )
@@ -274,7 +277,7 @@ async def get_image_presigned_url(
 
         logger.info(f"Generating presigned URL for {object_key}")
 
-        presigned_url = r2_storage.generate_presigned_url(
+        presigned_url = storage.generate_presigned_url(
             object_key=object_key,
             expiration=expiration
         )
