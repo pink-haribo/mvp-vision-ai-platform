@@ -248,7 +248,12 @@ Write-Host ""
 Write-Host "Cluster Information:" -ForegroundColor Yellow
 Write-Host "  Cluster Name:     $ClusterName" -ForegroundColor White
 Write-Host "  Kubernetes:       " -NoNewline -ForegroundColor White
-kubectl version --short 2>$null | Select-String "Server Version" | ForEach-Object { Write-Host $_.ToString().Trim() -ForegroundColor White }
+$k8sVersion = kubectl version 2>$null | Select-String "Server Version" | Select-Object -First 1
+if ($k8sVersion) {
+    Write-Host $k8sVersion.ToString().Trim() -ForegroundColor White
+} else {
+    Write-Host "(version check unavailable)" -ForegroundColor Gray
+}
 Write-Host ""
 
 Write-Host "Quick Commands:" -ForegroundColor Yellow
