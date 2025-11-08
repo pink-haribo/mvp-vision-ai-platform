@@ -58,6 +58,7 @@ def create_admin_user():
             division="Engineering",
             department="Development",
             badge_color="indigo",
+            system_role="admin",  # Admin role
             is_active=True
         )
 
