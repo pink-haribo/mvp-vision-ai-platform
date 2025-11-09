@@ -80,7 +80,7 @@ class Dataset(Base):
 
     # Storage
     storage_path = Column(String(500), nullable=False)  # e.g., "datasets/det-coco8/" or "datasets/{uuid}/"
-    storage_type = Column(String(20), nullable=False, default='r2')  # 'r2', 's3', 'gcs'
+    storage_type = Column(String(20), nullable=False, default='minio')  # 'r2', 'minio', 's3', 'gcs' - auto-detected from env
 
     # Dataset metadata
     format = Column(String(50), nullable=False)  # 'dice', 'yolo', 'imagefolder', 'coco', 'pascal_voc'

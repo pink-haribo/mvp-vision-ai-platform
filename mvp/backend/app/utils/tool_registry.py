@@ -499,7 +499,7 @@ class ToolRegistry:
     ) -> dict:
         """Handler for stop_training tool"""
         from app.db.models import TrainingJob
-        from app.utils.training_manager import TrainingManager
+        from app.utils.training_manager_k8s import TrainingManagerK8s
         import signal
 
         job_id = params.get("job_id")

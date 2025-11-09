@@ -20,7 +20,12 @@ function Show-Status {
     Write-Host ""
 
     # Check if cluster exists
-    $clusterExists = kind get clusters 2>$null | Select-String -Pattern "^$ClusterName$"
+    try {
+        $clusterList = kind get clusters 2>&1
+        $clusterExists = ($clusterList -join "`n") -match "^$ClusterName$"
+    } catch {
+        $clusterExists = $false
+    }
 
     if (-not $clusterExists) {
         Write-Host "✗ Cluster '$ClusterName' does not exist" -ForegroundColor Red
@@ -48,8 +53,12 @@ function Show-Status {
     $kubeContext = kubectl config current-context 2>$null
     Write-Host "  Context:          $kubeContext" -ForegroundColor White
 
-    $kubeVersion = kubectl version --short 2>$null | Select-String "Server Version"
-    Write-Host "  Kubernetes:       $kubeVersion" -ForegroundColor White
+    $kubeVersion = kubectl version 2>$null | Select-String "Server Version" | Select-Object -First 1
+    if ($kubeVersion) {
+        Write-Host "  Kubernetes:       $($kubeVersion.ToString().Trim())" -ForegroundColor White
+    } else {
+        Write-Host "  Kubernetes:       (version check unavailable)" -ForegroundColor Gray
+    }
     Write-Host ""
 
     # Storage (MinIO)

@@ -32,7 +32,17 @@ from platform_sdk import (
 from adapters import ADAPTER_REGISTRY, TimmAdapter, UltralyticsAdapter
 
 # Configure MLflow tracking URI (only if not already set by .env)
-os.environ.setdefault("MLFLOW_TRACKING_URI", "http://localhost:5000")
+# Local Dev (Kubernetes): http://mlflow.monitoring.svc.cluster.local:5000 (from inside cluster)
+# Production (Railway): http://mlflow.monitoring.svc.cluster.local:5000
+# Fallback: http://localhost:30500 (for debugging from host machine)
+if "MLFLOW_TRACKING_URI" not in os.environ:
+    # Check if running in Kubernetes (has service DNS)
+    if os.path.exists("/var/run/secrets/kubernetes.io"):
+        os.environ["MLFLOW_TRACKING_URI"] = "http://mlflow.monitoring.svc.cluster.local:5000"
+        print("[MLflow] Using Kubernetes service DNS: mlflow.monitoring.svc.cluster.local:5000")
+    else:
+        os.environ["MLFLOW_TRACKING_URI"] = "http://localhost:30500"
+        print("[MLflow] Using localhost NodePort: localhost:30500")
 
 
 def parse_args():

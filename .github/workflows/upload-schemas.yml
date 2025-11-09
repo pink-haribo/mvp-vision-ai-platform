@@ -1,0 +1,92 @@
+name: Upload Training Configuration Schemas
+
+on:
+  push:
+    branches:
+      - main
+      - production
+    paths:
+      - 'mvp/training/config_schemas.py'
+      - 'mvp/training/scripts/upload_schema_to_storage.py'
+      - 'mvp/training/platform_sdk/**'
+
+  pull_request:
+    paths:
+      - 'mvp/training/config_schemas.py'
+      - 'mvp/training/scripts/upload_schema_to_storage.py'
+      - 'mvp/training/platform_sdk/**'
+
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  validate-and-upload:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # Allow PR comments
+      issues: write  # Allow issue comments
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd mvp/training
+          pip install --no-cache-dir boto3 pydantic requests python-dotenv
+
+      # PR: Validate schemas only (dry-run)
+      - name: Validate schemas (Pull Request)
+        if: github.event_name == 'pull_request'
+        run: |
+          cd mvp/training
+          python scripts/upload_schema_to_storage.py --all --dry-run
+
+      - name: Add PR comment (Validation Success)
+        if: github.event_name == 'pull_request' && success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '### ✅ Training Configuration Schema Validation\n\n' +
+                    'All schemas validated successfully!\n\n' +
+                    '**Next Steps:**\n' +
+                    '- Schemas will be automatically uploaded to production storage when this PR is merged to `main` or `production`.\n' +
+                    '- No Backend redeployment needed - schemas will be available immediately.'
+            })
+
+      # Main/Production: Upload to Cloudflare R2
+      - name: Upload schemas to Cloudflare R2
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production')
+        env:
+          AWS_S3_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          S3_BUCKET_RESULTS: ${{ secrets.S3_BUCKET_RESULTS }}
+        run: |
+          cd mvp/training
+          python scripts/upload_schema_to_storage.py --all
+
+      - name: Generate summary
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production')
+        run: |
+          echo "### 🚀 Training Configuration Schema Upload Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Uploaded Schemas:**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ ultralytics.json" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ timm.json" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Storage:** Cloudflare R2 (\`${{ secrets.S3_BUCKET_RESULTS }}/schemas/\`)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Schemas are now available in production. Frontend will automatically load them without redeployment." >> $GITHUB_STEP_SUMMARY

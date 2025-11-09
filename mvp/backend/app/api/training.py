@@ -10,7 +10,7 @@ from app.db.database import get_db
 from app.db import models
 from app.schemas import training
 from app.core.config import settings
-from app.utils.training_manager import TrainingManager
+from app.utils.training_manager_k8s import TrainingManagerK8s
 from app.utils.mlflow_client import get_mlflow_client
 
 logger = logging.getLogger(__name__)
@@ -324,7 +324,7 @@ async def start_training_job(
 
     # Initialize training manager if not already done
     if training_manager is None:
-        training_manager = TrainingManager(db)
+        training_manager = TrainingManagerK8s(db, default_executor="kubernetes")
 
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
     if not job:
@@ -834,71 +834,48 @@ async def get_config_schema(framework: str, task_type: str = None):
     Returns:
         Configuration schema with fields, types, defaults, and presets
     """
+    logger.info(f"[config-schema] Requested framework={framework}, task_type={task_type}")
+
+    # Load schema from INTERNAL storage (uploaded by training/scripts/upload_schema_to_storage.py)
+    # This maintains complete dependency isolation between Backend and Training
+    from app.utils.dual_storage import dual_storage
+    import json
+
     try:
-        logger.info(f"[config-schema] Requested framework={framework}, task_type={task_type}")
+        logger.info(f"[config-schema] Loading schema from internal storage: schemas/{framework}.json")
 
-        # Use Training Service API to get config schema
-        # This maintains dependency isolation between Backend and Training code
-        from app.utils.training_client import TrainingServiceClient
-        import requests
+        # Get schema from internal storage (config-schemas bucket)
+        schema_bytes = dual_storage.get_schema(framework)
 
-        # Initialize Training Service client for the requested framework
-        client = TrainingServiceClient(framework=framework)
-
-        logger.info(f"[config-schema] Fetching schema from Training Service: {client.base_url}")
-
-        # Call Training Service /config-schema endpoint
-        response = requests.get(
-            f"{client.base_url}/config-schema",
-            params={"task_type": task_type or ""},
-            timeout=30  # Increased timeout for cold start (schema loading)
-        )
-
-        # Handle errors
-        if response.status_code == 404:
+        if not schema_bytes:
+            logger.warning(f"[config-schema] Schema not found in internal storage: {framework}")
             raise HTTPException(
                 status_code=404,
-                detail=f"Framework '{framework}' not supported or config schema not available"
-            )
-        elif response.status_code == 503:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Training Service for framework '{framework}' is not available"
-            )
-        elif response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"Training Service error: {response.text}"
+                detail=f"Configuration schema for framework '{framework}' not found. "
+                       f"Please run: mvp/training/scripts/upload_schema_to_storage.py --framework {framework}"
             )
 
-        # Parse response
-        schema_data = response.json()
+        # Parse JSON
+        schema_dict = json.loads(schema_bytes.decode('utf-8'))
 
-        logger.info(f"[config-schema] Schema retrieved with {len(schema_data.get('schema', {}).get('fields', []))} fields")
+        logger.info(f"[config-schema] Schema loaded: {len(schema_dict.get('fields', []))} fields, "
+                   f"{len(schema_dict.get('presets', {}))} presets")
 
-        return schema_data
+        return schema_dict
 
     except HTTPException:
         raise
-    except requests.exceptions.ConnectionError as e:
-        logger.error(f"[config-schema] Connection error to Training Service: {str(e)}")
-        raise HTTPException(
-            status_code=503,
-            detail=f"Training Service for framework '{framework}' is not reachable. Please check deployment."
-        )
-    except requests.exceptions.Timeout as e:
-        logger.error(f"[config-schema] Timeout connecting to Training Service: {str(e)}")
-        raise HTTPException(
-            status_code=504,
-            detail=f"Training Service timeout. Please try again later."
-        )
-    except Exception as e:
-        import traceback
-        logger.error(f"[config-schema] Error: {str(e)}")
-        logger.error(traceback.format_exc())
+    except json.JSONDecodeError as e:
+        logger.error(f"[config-schema] Invalid JSON in schema file: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get configuration schema: {str(e)}"
+            detail=f"Schema file is corrupted. Please re-upload."
+        )
+    except Exception as e:
+        logger.error(f"[config-schema] Error loading schema: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load configuration schema: {str(e)}"
         )
 
 
@@ -1126,7 +1103,7 @@ async def stop_training_job(
         # Initialize training manager
         global training_manager
         if training_manager is None:
-            training_manager = TrainingManager(db)
+            training_manager = TrainingManagerK8s(db, default_executor="kubernetes")
 
         # Stop the training job
         success = training_manager.stop_training(job_id)

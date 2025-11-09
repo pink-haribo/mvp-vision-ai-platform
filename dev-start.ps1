@@ -3,6 +3,7 @@
 
 param(
     [switch]$SkipBuild,      # Skip Docker image build
+    [switch]$SkipLoadImages, # Skip loading Docker images to cluster
     [switch]$Fresh,          # Delete existing cluster and start fresh
     [string]$ClusterName = "training-dev"
 )
@@ -93,7 +94,12 @@ Write-Host ""
 # 3. Handle existing cluster
 Write-Host "Step 3: Checking Kind cluster..." -ForegroundColor Yellow
 
-$clusterExists = kind get clusters 2>$null | Select-String -Pattern "^$ClusterName$"
+try {
+    $clusterList = kind get clusters 2>&1
+    $clusterExists = ($clusterList -join "`n") -match "^$ClusterName$"
+} catch {
+    $clusterExists = $false
+}
 
 if ($Fresh -and $clusterExists) {
     Write-Host "Deleting existing cluster (--Fresh flag)..." -ForegroundColor Yellow
@@ -124,38 +130,43 @@ if (-not $clusterExists) {
 Write-Host ""
 
 # 4. Build and load Docker images
-if (-not $SkipBuild) {
-    Write-Host "Step 4: Building Docker images..." -ForegroundColor Yellow
-    Write-Host "(This may take 5-10 minutes on first build)" -ForegroundColor Gray
-    Write-Host ""
+if (-not $SkipLoadImages) {
+    if (-not $SkipBuild) {
+        Write-Host "Step 4: Building Docker images..." -ForegroundColor Yellow
+        Write-Host "(This may take 5-10 minutes on first build)" -ForegroundColor Gray
+        Write-Host ""
 
-    # Check if images already exist
-    $baseImage = docker images ghcr.io/myorg/trainer-base:v1.0 -q
-    $ultralyticsImage = docker images ghcr.io/myorg/trainer-ultralytics:v1.0 -q
-    $timmImage = docker images ghcr.io/myorg/trainer-timm:v1.0 -q
+        # Check if images already exist
+        $baseImage = docker images ghcr.io/myorg/trainer-base:v1.0 -q
+        $ultralyticsImage = docker images ghcr.io/myorg/trainer-ultralytics:v1.0 -q
+        $timmImage = docker images ghcr.io/myorg/trainer-timm:v1.0 -q
 
-    if ($baseImage -and $ultralyticsImage -and $timmImage) {
-        Write-Host "✓ Docker images already built" -ForegroundColor Green
-        Write-Host "  Use --Fresh to rebuild" -ForegroundColor Gray
+        if ($baseImage -and $ultralyticsImage -and $timmImage) {
+            Write-Host "✓ Docker images already built" -ForegroundColor Green
+            Write-Host "  Use --Fresh to rebuild" -ForegroundColor Gray
+        } else {
+            Push-Location mvp/training/docker
+
+            # Build images
+            Write-Host "Building base image..." -ForegroundColor Yellow
+            powershell.exe -ExecutionPolicy Bypass -File build.ps1 -Target base
+
+            Write-Host "Building ultralytics image..." -ForegroundColor Yellow
+            powershell.exe -ExecutionPolicy Bypass -File build.ps1 -Target ultralytics
+
+            Write-Host "Building timm image..." -ForegroundColor Yellow
+            powershell.exe -ExecutionPolicy Bypass -File build.ps1 -Target timm
+
+            Pop-Location
+
+            Write-Host "✓ Docker images built" -ForegroundColor Green
+        }
+        Write-Host ""
     } else {
-        Push-Location mvp/training/docker
-
-        # Build images
-        Write-Host "Building base image..." -ForegroundColor Yellow
-        powershell.exe -ExecutionPolicy Bypass -File build.ps1 -Target base
-
-        Write-Host "Building ultralytics image..." -ForegroundColor Yellow
-        powershell.exe -ExecutionPolicy Bypass -File build.ps1 -Target ultralytics
-
-        Write-Host "Building timm image..." -ForegroundColor Yellow
-        powershell.exe -ExecutionPolicy Bypass -File build.ps1 -Target timm
-
-        Pop-Location
-
-        Write-Host "✓ Docker images built" -ForegroundColor Green
+        Write-Host "Step 4: Skipping Docker build (--SkipBuild flag)" -ForegroundColor Gray
+        Write-Host ""
     }
 
-    Write-Host ""
     Write-Host "Step 5: Loading images to Kind cluster..." -ForegroundColor Yellow
     Write-Host "(This may take 2-3 minutes)" -ForegroundColor Gray
 
@@ -174,13 +185,19 @@ if (-not $SkipBuild) {
     }
     Write-Host ""
 } else {
-    Write-Host "Step 4-5: Skipping Docker build (--SkipBuild flag)" -ForegroundColor Gray
+    Write-Host "Step 4-5: Skipping Docker image loading (--SkipLoadImages flag)" -ForegroundColor Gray
+    Write-Host "  Note: Trainer images will need to be loaded manually before running training jobs" -ForegroundColor Yellow
     Write-Host ""
 }
 
 # 6. Deploy Kubernetes resources
 Write-Host "Step 6: Deploying Kubernetes resources..." -ForegroundColor Yellow
 Write-Host ""
+
+# Create namespaces
+Write-Host "  - Creating namespaces..." -ForegroundColor Gray
+kubectl create namespace storage --dry-run=client -o yaml | kubectl apply -f - >$null 2>&1
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f - >$null 2>&1
 
 # Training namespace and secrets
 Write-Host "  - Training namespace and secrets..." -ForegroundColor Gray
@@ -219,19 +236,67 @@ Wait-ForPods -Namespace "monitoring" -LabelSelector "app=grafana" -TimeoutSecond
 
 Write-Host ""
 
-# 8. Create MinIO buckets
+# 8. Create MinIO buckets (Dual Storage Architecture)
 Write-Host "Step 8: Setting up MinIO buckets..." -ForegroundColor Yellow
-$bucketCheck = kubectl exec -n storage deployment/minio -- sh -c "ls -d /data/training-* 2>/dev/null" 2>$null
+$bucketCheck = kubectl exec -n storage deployment/minio -- sh -c "ls -d /data/model-* 2>/dev/null" 2>$null
 
 if (-not $bucketCheck) {
-    kubectl exec -n storage deployment/minio -- sh -c "mkdir -p /data/training-datasets /data/training-checkpoints /data/training-results" >$null 2>&1
-    Write-Host "✓ MinIO buckets created" -ForegroundColor Green
+    kubectl exec -n storage deployment/minio -- sh -c "mkdir -p /data/model-weights /data/training-checkpoints /data/config-schemas /data/training-datasets" >$null 2>&1
+    Write-Host "✓ MinIO buckets created:" -ForegroundColor Green
+    Write-Host "  - model-weights (internal)" -ForegroundColor Gray
+    Write-Host "  - training-checkpoints (internal)" -ForegroundColor Gray
+    Write-Host "  - config-schemas (internal)" -ForegroundColor Gray
+    Write-Host "  - training-datasets (external)" -ForegroundColor Gray
 } else {
     Write-Host "✓ MinIO buckets already exist" -ForegroundColor Green
 }
 Write-Host ""
 
-# 9. Display access information
+# 9. Upload training configuration schemas
+Write-Host "Step 9: Uploading training configuration schemas..." -ForegroundColor Yellow
+
+# Create schemas directory in MinIO (config-schemas bucket)
+kubectl exec -n storage deployment/minio -- mkdir -p /data/config-schemas/schemas >$null 2>&1
+
+# Check if schema files exist locally
+$schemasExist = Test-Path "mvp/training/schemas/ultralytics-schema.json"
+
+if ($schemasExist) {
+    # Get MinIO pod name
+    $minioPod = kubectl get pods -n storage -l app=minio -o jsonpath='{.items[0].metadata.name}' 2>$null
+
+    if ($minioPod) {
+        # Copy schema files to MinIO
+        $schemas = @("ultralytics-schema.json", "timm-schema.json")
+        $uploadCount = 0
+
+        foreach ($schema in $schemas) {
+            $localPath = "mvp/training/schemas/$schema"
+            if (Test-Path $localPath) {
+                $targetName = $schema -replace "-schema", ""  # ultralytics-schema.json -> ultralytics.json
+                kubectl cp $localPath "storage/${minioPod}:/data/config-schemas/schemas/$targetName" >$null 2>&1
+                if ($?) {
+                    $uploadCount++
+                    Write-Host "  ✓ Uploaded $targetName" -ForegroundColor Gray
+                }
+            }
+        }
+
+        if ($uploadCount -gt 0) {
+            Write-Host "✓ Uploaded $uploadCount training configuration schemas" -ForegroundColor Green
+        } else {
+            Write-Host "⚠ No schemas uploaded (files may not exist)" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "⚠ MinIO pod not found, skipping schema upload" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "⚠ Schema files not found in mvp/training/schemas/" -ForegroundColor Yellow
+    Write-Host "  Run manually: cd mvp/training && python scripts/upload_schema_to_storage.py --all" -ForegroundColor Gray
+}
+Write-Host ""
+
+# 10. Display access information
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Development Environment Ready!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
@@ -248,7 +313,12 @@ Write-Host ""
 Write-Host "Cluster Information:" -ForegroundColor Yellow
 Write-Host "  Cluster Name:     $ClusterName" -ForegroundColor White
 Write-Host "  Kubernetes:       " -NoNewline -ForegroundColor White
-kubectl version --short 2>$null | Select-String "Server Version" | ForEach-Object { Write-Host $_.ToString().Trim() -ForegroundColor White }
+$k8sVersion = kubectl version 2>$null | Select-String "Server Version" | Select-Object -First 1
+if ($k8sVersion) {
+    Write-Host $k8sVersion.ToString().Trim() -ForegroundColor White
+} else {
+    Write-Host "(version check unavailable)" -ForegroundColor Gray
+}
 Write-Host ""
 
 Write-Host "Quick Commands:" -ForegroundColor Yellow
