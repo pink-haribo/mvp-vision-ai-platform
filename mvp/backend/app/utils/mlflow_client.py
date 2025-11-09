@@ -1,6 +1,7 @@
 """MLflow client utility for fetching experiment tracking data."""
 
 import os
+import logging
 
 from typing import Dict, List, Optional, Any
 from datetime import datetime
@@ -9,9 +10,12 @@ try:
     import mlflow
     from mlflow.tracking import MlflowClient
     from mlflow.entities import Metric, Param, RunTag
+    import urllib3
     MLFLOW_AVAILABLE = True
 except ImportError:
     MLFLOW_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 
 class MLflowClientWrapper:
@@ -23,8 +27,36 @@ class MLflowClientWrapper:
             raise RuntimeError("MLflow is not installed")
 
         self.tracking_uri = tracking_uri
-        mlflow.set_tracking_uri(tracking_uri)
-        self.client = MlflowClient(tracking_uri=tracking_uri)
+        self.available = False
+
+        # Configure urllib3 retry policy to prevent infinite retries
+        # Limit to 2 retries with shorter backoff
+        retry_strategy = urllib3.util.Retry(
+            total=2,
+            connect=2,
+            read=2,
+            status=2,
+            backoff_factor=0.3,  # 0.3s, 0.6s
+            status_forcelist=[500, 502, 503, 504],
+            raise_on_status=False
+        )
+
+        try:
+            mlflow.set_tracking_uri(tracking_uri)
+            self.client = MlflowClient(tracking_uri=tracking_uri)
+
+            # Test connection with short timeout
+            import requests
+            response = requests.get(f"{tracking_uri}/health", timeout=2)
+            if response.status_code == 200:
+                self.available = True
+                logger.info(f"[MLflow] Connected to tracking server: {tracking_uri}")
+            else:
+                logger.warning(f"[MLflow] Server not healthy: {tracking_uri}")
+        except Exception as e:
+            logger.warning(f"[MLflow] Failed to connect to {tracking_uri}: {e}")
+            logger.warning("[MLflow] Running in degraded mode - MLflow features disabled")
+            self.client = None
 
     def get_run_by_job_id(self, job_id: int) -> Optional[Any]:
         """
@@ -36,6 +68,10 @@ class MLflowClientWrapper:
         Returns:
             MLflow run object or None if not found
         """
+        if not self.available or not self.client:
+            logger.debug(f"[MLflow] Client not available, skipping get_run_by_job_id for job {job_id}")
+            return None
+
         try:
             # Experiment name matches the one created in TrainingCallbacks
             experiment_name = f"job_{job_id}"
@@ -57,7 +93,7 @@ class MLflowClientWrapper:
 
             return runs[0]
         except Exception as e:
-            print(f"Error getting MLflow run: {e}")
+            logger.debug(f"[MLflow] Error getting run for job {job_id}: {e}")
             return None
 
     def get_run_metrics(self, job_id: int) -> Dict[str, Any]:
@@ -70,6 +106,15 @@ class MLflowClientWrapper:
         Returns:
             Dictionary containing metrics data
         """
+        if not self.available or not self.client:
+            return {
+                "found": False,
+                "run_id": None,
+                "metrics": {},
+                "params": {},
+                "status": None,
+            }
+
         run = self.get_run_by_job_id(job_id)
         if not run:
             return {
@@ -94,7 +139,7 @@ class MLflowClientWrapper:
                     for m in metric_history
                 ]
             except Exception as e:
-                print(f"Error getting metric history for {metric_key}: {e}")
+                logger.debug(f"[MLflow] Error getting metric history for {metric_key}: {e}")
                 metrics_data[metric_key] = []
 
         return {
@@ -117,6 +162,12 @@ class MLflowClientWrapper:
         Returns:
             Dictionary containing summary data
         """
+        if not self.available or not self.client:
+            return {
+                "found": False,
+                "run_id": None,
+            }
+
         run = self.get_run_by_job_id(job_id)
         if not run:
             return {

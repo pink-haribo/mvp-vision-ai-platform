@@ -10,7 +10,7 @@ from app.db.database import get_db
 from app.db import models
 from app.schemas import training
 from app.core.config import settings
-from app.utils.training_manager import TrainingManager
+from app.utils.training_manager_k8s import TrainingManagerK8s
 from app.utils.mlflow_client import get_mlflow_client
 
 logger = logging.getLogger(__name__)
@@ -324,7 +324,7 @@ async def start_training_job(
 
     # Initialize training manager if not already done
     if training_manager is None:
-        training_manager = TrainingManager(db)
+        training_manager = TrainingManagerK8s(db, default_executor="kubernetes")
 
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
     if not job:
@@ -1103,7 +1103,7 @@ async def stop_training_job(
         # Initialize training manager
         global training_manager
         if training_manager is None:
-            training_manager = TrainingManager(db)
+            training_manager = TrainingManagerK8s(db, default_executor="kubernetes")
 
         # Stop the training job
         success = training_manager.stop_training(job_id)

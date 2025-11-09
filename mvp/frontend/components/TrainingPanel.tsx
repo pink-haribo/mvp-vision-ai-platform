@@ -752,7 +752,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                     Grafana
                   </a>
                   <a
-                    href={`http://localhost:5000/#/experiments/1/runs?searchFilter=tags.mlflow.runName%20%3D%20%22job-${job.id}%22`}
+                    href={`${process.env.NEXT_PUBLIC_MLFLOW_URL || 'http://localhost:30500'}/#/experiments/1/runs?searchFilter=tags.mlflow.runName%20%3D%20%22job-${job.id}%22`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1"
