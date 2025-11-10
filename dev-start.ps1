@@ -222,6 +222,14 @@ kubectl apply -f mvp/k8s/prometheus/prometheus-config.yaml >$null 2>&1
 Write-Host "  - Grafana (dashboards)..." -ForegroundColor Gray
 kubectl apply -f mvp/k8s/prometheus/grafana-config.yaml >$null 2>&1
 
+# Loki + Promtail
+Write-Host "  - Loki (log aggregation)..." -ForegroundColor Gray
+kubectl apply -f mvp/k8s/loki-pvc.yaml >$null 2>&1
+kubectl apply -f mvp/k8s/loki-config.yaml >$null 2>&1
+
+Write-Host "  - Promtail (log collection)..." -ForegroundColor Gray
+kubectl apply -f mvp/k8s/promtail-config.yaml >$null 2>&1
+
 Write-Host "✓ Kubernetes resources deployed" -ForegroundColor Green
 Write-Host ""
 
@@ -233,6 +241,8 @@ Wait-ForPods -Namespace "storage" -LabelSelector "app=minio" -TimeoutSeconds 60
 Wait-ForPods -Namespace "monitoring" -LabelSelector "app=mlflow" -TimeoutSeconds 60
 Wait-ForPods -Namespace "monitoring" -LabelSelector "app=prometheus" -TimeoutSeconds 60
 Wait-ForPods -Namespace "monitoring" -LabelSelector "app=grafana" -TimeoutSeconds 90
+Wait-ForPods -Namespace "monitoring" -LabelSelector "app=loki" -TimeoutSeconds 60
+Wait-ForPods -Namespace "monitoring" -LabelSelector "app=promtail" -TimeoutSeconds 60
 
 Write-Host ""
 
@@ -311,6 +321,7 @@ Write-Host "Services:" -ForegroundColor Yellow
 Write-Host "  MLflow UI:        http://localhost:30500" -ForegroundColor White
 Write-Host "  Prometheus:       http://localhost:30090" -ForegroundColor White
 Write-Host "  Grafana:          http://localhost:30030 (admin/admin)" -ForegroundColor White
+Write-Host "  Loki:             http://localhost:30100" -ForegroundColor White
 Write-Host "  MinIO Console:    http://localhost:30901 (minioadmin/minioadmin)" -ForegroundColor White
 Write-Host "  MinIO API:        http://localhost:30900" -ForegroundColor White
 Write-Host ""

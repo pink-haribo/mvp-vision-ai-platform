@@ -1,8 +1,8 @@
 auth_enabled: false
 
 server:
-  http_listen_port: 3100
-  grpc_listen_port: 9096
+  http_listen_port: ${LOKI_HTTP_PORT:-3100}
+  grpc_listen_port: ${LOKI_GRPC_PORT:-9096}
 
 common:
   instance_addr: 127.0.0.1
@@ -36,12 +36,12 @@ schema_config:
 ruler:
   alertmanager_url: http://localhost:9093
 
-# Retention configuration (optional)
-# Delete logs older than 30 days
+# Retention configuration (configurable via environment)
+# Delete logs older than LOKI_RETENTION_PERIOD (default: 30 days)
 limits_config:
-  retention_period: 720h  # 30 days
+  retention_period: ${LOKI_RETENTION_PERIOD:-720h}
   max_query_series: 100000
-  max_query_lookback: 720h
+  max_query_lookback: ${LOKI_RETENTION_PERIOD:-720h}
 
 # Compactor for log retention
 compactor:

@@ -391,7 +391,8 @@ class TrainingAdapter(ABC):
         output_dir: str,
         job_id: int,
         project_id: Optional[int] = None,
-        logger: Optional['TrainingLogger'] = None
+        logger: Optional['TrainingLogger'] = None,
+        callback_url: Optional[str] = None
     ):
         self.model_config = model_config
         self.dataset_config = dataset_config
@@ -400,6 +401,7 @@ class TrainingAdapter(ABC):
         self.job_id = job_id
         self.project_id = project_id
         self.logger = logger
+        self.callback_url = callback_url  # Backend callback URL for dependency isolation
 
         self.model = None
         self.train_loader = None
@@ -479,11 +481,10 @@ class TrainingAdapter(ABC):
         checkpoint_path: Optional[str] = None
     ) -> Optional[int]:
         """
-        Save validation result to database.
+        Save validation result via callback URL.
 
         This is a common method used by all adapters to store detailed validation
-        metrics in the validation_results table. Adapters should call this method
-        from their validate() implementation.
+        metrics. Uses HTTP callback for dependency isolation.
 
         Args:
             epoch: Current epoch number (1-indexed)
@@ -504,10 +505,17 @@ class TrainingAdapter(ABC):
             checkpoint_path = self.save_checkpoint(epoch, metrics)
             val_result_id = self._save_validation_result(epoch, val_metrics, checkpoint_path)
         """
+        # If no callback URL, skip saving (stdout/Loki will capture logs)
+        if not self.callback_url:
+            print(f"[Validation] No callback URL - validation result not saved to database")
+            print(f"  Epoch: {epoch}")
+            print(f"  Primary metric: {validation_metrics.primary_metric_name}={validation_metrics.primary_metric_value:.4f}")
+            return None
+
         try:
             import json
-            from datetime import datetime
-            from platform_sdk.db_utils import get_db_connection, close_db_connection
+            import requests
+            import os
 
             # Get task-specific metrics
             task_metrics = validation_metrics.get_task_metrics()
@@ -519,86 +527,87 @@ class TrainingAdapter(ABC):
             overall_loss = validation_metrics.overall_loss
 
             # Prepare task-specific fields
-            metrics_json = json.dumps(task_metrics.to_dict())
-            per_class_metrics_json = None
-            confusion_matrix_json = None
-            pr_curves_json = None
-            class_names_json = None
+            metrics_dict = task_metrics.to_dict()
+            per_class_metrics = None
+            confusion_matrix = None
+            pr_curves = None
+            class_names = None
 
             # Classification-specific
             if validation_metrics.classification:
                 clf = validation_metrics.classification
-                per_class_metrics_json = json.dumps(clf.per_class_to_dict())
-                confusion_matrix_json = json.dumps(clf.confusion_matrix_to_list())
+                per_class_metrics = clf.per_class_to_dict()
+                confusion_matrix = clf.confusion_matrix_to_list()
                 if clf.class_names:
-                    class_names_json = json.dumps(clf.class_names)
+                    class_names = clf.class_names
 
             # Detection/Segmentation-specific
             elif validation_metrics.detection:
                 det = validation_metrics.detection
                 if det.per_class_ap:
-                    per_class_metrics_json = json.dumps(det.per_class_ap)
+                    per_class_metrics = det.per_class_ap
                 if det.pr_curves:
-                    pr_curves_json = json.dumps(det.pr_curves)
+                    pr_curves = det.pr_curves
                 # Store class_names from validation_metrics (set by adapter)
                 if hasattr(validation_metrics, '_class_names') and validation_metrics._class_names:
-                    class_names_json = json.dumps(validation_metrics._class_names)
+                    class_names = validation_metrics._class_names
 
             elif validation_metrics.segmentation:
                 seg = validation_metrics.segmentation
                 if seg.per_class_iou:
-                    per_class_metrics_json = json.dumps(seg.per_class_iou)
+                    per_class_metrics = seg.per_class_iou
 
             elif validation_metrics.pose:
                 pose = validation_metrics.pose
                 if pose.per_keypoint_pck:
-                    per_class_metrics_json = json.dumps(pose.per_keypoint_pck)
+                    per_class_metrics = pose.per_keypoint_pck
 
-            # Get database connection
-            conn, cursor, placeholder = get_db_connection()
+            # Build request payload
+            payload = {
+                "epoch": epoch,
+                "task_type": task_type,
+                "primary_metric_value": primary_metric_value,
+                "primary_metric_name": primary_metric_name,
+                "overall_loss": overall_loss,
+                "metrics": metrics_dict,
+                "per_class_metrics": per_class_metrics,
+                "confusion_matrix": confusion_matrix,
+                "pr_curves": pr_curves,
+                "class_names": class_names,
+                "checkpoint_path": checkpoint_path
+            }
 
-            # Insert into database with appropriate placeholder
-            cursor.execute(
-                f"""
-                INSERT INTO validation_results
-                (job_id, epoch, task_type, primary_metric_value, primary_metric_name,
-                 overall_loss, metrics, per_class_metrics, confusion_matrix, pr_curves,
-                 class_names, checkpoint_path, created_at)
-                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
-                """,
-                (
-                    self.job_id,
-                    epoch,
-                    task_type,
-                    primary_metric_value,
-                    primary_metric_name,
-                    overall_loss,
-                    metrics_json,
-                    per_class_metrics_json,
-                    confusion_matrix_json,
-                    pr_curves_json,
-                    class_names_json,
-                    checkpoint_path,
-                    datetime.utcnow().isoformat()
-                )
+            # Get auth token
+            auth_token = os.environ.get("INTERNAL_AUTH_TOKEN", "")
+            headers = {
+                "Content-Type": "application/json",
+                "X-Internal-Auth": auth_token
+            }
+
+            # POST to callback URL
+            response = requests.post(
+                f"{self.callback_url}/validation-results",
+                json=payload,
+                headers=headers,
+                timeout=10
             )
+            response.raise_for_status()
 
-            validation_result_id = cursor.lastrowid
-            conn.commit()
-            close_db_connection(conn, cursor)
+            result = response.json()
+            validation_result_id = result.get("validation_result_id")
 
-            print(f"[Validation] Saved validation result to database (epoch {epoch}, id={validation_result_id})")
+            print(f"[Validation] Saved validation result via callback (epoch {epoch}, id={validation_result_id})")
             print(f"  Task: {task_type}")
             print(f"  Primary metric: {primary_metric_name}={primary_metric_value:.4f}")
 
             return validation_result_id
 
         except Exception as e:
-            print(f"[ERROR] Failed to save validation result to database: {e}")
-            print(f"[ERROR] This is a critical error - training cannot continue without database access")
+            print(f"[ERROR] Failed to save validation result via callback: {e}")
+            print(f"[WARNING] Training will continue, but validation result not saved")
             import traceback
             traceback.print_exc()
-            raise
+            return None  # Don't raise - allow training to continue
 
     def _save_validation_image_results(
         self,
@@ -608,7 +617,7 @@ class TrainingAdapter(ABC):
         class_names: Optional[List[str]] = None
     ) -> None:
         """
-        Save per-image validation results to database.
+        Save per-image validation results via callback URL.
 
         Args:
             validation_result_id: ID of the validation result
@@ -616,13 +625,18 @@ class TrainingAdapter(ABC):
             image_results: List of per-image result dictionaries
             class_names: List of class names for label mapping
         """
+        # If no callback URL or no validation_result_id, skip saving
+        if not self.callback_url or not validation_result_id:
+            print(f"[Validation] No callback URL or validation_result_id - image results not saved")
+            return
+
         try:
             import json
-            from datetime import datetime
-            from platform_sdk.db_utils import get_db_connection, close_db_connection
+            import requests
+            import os
 
-            # Prepare batch insert data
-            records = []
+            # Prepare batch data
+            payload = []
             for img_result in image_results:
                 true_label = class_names[img_result['true_label_id']] if class_names else str(img_result['true_label_id'])
                 predicted_label = class_names[img_result['predicted_label_id']] if class_names else str(img_result['predicted_label_id'])
@@ -631,106 +645,73 @@ class TrainingAdapter(ABC):
                 image_path = img_result.get('image_path')
                 image_name = img_result.get('image_name', f"image_{img_result['image_index']}")
 
-                records.append((
-                    validation_result_id,
-                    self.job_id,
-                    epoch,
-                    image_path,
-                    image_name,
-                    img_result['image_index'],
-                    true_label,
-                    img_result['true_label_id'],
-                    predicted_label,
-                    img_result['predicted_label_id'],
-                    img_result['confidence'],
-                    json.dumps(img_result.get('top5_predictions')),
-                    None,  # true_boxes
-                    None,  # predicted_boxes
-                    None,  # true_mask_path
-                    None,  # predicted_mask_path
-                    None,  # true_keypoints
-                    None,  # predicted_keypoints
-                    img_result['is_correct'],
-                    None,  # iou
-                    None,  # oks
-                    None,  # extra_data
-                    datetime.utcnow().isoformat()
-                ))
+                payload.append({
+                    "validation_result_id": validation_result_id,
+                    "epoch": epoch,
+                    "image_path": image_path,
+                    "image_name": image_name,
+                    "image_index": img_result['image_index'],
+                    "true_label": true_label,
+                    "true_label_id": img_result['true_label_id'],
+                    "predicted_label": predicted_label,
+                    "predicted_label_id": img_result['predicted_label_id'],
+                    "confidence": img_result['confidence'],
+                    "top5_predictions": img_result.get('top5_predictions'),
+                    "true_boxes": None,
+                    "predicted_boxes": None,
+                    "true_mask_path": None,
+                    "predicted_mask_path": None,
+                    "true_keypoints": None,
+                    "predicted_keypoints": None,
+                    "is_correct": img_result['is_correct'],
+                    "iou": None,
+                    "oks": None,
+                    "extra_data": None
+                })
 
-            # Get database connection
-            conn, cursor, placeholder = get_db_connection()
+            # Get auth token
+            auth_token = os.environ.get("INTERNAL_AUTH_TOKEN", "")
+            headers = {
+                "Content-Type": "application/json",
+                "X-Internal-Auth": auth_token
+            }
 
-            # Batch insert with appropriate placeholder
-            placeholders = ', '.join([placeholder] * 23)  # 23 fields
-            cursor.executemany(
-                f"""
-                INSERT INTO validation_image_results
-                (validation_result_id, job_id, epoch, image_path, image_name, image_index,
-                 true_label, true_label_id, predicted_label, predicted_label_id, confidence,
-                 top5_predictions, true_boxes, predicted_boxes, true_mask_path, predicted_mask_path,
-                 true_keypoints, predicted_keypoints, is_correct, iou, oks, extra_data, created_at)
-                VALUES ({placeholders})
-                """,
-                records
+            # POST to callback URL
+            response = requests.post(
+                f"{self.callback_url}/validation-image-results",
+                json=payload,
+                headers=headers,
+                timeout=30  # Longer timeout for batch
             )
+            response.raise_for_status()
 
-            conn.commit()
-            close_db_connection(conn, cursor)
+            result = response.json()
+            count = result.get("count", len(payload))
 
             # Count how many have actual paths vs placeholders
-            with_paths = sum(1 for r in records if r[3] is not None)  # r[3] is image_path
-            print(f"[Validation] Saved {len(records)} image results to database (epoch {epoch})")
+            with_paths = sum(1 for r in payload if r['image_path'] is not None)
+            print(f"[Validation] Saved {count} image results via callback (epoch {epoch})")
             print(f"             - {with_paths} with actual image paths")
-            print(f"             - {len(records) - with_paths} with placeholder names only")
+            print(f"             - {count - with_paths} with placeholder names only")
 
         except Exception as e:
-            print(f"[ERROR] Failed to save image results to database: {e}")
-            print(f"[ERROR] This is a critical error - training cannot continue without database access")
+            print(f"[ERROR] Failed to save image results via callback: {e}")
+            print(f"[WARNING] Training will continue, but image results not saved")
             import traceback
             traceback.print_exc()
-            raise
+            # Don't raise - allow training to continue
 
     def _clear_validation_results(self) -> None:
         """
         Clear all validation results for the current job_id.
 
-        This should be called when starting a new training (resume=False)
-        to remove old validation data from previous training runs.
+        NOTE: With callback URL pattern, this is handled by Backend automatically.
+        This method is a no-op for backward compatibility.
         """
-        try:
-            from platform_sdk.db_utils import get_db_connection, close_db_connection
-
-            # Get database connection
-            conn, cursor, placeholder = get_db_connection()
-
-            # Delete image results first (foreign key constraint)
-            cursor.execute(
-                f"DELETE FROM validation_image_results WHERE job_id = {placeholder}",
-                (self.job_id,)
-            )
-            deleted_images = cursor.rowcount
-
-            # Delete validation results
-            cursor.execute(
-                f"DELETE FROM validation_results WHERE job_id = {placeholder}",
-                (self.job_id,)
-            )
-            deleted_results = cursor.rowcount
-
-            conn.commit()
-            close_db_connection(conn, cursor)
-
-            if deleted_results > 0 or deleted_images > 0:
-                print(f"[INFO] Cleared previous validation data for job {self.job_id}:")
-                print(f"       - {deleted_results} validation results")
-                print(f"       - {deleted_images} image results")
-
-        except Exception as e:
-            print(f"[ERROR] Failed to clear validation results: {e}")
-            print(f"[ERROR] This is a critical error - training cannot continue without database access")
-            import traceback
-            traceback.print_exc()
-            raise
+        if not self.callback_url:
+            print(f"[INFO] No callback URL - validation clearing skipped (handled by Backend)")
+        # Backend clears validation results when starting new training
+        # No action needed from Training Service
 
     @abstractmethod
     def save_checkpoint(self, epoch: int, metrics: MetricsResult) -> str:
@@ -1232,7 +1213,8 @@ class TrainingAdapter(ABC):
             job_id=self.job_id,
             model_config=self.model_config,
             training_config=self.training_config,
-            db_session=None  # No DB session in subprocess
+            db_session=None,  # No DB session in subprocess
+            callback_url=self.callback_url  # Pass callback URL for dependency isolation
         )
 
         # 3.5. Get primary metric configuration from database
@@ -1448,7 +1430,7 @@ class TrainingCallbacks:
 
     def __init__(self, job_id: int, model_config: 'ModelConfig',
                  training_config: 'TrainingConfig', db_session=None,
-                 project_id: Optional[int] = None):
+                 project_id: Optional[int] = None, callback_url: Optional[str] = None):
         """
         Initialize callbacks.
 
@@ -1456,14 +1438,16 @@ class TrainingCallbacks:
             job_id: Training job ID
             model_config: Model configuration
             training_config: Training configuration
-            db_session: Database session (optional, for DB updates)
+            db_session: Database session (optional, deprecated - use callback_url)
             project_id: Project ID (optional)
+            callback_url: Backend callback URL for dependency isolation
         """
         self.job_id = job_id
         self.model_config = model_config
         self.training_config = training_config
         self.db_session = db_session
         self.project_id = project_id
+        self.callback_url = callback_url
         self.mlflow_run = None
         self.mlflow_run_id = None
         self.mlflow_experiment_id = None
@@ -1515,44 +1499,42 @@ class TrainingCallbacks:
                 if isinstance(value, (str, int, float, bool)):
                     mlflow.log_param(key, value)
 
-        # Update database with MLflow IDs
-        if self.db_session:
-            from app.db import models
-            job = self.db_session.query(models.TrainingJob).filter(
-                models.TrainingJob.id == self.job_id
-            ).first()
-
-            if job:
-                job.mlflow_experiment_id = self.mlflow_experiment_id
-                job.mlflow_run_id = self.mlflow_run_id
-                self.db_session.commit()
-                print(f"[Callbacks] Updated DB with MLflow IDs")
-        else:
-            # If no db_session provided, use direct database connection
+        # Update database with MLflow IDs via callback URL
+        if self.callback_url:
             try:
-                from platform_sdk.db_utils import get_db_connection, close_db_connection
+                import requests
 
-                # Get database connection
-                conn, cursor, placeholder = get_db_connection()
+                auth_token = os.environ.get("INTERNAL_AUTH_TOKEN", "")
+                headers = {
+                    "Content-Type": "application/json",
+                    "X-Internal-Auth": auth_token
+                }
 
-                # Update MLflow IDs using direct SQL
-                cursor.execute(
-                    f"UPDATE training_jobs SET mlflow_experiment_id = {placeholder}, mlflow_run_id = {placeholder} WHERE id = {placeholder}",
-                    (self.mlflow_experiment_id, self.mlflow_run_id, self.job_id)
+                payload = {
+                    "status": "running",
+                    "mlflow_experiment_id": self.mlflow_experiment_id,
+                    "mlflow_run_id": self.mlflow_run_id
+                }
+
+                response = requests.patch(
+                    f"{self.callback_url}/status",
+                    json=payload,
+                    headers=headers,
+                    timeout=5
                 )
-                conn.commit()
-                close_db_connection(conn, cursor)
+                response.raise_for_status()
 
-                print(f"[Callbacks] Updated DB with MLflow IDs")
+                print(f"[Callbacks] Updated MLflow IDs via callback")
                 print(f"  Job ID: {self.job_id}")
                 print(f"  Experiment ID: {self.mlflow_experiment_id}")
                 print(f"  Run ID: {self.mlflow_run_id}")
+
             except Exception as e:
-                print(f"[ERROR] Failed to update DB with MLflow IDs: {e}")
-                print(f"[ERROR] Training requires database access")
-                import traceback
-                traceback.print_exc()
-                raise
+                print(f"[WARNING] Failed to update MLflow IDs via callback: {e}")
+                print(f"[WARNING] Training will continue")
+                # Don't raise - allow training to continue
+        else:
+            print(f"[WARNING] No callback URL - MLflow IDs not saved to database")
 
     def on_epoch_begin(self, epoch: int):
         """
@@ -1619,71 +1601,47 @@ class TrainingCallbacks:
                 sanitized_key = sanitize_metric_name(key)
                 mlflow.log_metric(sanitized_key, value, step=epoch)
 
-        # Log to database
-        # Extract common metrics
+        # Log to database via callback URL
         train_loss = metrics.get('train_loss') or metrics.get('loss')
         val_loss = metrics.get('val_loss')
         accuracy = metrics.get('accuracy') or metrics.get('mAP50')  # mAP50 for detection
         lr = metrics.get('learning_rate') or metrics.get('lr')
 
-        if self.db_session:
-            from app.db import models
-
-            # Store in database using SQLAlchemy
-            metric_record = models.TrainingMetric(
-                job_id=self.job_id,
-                epoch=epoch,
-                step=epoch,
-                loss=train_loss,
-                accuracy=accuracy,
-                learning_rate=lr,
-                checkpoint_path=checkpoint_path,
-                extra_metrics=metrics  # Store all metrics as JSON
-            )
-            self.db_session.add(metric_record)
-            self.db_session.commit()
-        else:
-            # Use direct database connection when no db_session available
+        if self.callback_url:
             try:
-                import json
-                from datetime import datetime
-                from platform_sdk.db_utils import get_db_connection, close_db_connection
+                import requests
 
-                # Get database connection
-                conn, cursor, placeholder = get_db_connection()
+                auth_token = os.environ.get("INTERNAL_AUTH_TOKEN", "")
+                headers = {
+                    "Content-Type": "application/json",
+                    "X-Internal-Auth": auth_token
+                }
 
-                # Build placeholder string for query
-                placeholders = ', '.join([placeholder] * 9)
+                payload = {
+                    "epoch": epoch,
+                    "step": epoch,
+                    "loss": train_loss,
+                    "accuracy": accuracy,
+                    "learning_rate": lr,
+                    "checkpoint_path": checkpoint_path,
+                    "extra_metrics": metrics
+                }
 
-                # Insert metric using direct SQL
-                cursor.execute(
-                    f"""
-                    INSERT INTO training_metrics
-                    (job_id, epoch, step, loss, accuracy, learning_rate, checkpoint_path, extra_metrics, created_at)
-                    VALUES ({placeholders})
-                    """,
-                    (
-                        self.job_id,
-                        epoch,
-                        epoch,
-                        train_loss,
-                        accuracy,
-                        lr,
-                        checkpoint_path,
-                        json.dumps(metrics),
-                        datetime.utcnow().isoformat()
-                    )
+                response = requests.post(
+                    f"{self.callback_url}/training-metrics",
+                    json=payload,
+                    headers=headers,
+                    timeout=10
                 )
-                conn.commit()
-                close_db_connection(conn, cursor)
+                response.raise_for_status()
 
-                print(f"[Callbacks] Saved metric to database (epoch {epoch})")
+                print(f"[Callbacks] Saved metric via callback (epoch {epoch})")
             except Exception as e:
-                print(f"[ERROR] Failed to save metric to database: {e}")
-                print(f"[ERROR] Training requires database access")
-                import traceback
-                traceback.print_exc()
-                raise
+                print(f"[WARNING] Failed to save metric via callback: {e}")
+                print(f"[WARNING] Training will continue")
+                # Don't raise - allow training to continue
+        else:
+            print(f"[INFO] No callback URL - metrics only logged to MLflow")
 
         # Console output
         print(f"[Callbacks] Epoch {epoch}: ", end="")

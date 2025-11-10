@@ -4,7 +4,7 @@ version: '3.8'
 # Vision AI Platform - Development Infrastructure
 # ================================
 # This docker-compose file provides all the infrastructure services
-# needed for local development: PostgreSQL, MongoDB, Redis, MinIO, Temporal
+# needed for local development: PostgreSQL, Redis, MinIO, MLflow, Loki/Promtail, Prometheus/Grafana
 #
 # Usage:
 #   docker-compose up -d        # Start all services
@@ -32,28 +32,6 @@ services:
       - ./scripts/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d vision_platform"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - vision-network
-
-  # ================================
-  # MongoDB - Document Store
-  # ================================
-  mongodb:
-    image: mongo:7
-    container_name: vision-mongodb
-    restart: unless-stopped
-    ports:
-      - "27017:27017"
-    environment:
-      MONGO_INITDB_DATABASE: vision_platform
-    volumes:
-      - mongo_data:/data/db
-      - mongo_config:/data/configdb
-    healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/vision_platform --quiet
       interval: 10s
       timeout: 5s
       retries: 5
@@ -121,36 +99,6 @@ services:
       mc policy set download minio/vision-platform-dev;
       echo 'MinIO bucket created successfully';
       "
-    networks:
-      - vision-network
-
-  # ================================
-  # Temporal Server - Workflow Engine
-  # ================================
-  temporal:
-    image: temporalio/auto-setup:latest
-    container_name: vision-temporal
-    restart: unless-stopped
-    ports:
-      - "7233:7233"  # gRPC
-      - "8233:8233"  # Web UI
-    environment:
-      - DB=postgresql
-      - DB_PORT=5432
-      - POSTGRES_USER=admin
-      - POSTGRES_PWD=devpass
-      - POSTGRES_SEEDS=postgres
-      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - ./config/temporal:/etc/temporal/config/dynamicconfig
-    healthcheck:
-      test: ["CMD", "tctl", "--address", "temporal:7233", "workflow", "list"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
     networks:
       - vision-network
 
@@ -237,8 +185,13 @@ services:
     container_name: vision-loki
     restart: unless-stopped
     ports:
-      - "3100:3100"
+      - "${LOKI_HTTP_PORT:-3100}:3100"
     command: -config.file=/etc/loki/local-config.yaml
+    environment:
+      - LOKI_HTTP_PORT=${LOKI_HTTP_PORT:-3100}
+      - LOKI_GRPC_PORT=${LOKI_GRPC_PORT:-9096}
+      - LOKI_RETENTION_PERIOD=${LOKI_RETENTION_PERIOD:-720h}
+      - LOKI_STORAGE_TYPE=${LOKI_STORAGE_TYPE:-filesystem}
     volumes:
       - ./config/loki/loki-config.yaml:/etc/loki/local-config.yaml
       - loki_data:/loki
@@ -252,6 +205,10 @@ services:
     image: grafana/promtail:2.9.3
     container_name: vision-promtail
     restart: unless-stopped
+    environment:
+      - PROMTAIL_HTTP_PORT=${PROMTAIL_HTTP_PORT:-9080}
+      - PROMTAIL_LOKI_URL=${PROMTAIL_LOKI_URL:-http://loki:3100}
+      - PROMTAIL_LOG_PATH=${PROMTAIL_LOG_PATH:-/app/logs/*.log}
     volumes:
       - ./config/promtail/promtail-config.yaml:/etc/promtail/config.yaml
       - /var/log:/var/log:ro
@@ -263,7 +220,7 @@ services:
       - vision-network
 
   # ================================
-  # Mailhog - Email Testing (Development)
+  # Mailhog - Email Testing (Optional)
   # ================================
   mailhog:
     image: mailhog/mailhog:latest
@@ -274,6 +231,8 @@ services:
       - "8025:8025"  # Web UI
     networks:
       - vision-network
+    profiles:
+      - dev-tools  # Only start with: docker-compose --profile dev-tools up
 
   # ================================
   # pgAdmin - PostgreSQL Management (Optional)
@@ -295,37 +254,13 @@ services:
     networks:
       - vision-network
     profiles:
-      - tools  # Only start with: docker-compose --profile tools up
-
-  # ================================
-  # Mongo Express - MongoDB Management (Optional)
-  # ================================
-  mongo-express:
-    image: mongo-express:latest
-    container_name: vision-mongo-express
-    restart: unless-stopped
-    ports:
-      - "8081:8081"
-    environment:
-      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017/
-      ME_CONFIG_BASICAUTH_USERNAME: admin
-      ME_CONFIG_BASICAUTH_PASSWORD: admin
-    depends_on:
-      - mongodb
-    networks:
-      - vision-network
-    profiles:
-      - tools  # Only start with: docker-compose --profile tools up
+      - dev-tools  # Only start with: docker-compose --profile dev-tools up
 
 # ================================
 # Volumes
 # ================================
 volumes:
   postgres_data:
-    driver: local
-  mongo_data:
-    driver: local
-  mongo_config:
     driver: local
   redis_data:
     driver: local

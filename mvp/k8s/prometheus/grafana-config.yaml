@@ -95,6 +95,20 @@ data:
         isDefault: true
         editable: true
 
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        isDefault: false
+        editable: true
+        jsonData:
+          maxLines: 1000
+          derivedFields:
+            - datasourceUid: prometheus
+              matcherRegex: "job_id=(\\d+)"
+              name: job_id
+              url: "/d/training-metrics?var-job_id=$${__value.raw}"
+
 ---
 # Grafana Dashboards Provider ConfigMap
 apiVersion: v1
