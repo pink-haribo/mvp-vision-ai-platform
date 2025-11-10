@@ -104,6 +104,10 @@ def parse_args():
     parser.add_argument('--project_id', type=int, default=None,
                         help='Project ID for organizing checkpoints in R2')
 
+    # Callback URL for dependency isolation
+    parser.add_argument('--callback_url', type=str, default=None,
+                        help='Backend callback URL for reporting results (enables dependency isolation)')
+
     return parser.parse_args()
 
 
@@ -336,13 +340,18 @@ def main():
     logger = TrainingLogger(job_id=args.job_id)
     if logger.enabled:
         print(f"[INFO] Training Logger enabled: {logger.backend_url}")
-        logger.log_message(f"Starting training: {args.framework}/{args.model_name}", level="INFO")
         logger.update_status("running")
     else:
         print(f"[WARNING] Training Logger disabled (BACKEND_API_URL not set)")
 
     # Create adapter instance
     print(f"\n[INFO] Creating {args.framework} adapter for {args.task_type}")
+    if args.callback_url:
+        print(f"[INFO] Callback URL enabled: {args.callback_url}")
+        print(f"[INFO] Using HTTP API for validation results (dependency isolation)")
+    else:
+        print(f"[WARNING] No callback URL provided - using direct DB access (legacy mode)")
+
     adapter = adapter_class(
         model_config=model_config,
         dataset_config=dataset_config,
@@ -350,7 +359,8 @@ def main():
         output_dir=args.output_dir,
         job_id=args.job_id,
         project_id=args.project_id,
-        logger=logger
+        logger=logger,
+        callback_url=args.callback_url
     )
 
     # Load checkpoint if provided

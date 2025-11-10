@@ -1160,37 +1160,13 @@ class UltralyticsAdapter(TrainingAdapter):
             project_id=self.project_id
         )
 
-        # Get primary metric configuration from database
-        primary_metric = None
-        primary_metric_mode = None
+        # Determine primary metric from task type (no DB access needed)
+        task_type_str = self.model_config.task_type.value
+        primary_metric = self._infer_primary_metric(task_type_str)
+        primary_metric_mode = "max"  # All YOLO metrics are maximized
 
-        try:
-            from platform_sdk.db_utils import get_db_connection, close_db_connection
-
-            # Get database connection
-            conn, cursor, placeholder = get_db_connection()
-
-            cursor.execute(
-                f"SELECT primary_metric, primary_metric_mode FROM training_jobs WHERE id = {placeholder}",
-                (self.job_id,)
-            )
-
-            result = cursor.fetchone()
-            close_db_connection(conn, cursor)
-
-            if result:
-                primary_metric, primary_metric_mode = result
-                print(f"[YOLO INFO] Primary metric for best checkpoint: {primary_metric} ({primary_metric_mode})")
-                print(f"[YOLO INFO] YOLO will save best.pt based on its internal fitness calculation")
-            else:
-                print(f"[YOLO WARNING] Job {self.job_id} not found in database")
-
-        except Exception as e:
-            print(f"[YOLO ERROR] Failed to load primary metric config: {e}")
-            print(f"[YOLO ERROR] Training requires database access")
-            import traceback
-            traceback.print_exc()
-            raise
+        print(f"[YOLO INFO] Primary metric: {primary_metric} ({primary_metric_mode})")
+        print(f"[YOLO INFO] YOLO will save best.pt based on its internal fitness calculation")
 
         # Start training (creates MLflow run)
         callbacks.on_train_begin()
@@ -2346,7 +2322,7 @@ class UltralyticsAdapter(TrainingAdapter):
     def _save_detection_image_results(self, validation_result_id: int, epoch: int,
                                      image_results: list, class_names: list):
         """
-        Save detection image results to database in framework-independent format.
+        Save detection image results via callback URL.
 
         Args:
             validation_result_id: Validation result ID
@@ -2354,15 +2330,18 @@ class UltralyticsAdapter(TrainingAdapter):
             image_results: List of dicts with image_path, true_boxes, predicted_boxes
             class_names: List of class names
         """
-        import json
-        from datetime import datetime
-        from platform_sdk.db_utils import get_db_connection, close_db_connection
+        # If no callback URL or no validation_result_id, skip saving
+        if not self.callback_url or not validation_result_id:
+            print(f"[YOLO] No callback URL or validation_result_id - image results not saved")
+            return
 
         try:
-            # Get database connection
-            conn, cursor, placeholder = get_db_connection()
+            import json
+            import requests
+            import os
 
-            records = []
+            # Prepare batch data
+            payload = []
             for img_result in image_results:
                 # Determine primary class from boxes
                 true_label_id = None
@@ -2387,56 +2366,59 @@ class UltralyticsAdapter(TrainingAdapter):
                 true_label = class_names[true_label_id] if true_label_id is not None and class_names and true_label_id < len(class_names) else None
                 predicted_label = class_names[predicted_label_id] if predicted_label_id is not None and class_names and predicted_label_id < len(class_names) else None
 
-                records.append((
-                    validation_result_id,
-                    self.job_id,
-                    epoch,
-                    img_result['image_path'],
-                    img_result['image_name'],
-                    img_result['image_index'],
-                    true_label,
-                    true_label_id,
-                    predicted_label,
-                    predicted_label_id,
-                    confidence,
-                    None,  # top5_predictions (not applicable for detection)
-                    json.dumps(img_result['true_boxes']),
-                    json.dumps(img_result['predicted_boxes']),
-                    None,  # true_mask_path
-                    None,  # predicted_mask_path
-                    None,  # true_keypoints
-                    None,  # predicted_keypoints
-                    is_correct,
-                    None,  # iou (will calculate if needed)
-                    None,  # oks
-                    None,  # extra_data
-                    datetime.utcnow().isoformat()
-                ))
+                payload.append({
+                    "validation_result_id": validation_result_id,
+                    "epoch": epoch,
+                    "image_path": img_result['image_path'],
+                    "image_name": img_result['image_name'],
+                    "image_index": img_result['image_index'],
+                    "true_label": true_label,
+                    "true_label_id": true_label_id,
+                    "predicted_label": predicted_label,
+                    "predicted_label_id": predicted_label_id,
+                    "confidence": confidence,
+                    "top5_predictions": None,  # Not applicable for detection
+                    "true_boxes": img_result['true_boxes'],
+                    "predicted_boxes": img_result['predicted_boxes'],
+                    "true_mask_path": None,
+                    "predicted_mask_path": None,
+                    "true_keypoints": None,
+                    "predicted_keypoints": None,
+                    "is_correct": is_correct,
+                    "iou": None,
+                    "oks": None,
+                    "extra_data": None
+                })
 
-            # Batch insert (use appropriate placeholder for database type)
-            sql = f"""
-                INSERT INTO validation_image_results
-                (validation_result_id, job_id, epoch, image_path, image_name, image_index,
-                 true_label, true_label_id, predicted_label, predicted_label_id, confidence,
-                 top5_predictions, true_boxes, predicted_boxes, true_mask_path, predicted_mask_path,
-                 true_keypoints, predicted_keypoints, is_correct, iou, oks, extra_data, created_at)
-                VALUES ({', '.join([placeholder] * 23)})
-                """
-            cursor.executemany(sql, records)
+            # Get auth token
+            auth_token = os.environ.get("INTERNAL_AUTH_TOKEN", "")
+            headers = {
+                "Content-Type": "application/json",
+                "X-Internal-Auth": auth_token
+            }
 
-            conn.commit()
-            close_db_connection(conn, cursor)
+            # POST to callback URL
+            response = requests.post(
+                f"{self.callback_url}/validation-image-results",
+                json=payload,
+                headers=headers,
+                timeout=30  # Longer timeout for batch
+            )
+            response.raise_for_status()
 
-            print(f"[YOLO] Saved {len(records)} detection image results to database (epoch {epoch})")
+            result = response.json()
+            count = result.get("count", len(payload))
+
+            print(f"[YOLO] Saved {count} detection image results via callback (epoch {epoch})")
             sys.stdout.flush()
 
         except Exception as e:
-            print(f"[ERROR] Failed to save detection image results: {e}")
-            print(f"[ERROR] Training requires database access")
+            print(f"[WARNING] Failed to save detection image results via callback: {e}")
+            print(f"[WARNING] Training will continue")
             import traceback
             traceback.print_exc()
             sys.stdout.flush()
-            raise
+            # Don't raise - allow training to continue
 
     def save_checkpoint(self, epoch: int, metrics: MetricsResult) -> str:
         """

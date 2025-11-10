@@ -1,28 +1,28 @@
 """Training Logger for Platform SDK.
 
-This module provides structured logging to Backend API,
-eliminating the need for stdout parsing.
+This module provides status update functionality to Backend API.
+Metrics and logs are handled by MLflow and Loki respectively.
 """
 
 import os
 import requests
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional
 import warnings
 
 
 class TrainingLogger:
     """
-    Send structured logs and metrics to Backend API.
+    Send status updates to Backend API.
 
-    This logger enables Training Services to report progress without
-    relying on stdout parsing, maintaining clean separation of concerns.
+    Metrics are logged to MLflow (via TrainingCallbacks).
+    Logs are collected by Promtail/Loki (via stdout).
+    This class only handles job status updates.
 
     Usage:
         logger = TrainingLogger(job_id=1)
-        logger.log_metric("train_loss", 0.234, epoch=1, step=100)
-        logger.log_message("Starting training...", level="INFO")
         logger.update_status("running")
+        logger.update_status("completed")
     """
 
     def __init__(
@@ -48,7 +48,7 @@ class TrainingLogger:
         self.backend_url = backend_url or os.environ.get("BACKEND_API_URL")
         if not self.backend_url:
             warnings.warn(
-                "BACKEND_API_URL not set. Logging disabled.",
+                "BACKEND_API_URL not set. Status updates disabled.",
                 UserWarning
             )
             self.enabled = False
@@ -57,7 +57,7 @@ class TrainingLogger:
         self.auth_token = auth_token or os.environ.get("INTERNAL_AUTH_TOKEN")
         if not self.auth_token and self.enabled:
             warnings.warn(
-                "INTERNAL_AUTH_TOKEN not set. Logging may fail.",
+                "INTERNAL_AUTH_TOKEN not set. Status updates may fail.",
                 UserWarning
             )
 
@@ -73,106 +73,6 @@ class TrainingLogger:
 
         # Timeout for API calls (fail fast)
         self.timeout = 5
-
-    def log_metric(
-        self,
-        name: str,
-        value: float,
-        epoch: Optional[int] = None,
-        step: Optional[int] = None,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> bool:
-        """
-        Log a training metric.
-
-        Args:
-            name: Metric name (e.g., "train_loss", "val_accuracy")
-            value: Metric value
-            epoch: Training epoch (optional)
-            step: Training step (optional)
-            metadata: Additional metadata (optional)
-
-        Returns:
-            True if successful, False otherwise
-        """
-        if not self.enabled:
-            return False
-
-        try:
-            payload = {
-                "name": name,
-                "value": float(value),
-                "epoch": epoch,
-                "step": step,
-                "metadata": metadata or {},
-                "timestamp": datetime.utcnow().isoformat()
-            }
-
-            response = self.session.post(
-                f"{self.backend_url}/internal/training/{self.job_id}/metrics",
-                json=payload,
-                timeout=self.timeout
-            )
-
-            response.raise_for_status()
-            return True
-
-        except requests.exceptions.Timeout:
-            warnings.warn(f"[TrainingLogger] Timeout logging metric: {name}", UserWarning)
-            return False
-        except requests.exceptions.RequestException as e:
-            warnings.warn(f"[TrainingLogger] Failed to log metric: {e}", UserWarning)
-            return False
-        except Exception as e:
-            warnings.warn(f"[TrainingLogger] Unexpected error: {e}", UserWarning)
-            return False
-
-    def log_message(
-        self,
-        message: str,
-        level: str = "INFO",
-        epoch: Optional[int] = None
-    ) -> bool:
-        """
-        Log a training message.
-
-        Args:
-            message: Log message
-            level: Log level (INFO, WARNING, ERROR, DEBUG)
-            epoch: Training epoch (optional)
-
-        Returns:
-            True if successful, False otherwise
-        """
-        if not self.enabled:
-            return False
-
-        try:
-            payload = {
-                "message": message,
-                "level": level.upper(),
-                "epoch": epoch,
-                "timestamp": datetime.utcnow().isoformat()
-            }
-
-            response = self.session.post(
-                f"{self.backend_url}/internal/training/{self.job_id}/logs",
-                json=payload,
-                timeout=self.timeout
-            )
-
-            response.raise_for_status()
-            return True
-
-        except requests.exceptions.Timeout:
-            warnings.warn(f"[TrainingLogger] Timeout logging message", UserWarning)
-            return False
-        except requests.exceptions.RequestException as e:
-            warnings.warn(f"[TrainingLogger] Failed to log message: {e}", UserWarning)
-            return False
-        except Exception as e:
-            warnings.warn(f"[TrainingLogger] Unexpected error: {e}", UserWarning)
-            return False
 
     def update_status(
         self,
@@ -220,38 +120,6 @@ class TrainingLogger:
         except Exception as e:
             warnings.warn(f"[TrainingLogger] Unexpected error: {e}", UserWarning)
             return False
-
-    def log_epoch_summary(
-        self,
-        epoch: int,
-        metrics: Dict[str, float],
-        duration: Optional[float] = None
-    ) -> bool:
-        """
-        Log all metrics for an epoch at once.
-
-        Convenience method for logging multiple metrics together.
-
-        Args:
-            epoch: Epoch number
-            metrics: Dict of metric_name -> value
-            duration: Epoch duration in seconds (optional)
-
-        Returns:
-            True if all successful, False otherwise
-        """
-        success = True
-
-        for name, value in metrics.items():
-            result = self.log_metric(
-                name=name,
-                value=value,
-                epoch=epoch,
-                metadata={"duration": duration} if duration else None
-            )
-            success = success and result
-
-        return success
 
     def close(self):
         """Close the underlying HTTP session."""

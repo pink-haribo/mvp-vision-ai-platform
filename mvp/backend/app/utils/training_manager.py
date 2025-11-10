@@ -102,6 +102,10 @@ class TrainingManager:
             print(f"[TrainingManager] Job {job_id} status is {job.status}, expected 'pending'")
             return False
 
+        # Build callback URL for dependency isolation
+        backend_url = os.getenv("BACKEND_INTERNAL_URL", "http://localhost:8000/internal")
+        callback_url = f"{backend_url}/training/{job_id}"
+
         # Prepare training config
         job_config = {
             "job_id": job_id,
@@ -122,7 +126,8 @@ class TrainingManager:
             "checkpoint_path": checkpoint_path,
             "resume": resume,
             "advanced_config": job.advanced_config,  # Pass advanced_config from Backend DB
-            "project_id": job.project_id  # Pass project_id for checkpoint organization
+            "project_id": job.project_id,  # Pass project_id for checkpoint organization
+            "callback_url": callback_url  # Pass callback URL for dependency isolation
         }
 
         print(f"[TrainingManager] Starting training via API for job {job_id}")
