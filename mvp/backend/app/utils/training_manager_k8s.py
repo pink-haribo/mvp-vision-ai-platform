@@ -224,7 +224,9 @@ class TrainingManagerK8s:
 
         try:
             # Build train.py command
-            train_script = Path(__file__).parent.parent.parent.parent.parent / "training" / "train.py"
+            # __file__ is at mvp/backend/app/utils/training_manager_k8s.py
+            # train.py is at mvp/training/train.py
+            train_script = Path(__file__).parent.parent.parent.parent / "training" / "train.py"
             if not train_script.exists():
                 raise FileNotFoundError(f"train.py not found at {train_script}")
 
@@ -260,6 +262,11 @@ class TrainingManagerK8s:
                 config_json = json.dumps(job.advanced_config)
                 cmd.append(f"--advanced_config={config_json}")
 
+            # Add callback URL for dependency isolation
+            backend_url = os.getenv("BACKEND_INTERNAL_URL", "http://localhost:8000/internal")
+            callback_url = f"{backend_url}/training/{job_id}"
+            cmd.append(f"--callback_url={callback_url}")
+
             # Set up environment variables
             env = os.environ.copy()
 
@@ -277,7 +284,8 @@ class TrainingManagerK8s:
 
             # Set up log file for Loki/Promtail collection
             log_dir = Path(os.getenv("LOG_DIR", "../../mvp/data/logs"))
-            log_dir = Path(__file__).parent.parent.parent.parent.parent / log_dir
+            # __file__ is at mvp/backend/app/utils/ -> go up 4 levels to project root
+            log_dir = Path(__file__).parent.parent.parent.parent / log_dir
             log_dir.mkdir(parents=True, exist_ok=True)
 
             log_file_path = log_dir / f"training_{job_id}.log"
