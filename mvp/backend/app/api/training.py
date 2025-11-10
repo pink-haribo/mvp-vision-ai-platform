@@ -324,7 +324,8 @@ async def start_training_job(
 
     # Initialize training manager if not already done
     if training_manager is None:
-        training_manager = TrainingManagerK8s(db, default_executor="kubernetes")
+        executor = os.getenv("TRAINING_EXECUTOR", "subprocess")
+        training_manager = TrainingManagerK8s(db, default_executor=executor)
 
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
     if not job:
@@ -464,6 +465,107 @@ async def get_training_logs(
 
     # Reverse to show oldest first (chronological order)
     return list(reversed(logs))
+
+
+@router.get("/jobs/{job_id}/logs/loki")
+async def get_training_logs_from_loki(
+    job_id: int,
+    limit: int = 1000,
+    start: str | None = None,
+    end: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Get training logs from Loki log aggregation system.
+
+    This endpoint queries Loki directly for training logs, providing
+    real-time log access without relying on database storage.
+
+    Args:
+        job_id: Training job ID
+        limit: Maximum number of log lines to return (default: 1000)
+        start: Start time (ISO 8601 or relative like "1h", "30m")
+        end: End time (ISO 8601 or relative)
+
+    Returns:
+        JSON with log entries from Loki
+    """
+    import requests
+    from datetime import datetime, timedelta
+
+    # Verify job exists
+    job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+
+    # Loki URL from environment
+    loki_url = os.getenv("LOKI_URL", "http://localhost:3100")
+
+    # Build LogQL query
+    logql_query = f'{{job="training", job_id="{job_id}"}}'
+
+    # Default time range: last 24 hours
+    if not start:
+        start_time = datetime.utcnow() - timedelta(hours=24)
+        start = start_time.isoformat() + "Z"
+    if not end:
+        end_time = datetime.utcnow()
+        end = end_time.isoformat() + "Z"
+
+    # Query Loki
+    try:
+        response = requests.get(
+            f"{loki_url}/loki/api/v1/query_range",
+            params={
+                "query": logql_query,
+                "limit": limit,
+                "start": start,
+                "end": end,
+                "direction": "forward",  # Chronological order
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        loki_data = response.json()
+
+        # Extract log lines from Loki response
+        logs = []
+        if loki_data.get("status") == "success":
+            for stream in loki_data.get("data", {}).get("result", []):
+                for entry in stream.get("values", []):
+                    timestamp_ns, log_line = entry
+                    # Convert nanosecond timestamp to datetime
+                    timestamp = datetime.fromtimestamp(int(timestamp_ns) / 1e9)
+                    logs.append({
+                        "timestamp": timestamp.isoformat(),
+                        "log": log_line,
+                        "labels": stream.get("stream", {}),
+                    })
+
+        return {
+            "job_id": job_id,
+            "total": len(logs),
+            "logs": logs,
+            "source": "loki",
+            "query": logql_query,
+        }
+
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=503,
+            detail="Loki service unavailable. Ensure Loki is running."
+        )
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Loki query timeout"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error querying Loki: {str(e)}"
+        )
 
 
 @router.get("/jobs/{job_id}/mlflow/metrics")
@@ -1103,7 +1205,8 @@ async def stop_training_job(
         # Initialize training manager
         global training_manager
         if training_manager is None:
-            training_manager = TrainingManagerK8s(db, default_executor="kubernetes")
+            executor = os.getenv("TRAINING_EXECUTOR", "subprocess")
+            training_manager = TrainingManagerK8s(db, default_executor=executor)
 
         # Stop the training job
         success = training_manager.stop_training(job_id)

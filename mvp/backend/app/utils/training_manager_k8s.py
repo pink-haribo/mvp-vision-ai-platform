@@ -98,8 +98,8 @@ class TrainingManagerK8s:
             print(f"[TrainingManager] Job {job_id} not found")
             return False
 
-        # Determine executor
-        selected_executor = executor or job.executor_type or self.default_executor
+        # Determine executor (use provided or default)
+        selected_executor = executor or self.default_executor
 
         print(f"[TrainingManager] Starting job {job_id} with executor: {selected_executor}")
 
@@ -136,6 +136,13 @@ class TrainingManagerK8s:
             return False
 
         try:
+            # Read Kubernetes resource settings from environment
+            gpu_count = int(os.getenv("K8S_GPU_COUNT", "0"))
+            memory_limit = os.getenv("K8S_MEMORY_LIMIT", "16Gi")
+            memory_request = os.getenv("K8S_MEMORY_REQUEST", "8Gi")
+            cpu_limit = int(os.getenv("K8S_CPU_LIMIT", "4"))
+            cpu_request = int(os.getenv("K8S_CPU_REQUEST", "2"))
+
             # Build job configuration
             job_config = TrainingJobConfig(
                 job_id=job.id,
@@ -154,13 +161,15 @@ class TrainingManagerK8s:
                 pretrained=True,
                 advanced_config=job.advanced_config,
                 resources={
-                    "gpu": 1,
-                    "memory": "16Gi",
-                    "cpu": 4,
-                    "memory_request": "8Gi",
-                    "cpu_request": 2,
+                    "gpu": gpu_count,
+                    "memory": memory_limit,
+                    "cpu": cpu_limit,
+                    "memory_request": memory_request,
+                    "cpu_request": cpu_request,
                 },
             )
+
+            print(f"[TrainingManager] K8s Job Resources: GPU={gpu_count}, CPU={cpu_limit}, Memory={memory_limit}")
 
             # Create Kubernetes Job
             k8s_job_name = self.vm_controller.create_training_job(job_config)
@@ -193,7 +202,7 @@ class TrainingManagerK8s:
         resume: bool = False,
     ) -> bool:
         """
-        Start training via Training Service API (subprocess-based).
+        Start training via direct subprocess (local development).
 
         Args:
             job_id: Training job ID
@@ -203,7 +212,9 @@ class TrainingManagerK8s:
         Returns:
             True if training started successfully
         """
-        from app.utils.training_client import TrainingServiceClient
+        import subprocess
+        import json
+        from pathlib import Path
 
         # Get job from database
         job = self.db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
@@ -212,45 +223,91 @@ class TrainingManagerK8s:
             return False
 
         try:
-            # Initialize Training Service client
-            client = TrainingServiceClient(framework=job.framework)
+            # Build train.py command
+            train_script = Path(__file__).parent.parent.parent.parent.parent / "training" / "train.py"
+            if not train_script.exists():
+                raise FileNotFoundError(f"train.py not found at {train_script}")
 
-            # Build job configuration
-            job_config = {
-                "job_id": job.id,
-                "framework": job.framework,
-                "model_name": job.model_name,
-                "task_type": job.task_type,
-                "dataset_path": job.dataset_path or job.dataset_id,
-                "dataset_format": job.dataset_format,
-                "num_classes": job.num_classes,
-                "epochs": job.epochs,
-                "batch_size": job.batch_size,
-                "learning_rate": job.learning_rate,
-                "project_id": job.project_id,
-                "advanced_config": job.advanced_config,
-            }
+            # Build command arguments
+            cmd = [
+                "python",
+                str(train_script),
+                f"--framework={job.framework}",
+                f"--task_type={job.task_type}",
+                f"--model_name={job.model_name}",
+                f"--dataset_path={job.dataset_path or job.dataset_id}",
+                f"--dataset_format={job.dataset_format}",
+                f"--epochs={job.epochs}",
+                f"--batch_size={job.batch_size}",
+                f"--learning_rate={job.learning_rate}",
+                f"--optimizer=adam",
+                f"--output_dir={job.output_dir}",
+                f"--job_id={job_id}",
+                "--pretrained",
+            ]
 
-            # Add checkpoint parameters if provided
+            # Add optional parameters
+            if job.num_classes:
+                cmd.append(f"--num_classes={job.num_classes}")
+            if job.project_id:
+                cmd.append(f"--project_id={job.project_id}")
             if checkpoint_path:
-                job_config["checkpoint_path"] = checkpoint_path
-                job_config["resume"] = resume
+                cmd.append(f"--checkpoint_path={checkpoint_path}")
+            if resume:
+                cmd.append("--resume")
+            if job.advanced_config:
+                # Pass advanced config as JSON string
+                config_json = json.dumps(job.advanced_config)
+                cmd.append(f"--advanced_config={config_json}")
 
-            # Start training via API
-            success = client.start_training(job_config)
+            # Set up environment variables
+            env = os.environ.copy()
 
-            if success:
-                # Update job status
-                job.status = "running"
-                job.executor_type = "subprocess"
-                self.db.commit()
-                print(f"[TrainingManager] ✓ Training started via API for job {job_id}")
-                return True
+            # GPU settings from environment
+            use_gpu = os.getenv("USE_GPU", "false").lower() == "true"
+            cuda_visible_devices = os.getenv("CUDA_VISIBLE_DEVICES", "-1")
+
+            if not use_gpu or cuda_visible_devices == "-1":
+                # Force CPU mode
+                env["CUDA_VISIBLE_DEVICES"] = "-1"
+                print(f"[TrainingManager] GPU disabled - using CPU")
             else:
-                print(f"[TrainingManager] ✗ Failed to start training via API")
-                job.status = "failed"
-                self.db.commit()
-                return False
+                env["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
+                print(f"[TrainingManager] GPU enabled - devices: {cuda_visible_devices}")
+
+            # Set up log file for Loki/Promtail collection
+            log_dir = Path(os.getenv("LOG_DIR", "../../mvp/data/logs"))
+            log_dir = Path(__file__).parent.parent.parent.parent.parent / log_dir
+            log_dir.mkdir(parents=True, exist_ok=True)
+
+            log_file_path = log_dir / f"training_{job_id}.log"
+
+            print(f"[TrainingManager] Starting subprocess training for job {job_id}")
+            print(f"[TrainingManager] Command: {' '.join(cmd[:5])}... (truncated)")
+            print(f"[TrainingManager] Log file: {log_file_path}")
+
+            # Open log file for writing (both stdout and stderr)
+            log_file = open(log_file_path, "w", buffering=1)  # Line buffering
+
+            # Start subprocess (non-blocking)
+            # stdout/stderr redirected to log file for Loki collection
+            process = subprocess.Popen(
+                cmd,
+                env=env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,  # Merge stderr into stdout
+                text=True,
+                bufsize=1,
+            )
+
+            # Update job status
+            job.status = "running"
+            job.process_id = process.pid
+            self.db.commit()
+
+            print(f"[TrainingManager] ✓ Training started (PID: {process.pid})")
+            print(f"[TrainingManager] ✓ Logs: {log_file_path}")
+            return True
 
         except Exception as e:
             print(f"[TrainingManager] ✗ Error starting training: {e}")

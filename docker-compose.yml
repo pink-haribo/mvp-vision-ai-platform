@@ -230,6 +230,39 @@ services:
       - vision-network
 
   # ================================
+  # Loki - Log Aggregation
+  # ================================
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: vision-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./config/loki/loki-config.yaml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    networks:
+      - vision-network
+
+  # ================================
+  # Promtail - Log Collection Agent
+  # ================================
+  promtail:
+    image: grafana/promtail:2.9.3
+    container_name: vision-promtail
+    restart: unless-stopped
+    volumes:
+      - ./config/promtail/promtail-config.yaml:/etc/promtail/config.yaml
+      - /var/log:/var/log:ro
+      - ./mvp/data/logs:/app/logs:ro  # Training logs directory
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      - loki
+    networks:
+      - vision-network
+
+  # ================================
   # Mailhog - Email Testing (Development)
   # ================================
   mailhog:
@@ -301,6 +334,8 @@ volumes:
   prometheus_data:
     driver: local
   grafana_data:
+    driver: local
+  loki_data:
     driver: local
   mlflow_data:
     driver: local
