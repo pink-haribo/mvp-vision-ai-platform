@@ -6,7 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Vision AI Training Platform** is a natural language-driven platform for training computer vision models. Users can configure and train models (ResNet, YOLO, etc.) by conversing with an LLM instead of writing configuration files.
 
-**Current Stage:** Planning/Design - Architecture and API specifications are complete, but implementation has not started yet.
+**Current Stage:** Production Implementation (Started 2025-11-10)
+
+**Project Structure:**
+- **`mvp/`**: Prototype implementation (reference only, not actively developed)
+- **`platform/`**: Production-ready implementation with Temporal orchestration, complete observability, and cloud-agnostic design
 
 **Key Concept:** Natural language → LLM Intent Parser → Training Config → Temporal Workflow → Kubernetes Training Pod
 
@@ -158,7 +162,31 @@ See API_SPECIFICATION.md:106-187 for request/response examples.
 
 ## Development Commands
 
-**Note:** The codebase is in the planning stage. The commands below are from DEVELOPMENT.md and will be used once implementation begins.
+**Active Development:** Use `platform/` for all new work. The `mvp/` folder is maintained for reference only.
+
+### Platform (Production Implementation)
+
+```bash
+# Backend
+cd platform/backend
+poetry install
+poetry run uvicorn app.main:app --reload --port 8000
+
+# Frontend
+cd platform/frontend
+pnpm install
+pnpm dev
+
+# Temporal Worker
+cd platform/backend
+poetry run python -m app.workflows.worker
+
+# Build Trainer Images
+cd platform/trainers/ultralytics
+docker build -t trainer-ultralytics:latest .
+```
+
+### MVP (Legacy - Reference Only)
 
 ### Infrastructure (Docker Compose)
 ```bash
