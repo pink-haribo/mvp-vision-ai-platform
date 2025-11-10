@@ -121,6 +121,16 @@ class TrainingLogger:
             warnings.warn(f"[TrainingLogger] Unexpected error: {e}", UserWarning)
             return False
 
+    def log_message(self, message: str, level: str = "INFO"):
+        """
+        Log a message (deprecated - redirects to print for Loki collection).
+
+        Args:
+            message: Message to log
+            level: Log level (INFO, WARNING, ERROR, DEBUG)
+        """
+        print(f"[{level}] {message}")
+
     def close(self):
         """Close the underlying HTTP session."""
         if hasattr(self, 'session'):

@@ -762,7 +762,8 @@ class UltralyticsAdapter(TrainingAdapter):
                 }
                 print(f"[_create_data_yaml] Using txt file format (auto-split dataset)")
                 print(f"[_create_data_yaml] data.yaml config: path={output_dir}, train={train_path}, val={val_path}")
-                print(f"[YOLO] Using auto-split dataset: {train_path} / {val_path}")
+                if self.logger:
+                    self.logger.log_message(f"Using auto-split dataset: {train_path} / {val_path}")
                 sys.stdout.flush()
             else:
                 # Regular folder structure
@@ -775,7 +776,8 @@ class UltralyticsAdapter(TrainingAdapter):
                 }
                 print(f"[_create_data_yaml] Using folder structure")
                 print(f"[_create_data_yaml] data.yaml config: path={data['path']}, train={train_path}, val={val_path}")
-                print(f"[YOLO] Using folder structure: {train_path} / {val_path}")
+                if self.logger:
+                    self.logger.log_message(f"Using folder structure: {train_path} / {val_path}")
                 sys.stdout.flush()
         elif self.dataset_config.format == DatasetFormat.COCO:
             # COCO format - convert to YOLO format reference
@@ -882,7 +884,8 @@ class UltralyticsAdapter(TrainingAdapter):
 
         dataset_path = Path(self.dataset_config.dataset_path)
         print(f"[_detect_yolo_folders] Scanning dataset: {dataset_path}")
-        print(f"[YOLO] Scanning dataset structure: {dataset_path.name}")
+        if self.logger:
+            self.logger.log_message(f"Scanning dataset structure: {dataset_path.name}")
         sys.stdout.flush()
 
         # Check for images/ subdirectory
@@ -891,7 +894,8 @@ class UltralyticsAdapter(TrainingAdapter):
             # List all subdirectories under images/
             subdirs = [d.name for d in images_dir.iterdir() if d.is_dir()]
             print(f"[_detect_yolo_folders] Found subdirs in images/: {subdirs}")
-            print(f"[YOLO] Dataset structure: images/ folder with subdirs: {subdirs}")
+            if self.logger:
+                self.logger.log_message(f"Dataset structure: images/ folder with subdirs: {subdirs}")
             sys.stdout.flush()
 
             # Try to find train and val directories
@@ -916,14 +920,16 @@ class UltralyticsAdapter(TrainingAdapter):
                 train_path = f'images/{train_name}'
                 val_path = f'images/{val_name}'
                 print(f"[_detect_yolo_folders] Using train={train_path}, val={val_path}")
-                print(f"[YOLO] Found train and validation folders: {train_name}, {val_name}")
+                if self.logger:
+                    self.logger.log_message(f"Found train and validation folders: {train_name}, {val_name}")
                 sys.stdout.flush()
                 return train_path, val_path
 
             # If only train exists (no val), auto-split
             if train_name and not val_name:
                 print(f"[_detect_yolo_folders] Val folder not found, auto-splitting train data...")
-                print(f"[YOLO] " + "Validation folder not found - will auto-split training data (80/20)
+                if self.logger:
+                    self.logger.log_message("Validation folder not found - will auto-split training data (80/20)")
                 sys.stdout.flush()
                 return self._auto_split_dataset(
                     images_base=images_dir,
@@ -954,7 +960,8 @@ class UltralyticsAdapter(TrainingAdapter):
         # No train/val structure found, treat entire images/ folder as data
         print(f"[_detect_yolo_folders] No train/val structure detected")
         print(f"[_detect_yolo_folders] Auto-splitting all data in images/ folder...")
-        print(f"[YOLO] " + "No train/val folders found - will split entire dataset (80/20)
+        if self.logger:
+            self.logger.log_message("No train/val folders found - will split entire dataset (80/20)")
         sys.stdout.flush()
 
         if images_dir.exists():
@@ -988,7 +995,8 @@ class UltralyticsAdapter(TrainingAdapter):
         import random
 
         print(f"[_auto_split_dataset] Splitting dataset with ratio {split_ratio}")
-        print(f"[YOLO] Auto-splitting dataset: {split_ratio*100:.0f}% train, {(1-split_ratio)*100:.0f}% val")
+        if self.logger:
+            self.logger.log_message(f"Auto-splitting dataset: {split_ratio*100:.0f}% train, {(1-split_ratio)*100:.0f}% val")
         sys.stdout.flush()
 
         # Find all images in the source folder
@@ -998,7 +1006,8 @@ class UltralyticsAdapter(TrainingAdapter):
             source_dir = images_base  # Fallback to base directory
 
         print(f"[_auto_split_dataset] Searching for images in: {source_dir}")
-        print(f"[YOLO] Searching for images in: {source_dir}")
+        if self.logger:
+            self.logger.log_message(f"Searching for images in: {source_dir}")
         sys.stdout.flush()
 
         image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff'}
@@ -1010,7 +1019,8 @@ class UltralyticsAdapter(TrainingAdapter):
 
         if not all_images:
             print(f"[_auto_split_dataset] ERROR: No images found in {source_dir}")
-            print(f"[YOLO] ERROR: No images found in {source_dir} - check dataset structure")
+            if self.logger:
+                self.logger.log_message(f"ERROR: No images found in {source_dir} - check dataset structure")
             sys.stdout.flush()
             return 'images/train', 'images/val'  # Fallback
 
@@ -1024,7 +1034,8 @@ class UltralyticsAdapter(TrainingAdapter):
 
         print(f"[_auto_split_dataset] Total images: {len(all_images)}")
         print(f"[_auto_split_dataset] Train: {len(train_images)}, Val: {len(val_images)}")
-        print(f"[YOLO] Dataset split complete: {len(train_images)} train, {len(val_images)} validation images")
+        if self.logger:
+            self.logger.log_message(f"Dataset split complete: {len(train_images)} train, {len(val_images)} validation images")
         sys.stdout.flush()
 
         # Create .txt files in output directory
@@ -1044,7 +1055,8 @@ class UltralyticsAdapter(TrainingAdapter):
 
         print(f"[_auto_split_dataset] Created train.txt: {train_txt}")
         print(f"[_auto_split_dataset] Created val.txt: {val_txt}")
-        print(f"[YOLO] Created train.txt ({len(train_images)} images) and val.txt ({len(val_images)} images)")
+        if self.logger:
+            self.logger.log_message(f"Created train.txt ({len(train_images)} images) and val.txt ({len(val_images)} images)")
         sys.stdout.flush()
 
         # Return relative paths for data.yaml
@@ -1072,27 +1084,33 @@ class UltralyticsAdapter(TrainingAdapter):
 
         try:
             print("\n[YOLO] Preparing model...")
-            print(f"[YOLO] Preparing {self.model_config.model_name} model...")
+            if self.logger:
+                self.logger.log_message(f"Preparing {self.model_config.model_name} model...")
             self.prepare_model()
             print("[YOLO] Model prepared successfully")
-            print(f"[YOLO] Model {self.model_config.model_name} loaded successfully")
+            if self.logger:
+                self.logger.log_message(f"Model {self.model_config.model_name} loaded successfully")
         except Exception as e:
             print(f"[YOLO] ERROR preparing model: {e}")
-            print(f"[YOLO] ERROR: Failed to prepare model - {str(e)}")
+            if self.logger:
+                self.logger.log_message(f"ERROR: Failed to prepare model - {str(e)}")
             import traceback
             traceback.print_exc()
             raise
 
         try:
             print("[YOLO] Preparing dataset...")
-            print(f"[YOLO] " + "Preparing dataset...")
+            if self.logger:
+                self.logger.log_message("Preparing dataset...")
             self.prepare_dataset()
             print(f"[YOLO] Dataset prepared successfully")
             print(f"[YOLO] data.yaml path: {self.data_yaml}")
-            print(f"[YOLO] Dataset prepared successfully")
+            if self.logger:
+                self.logger.log_message(f"Dataset prepared successfully")
         except Exception as e:
             print(f"[YOLO] ERROR preparing dataset: {e}")
-            print(f"[YOLO] ERROR: Failed to prepare dataset - {str(e)}")
+            if self.logger:
+                self.logger.log_message(f"ERROR: Failed to prepare dataset - {str(e)}")
             import traceback
             traceback.print_exc()
             raise
@@ -1105,6 +1123,8 @@ class UltralyticsAdapter(TrainingAdapter):
         print(f"  Image size: {self.model_config.image_size}")
         print(f"  Device: {self.training_config.device}")
 
+        if self.logger:
+            self.logger.log_message(
                 f"Starting training: {self.training_config.epochs} epochs, "
                 f"batch size {self.training_config.batch_size}, "
                 f"image size {self.model_config.image_size}"
@@ -1246,8 +1266,8 @@ class UltralyticsAdapter(TrainingAdapter):
                     train_loss = metrics_dict.get('train_loss', 0)
                     val_loss = metrics_dict.get('val_loss', 0)
                     map50 = metrics_dict.get('mAP50', 0)
-                    print(
-                        f"[YOLO] Epoch {epoch_num}/{self.training_config.epochs} - "
+                    self.logger.log_message(
+                        f"Epoch {epoch_num}/{self.training_config.epochs} - "
                         f"train_loss: {train_loss:.4f}, val_loss: {val_loss:.4f}, mAP50: {map50:.4f}"
                     )
 
@@ -1777,7 +1797,8 @@ class UltralyticsAdapter(TrainingAdapter):
             print("\n[YOLO] Training interrupted by user")
             print("[YOLO] Uploading current checkpoints before exit...")
             sys.stdout.flush()
-            print(f"[YOLO] " + "Training interrupted by user")
+            if self.logger:
+                self.logger.log_message("Training interrupted by user")
             callbacks.on_train_end(checkpoint_dir=checkpoint_dir)  # Upload checkpoints and close MLflow
             raise
         except Exception as e:
@@ -1785,7 +1806,8 @@ class UltralyticsAdapter(TrainingAdapter):
             print(f"[YOLO] Error type: {type(e).__name__}")
             print("[YOLO] Attempting to upload checkpoints despite error...")
             sys.stdout.flush()
-            print(f"[YOLO] ERROR: Training failed - {str(e)}")
+            if self.logger:
+                self.logger.log_message(f"ERROR: Training failed - {str(e)}")
             import traceback
             traceback.print_exc()
             sys.stdout.flush()
@@ -1794,16 +1816,19 @@ class UltralyticsAdapter(TrainingAdapter):
 
         print(f"\nTraining completed!")
         print(f"Results saved to: {self.output_dir}/job_{self.job_id}")
-        print(f"[YOLO] " + "Training completed successfully!")
+        if self.logger:
+            self.logger.log_message("Training completed successfully!")
 
         # Metrics are collected in real-time via on_yolo_epoch_end callback
         # No need to parse results.csv after training completes
         print("[YOLO] Metrics collected in real-time via callbacks")
 
         # End training and upload checkpoints (checkpoint_dir already defined)
-        print(f"[YOLO] " + "Uploading final checkpoints...")
+        if self.logger:
+            self.logger.log_message("Uploading final checkpoints...")
         callbacks.on_train_end(checkpoint_dir=checkpoint_dir)
-        print(f"[YOLO] " + "Checkpoints uploaded successfully")
+        if self.logger:
+            self.logger.log_message("Checkpoints uploaded successfully")
 
         # For compatibility, still return empty list
         # (metrics were already reported via callbacks during training)

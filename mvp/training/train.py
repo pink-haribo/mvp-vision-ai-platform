@@ -412,7 +412,7 @@ def main():
         # Update status to completed
         if logger.enabled:
             logger.update_status("completed")
-        print("[INFO] Training completed successfully")
+            logger.log_message("Training completed successfully", level="INFO")
 
         print("\n[STATUS] SUCCESS")
         return 0
@@ -428,7 +428,7 @@ def main():
         # Update status to failed
         if logger.enabled:
             logger.update_status("failed", error=str(e))
-        print(f"[ERROR] Training failed: {e}")
+            logger.log_message(f"Training failed: {e}", level="ERROR")
 
         print("\n[STATUS] FAILED")
         sys.exit(1)
