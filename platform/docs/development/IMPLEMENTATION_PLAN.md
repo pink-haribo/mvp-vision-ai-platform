@@ -51,6 +51,11 @@ Phase 3: 3-Tier Environment (Week 5-6)  ← Environment parity
   ├── Tier 2: Kind cluster
   └── Tier 3: Production (stub)
 
+Phase Frontend: UI Development (Week 3-8)  ← Parallel with Phase 2-4
+  ├── Design system setup
+  ├── MVP migration & refinement
+  └── Backend integration
+
 Phase 4: Observability & Operations (Week 7-8)  ← Production readiness
   ├── Prometheus + Grafana
   ├── Centralized logging
@@ -63,6 +68,7 @@ Phase 5: Testing & Polish (Week 9-10)  ← Quality assurance
 ```
 
 **Total Timeline**: 10 weeks (~2.5 months)
+**Note**: Frontend development (Phase Frontend) runs in parallel with Phases 2-4
 
 ---
 
@@ -850,6 +856,681 @@ Make the same code work in Subprocess, Kind, and Production K8s.
 - ✅ Training Jobs created in K8s
 
 **Milestone**: 🎯 **Environment parity achieved (Tier 1 & 2)**
+
+---
+
+## Phase Frontend: UI Development (Week 3-8)
+
+**Note**: This phase runs in parallel with Phases 2-4
+
+### Objective
+Build a consistent, accessible, production-ready frontend by refining MVP components and integrating with the Platform backend.
+
+---
+
+### Week 3: Design System Setup
+
+**Goal**: Establish design tokens, typography, and component foundations
+
+**Tasks**:
+
+1. **Install Dependencies** (0.5 day)
+   ```bash
+   # platform/frontend/
+   pnpm install next@15 react@18 react-dom@18
+   pnpm install -D tailwindcss@3.4 postcss autoprefixer
+   pnpm install -D typescript @types/react @types/node
+   pnpm install class-variance-authority clsx tailwind-merge
+   pnpm install @radix-ui/react-alert-dialog @radix-ui/react-select
+   pnpm install lucide-react  # Icons
+   ```
+
+2. **Design Tokens Configuration** (1 day)
+   ```typescript
+   // platform/frontend/app/globals.css
+   @tailwind base;
+   @tailwind components;
+   @tailwind utilities;
+
+   @layer base {
+     :root {
+       --background: 0 0% 100%;
+       --foreground: 222.2 84% 4.9%;
+       --primary: 222.2 47.4% 11.2%;
+       --success: 142 76% 36%;         /* Added */
+       --warning: 38 92% 50%;          /* Added */
+       --info: 199 89% 48%;            /* Added */
+       --destructive: 0 84.2% 60.2%;
+       --radius: 0.5rem;
+     }
+   }
+   ```
+
+3. **Font Setup** (1 day)
+   ```typescript
+   // platform/frontend/app/layout.tsx
+   import { Inter } from "next/font/google";
+   import localFont from "next/font/local";
+
+   const inter = Inter({
+     subsets: ["latin"],
+     variable: "--font-inter",
+   });
+
+   const pretendard = localFont({
+     src: "../fonts/PretendardVariable.woff2",
+     variable: "--font-pretendard",
+     weight: "45 920",
+   });
+
+   export default function RootLayout({ children }: { children: React.ReactNode }) {
+     return (
+       <html lang="ko" className={`${inter.variable} ${pretendard.variable}`}>
+         <body className="font-sans">{children}</body>
+       </html>
+     );
+   }
+   ```
+
+   ```typescript
+   // platform/frontend/tailwind.config.ts
+   fontFamily: {
+     sans: [
+       "var(--font-pretendard)",  // Korean
+       "var(--font-inter)",       // Latin
+       "system-ui",
+       "sans-serif",
+     ],
+   }
+   ```
+
+4. **Base Component Setup** (1.5 days)
+   ```bash
+   # Install shadcn/ui CLI
+   pnpm dlx shadcn-ui@latest init
+
+   # Add core components
+   pnpm dlx shadcn-ui@latest add button
+   pnpm dlx shadcn-ui@latest add card
+   pnpm dlx shadcn-ui@latest add alert
+   pnpm dlx shadcn-ui@latest add input
+   pnpm dlx shadcn-ui@latest add label
+   pnpm dlx shadcn-ui@latest add select
+   pnpm dlx shadcn-ui@latest add skeleton
+   pnpm dlx shadcn-ui@latest add toast
+   ```
+
+**Deliverables**:
+- ✅ Design tokens configured (including success/warning/info)
+- ✅ Korean font (Pretendard) + Latin font (Inter) working
+- ✅ shadcn/ui components installed
+- ✅ Storybook setup for component development (optional)
+
+**Testing**:
+```bash
+cd platform/frontend
+pnpm dev  # http://localhost:3000
+
+# Create test page to verify fonts and colors
+# app/design-test/page.tsx
+```
+
+---
+
+### Week 4: Component Library & Patterns
+
+**Goal**: Build common UI patterns and state components
+
+**Tasks**:
+
+1. **Loading States** (1 day)
+   ```tsx
+   // components/ui/loading-card.tsx
+   import { Skeleton } from "@/components/ui/skeleton";
+   import { Card, CardContent, CardHeader } from "@/components/ui/card";
+
+   export function LoadingCard() {
+     return (
+       <Card>
+         <CardHeader>
+           <Skeleton className="h-6 w-40" />
+         </CardHeader>
+         <CardContent className="space-y-2">
+           <Skeleton className="h-4 w-full" />
+           <Skeleton className="h-4 w-3/4" />
+         </CardContent>
+       </Card>
+     );
+   }
+   ```
+
+2. **Error States** (1 day)
+   ```tsx
+   // components/ui/error-alert.tsx
+   import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+   import { AlertCircle } from "lucide-react";
+
+   interface ErrorAlertProps {
+     title?: string;
+     message: string;
+     variant?: "destructive" | "warning";
+   }
+
+   export function ErrorAlert({ title = "Error", message, variant = "destructive" }: ErrorAlertProps) {
+     return (
+       <Alert variant={variant}>
+         <AlertCircle className="h-4 w-4" />
+         <AlertTitle>{title}</AlertTitle>
+         <AlertDescription>{message}</AlertDescription>
+       </Alert>
+     );
+   }
+   ```
+
+3. **Empty States** (1 day)
+   ```tsx
+   // components/ui/empty-state.tsx
+   import { Card, CardContent } from "@/components/ui/card";
+   import { Button } from "@/components/ui/button";
+
+   interface EmptyStateProps {
+     icon: React.ReactNode;
+     title: string;
+     description: string;
+     action?: {
+       label: string;
+       onClick: () => void;
+     };
+   }
+
+   export function EmptyState({ icon, title, description, action }: EmptyStateProps) {
+     return (
+       <Card>
+         <CardContent className="flex flex-col items-center justify-center py-12">
+           <div className="text-muted-foreground mb-4">{icon}</div>
+           <h3 className="text-lg font-semibold mb-2">{title}</h3>
+           <p className="text-sm text-muted-foreground mb-6 text-center max-w-sm">
+             {description}
+           </p>
+           {action && (
+             <Button onClick={action.onClick}>{action.label}</Button>
+           )}
+         </CardContent>
+       </Card>
+     );
+   }
+   ```
+
+4. **Form Patterns** (1 day)
+   ```tsx
+   // components/forms/form-field.tsx
+   import { Label } from "@/components/ui/label";
+   import { Input } from "@/components/ui/input";
+
+   interface FormFieldProps {
+     id: string;
+     label: string;
+     required?: boolean;
+     error?: string;
+     description?: string;
+     children: React.ReactNode;
+   }
+
+   export function FormField({ id, label, required, error, description, children }: FormFieldProps) {
+     return (
+       <div className="space-y-2">
+         <Label htmlFor={id}>
+           {label}
+           {required && <span className="text-destructive ml-1" aria-label="required">*</span>}
+         </Label>
+         {children}
+         {description && !error && (
+           <p id={`${id}-description`} className="text-sm text-muted-foreground">
+             {description}
+           </p>
+         )}
+         {error && (
+           <p id={`${id}-error`} className="text-sm text-destructive" role="alert">
+             {error}
+           </p>
+         )}
+       </div>
+     );
+   }
+   ```
+
+**Deliverables**:
+- ✅ Loading, Error, Empty State components
+- ✅ Accessible form field pattern
+- ✅ Component documentation
+- ✅ Visual regression tests (optional)
+
+---
+
+### Week 5: MVP Component Migration
+
+**Goal**: Copy and refine MVP components to Platform frontend
+
+**Tasks**:
+
+1. **Analyze MVP Components** (0.5 day)
+   ```bash
+   # Review mvp/frontend/components/ structure
+   # Identify components to migrate:
+   # - ChatPanel → platform/frontend/components/chat/
+   # - TrainingPanel → platform/frontend/components/training/
+   # - DatasetPanel → platform/frontend/components/datasets/
+   # - Sidebar → platform/frontend/components/layout/
+   ```
+
+2. **Migrate & Refactor Components** (2 days)
+   ```tsx
+   // platform/frontend/components/training/training-card.tsx
+   import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+   import { Badge } from "@/components/ui/badge";
+   import { Button } from "@/components/ui/button";
+
+   interface TrainingCardProps {
+     job: {
+       id: string;
+       model_name: string;
+       status: "pending" | "running" | "completed" | "failed";
+       progress: number;
+     };
+     onView: (id: string) => void;
+   }
+
+   export function TrainingCard({ job, onView }: TrainingCardProps) {
+     const statusColors = {
+       pending: "secondary",
+       running: "info",
+       completed: "success",
+       failed: "destructive",
+     } as const;
+
+     return (
+       <Card>
+         <CardHeader className="flex flex-row items-center justify-between">
+           <CardTitle className="text-base">{job.model_name}</CardTitle>
+           <Badge variant={statusColors[job.status]}>
+             {job.status}
+           </Badge>
+         </CardHeader>
+         <CardContent>
+           <div className="space-y-2">
+             <div className="flex justify-between text-sm">
+               <span className="text-muted-foreground">Progress</span>
+               <span className="font-medium">{Math.round(job.progress * 100)}%</span>
+             </div>
+             <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
+               <div
+                 className="bg-primary h-full transition-all duration-300"
+                 style={{ width: `${job.progress * 100}%` }}
+               />
+             </div>
+             <Button
+               variant="outline"
+               size="sm"
+               className="w-full mt-4"
+               onClick={() => onView(job.id)}
+             >
+               View Details
+             </Button>
+           </div>
+         </CardContent>
+       </Card>
+     );
+   }
+   ```
+
+3. **Fix Design Inconsistencies** (1 day)
+   - Replace hardcoded colors (text-green-600 → text-success)
+   - Add missing ARIA labels
+   - Ensure consistent spacing (use design tokens)
+   - Add keyboard navigation
+
+4. **Responsive Design Improvements** (0.5 day)
+   ```tsx
+   // Example: Responsive grid layout
+   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+     {jobs.map(job => <TrainingCard key={job.id} job={job} />)}
+   </div>
+   ```
+
+**Deliverables**:
+- ✅ All MVP components migrated to Platform
+- ✅ Design tokens used consistently
+- ✅ Responsive design working
+- ✅ Accessibility improved
+
+---
+
+### Week 6: Backend API Integration
+
+**Goal**: Connect frontend to Platform Backend APIs
+
+**Tasks**:
+
+1. **API Client Setup** (1 day)
+   ```typescript
+   // platform/frontend/lib/api/client.ts
+   import axios from "axios";
+
+   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+   export const apiClient = axios.create({
+     baseURL: API_BASE_URL,
+     timeout: 30000,
+     headers: {
+       "Content-Type": "application/json",
+     },
+   });
+
+   // Request interceptor for auth
+   apiClient.interceptors.request.use((config) => {
+     const token = localStorage.getItem("auth_token");
+     if (token) {
+       config.headers.Authorization = `Bearer ${token}`;
+     }
+     return config;
+   });
+
+   // Response interceptor for error handling
+   apiClient.interceptors.response.use(
+     (response) => response,
+     (error) => {
+       if (error.response?.status === 401) {
+         // Redirect to login
+         window.location.href = "/login";
+       }
+       return Promise.reject(error);
+     }
+   );
+   ```
+
+2. **Training Job API** (1.5 days)
+   ```typescript
+   // platform/frontend/lib/api/training.ts
+   import { apiClient } from "./client";
+
+   export interface TrainingJob {
+     id: string;
+     user_id: string;
+     model_name: string;
+     framework: string;
+     dataset_s3_uri: string;
+     status: "pending" | "running" | "completed" | "failed";
+     progress: number;
+     created_at: string;
+     updated_at: string;
+   }
+
+   export const trainingApi = {
+     async listJobs(): Promise<TrainingJob[]> {
+       const response = await apiClient.get("/training/jobs");
+       return response.data;
+     },
+
+     async getJob(id: string): Promise<TrainingJob> {
+       const response = await apiClient.get(`/training/jobs/${id}`);
+       return response.data;
+     },
+
+     async createJob(data: {
+       model_name: string;
+       framework: string;
+       dataset_s3_uri: string;
+     }): Promise<TrainingJob> {
+       const response = await apiClient.post("/training/jobs", data);
+       return response.data;
+     },
+
+     async startJob(id: string): Promise<void> {
+       await apiClient.post(`/training/jobs/${id}/start`);
+     },
+
+     async cancelJob(id: string): Promise<void> {
+       await apiClient.delete(`/training/jobs/${id}`);
+     },
+   };
+   ```
+
+3. **React Query Integration** (1.5 days)
+   ```tsx
+   // platform/frontend/lib/hooks/useTrainingJobs.ts
+   import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+   import { trainingApi } from "@/lib/api/training";
+
+   export function useTrainingJobs() {
+     return useQuery({
+       queryKey: ["training-jobs"],
+       queryFn: () => trainingApi.listJobs(),
+       refetchInterval: 5000, // Poll every 5 seconds
+     });
+   }
+
+   export function useCreateTrainingJob() {
+     const queryClient = useQueryClient();
+
+     return useMutation({
+       mutationFn: trainingApi.createJob,
+       onSuccess: () => {
+         queryClient.invalidateQueries({ queryKey: ["training-jobs"] });
+       },
+     });
+   }
+
+   // Usage in component
+   function TrainingList() {
+     const { data: jobs, isLoading, error } = useTrainingJobs();
+     const createJob = useCreateTrainingJob();
+
+     if (isLoading) return <LoadingCard />;
+     if (error) return <ErrorAlert message={error.message} />;
+     if (!jobs?.length) return <EmptyState title="No training jobs" />;
+
+     return (
+       <div className="space-y-4">
+         {jobs.map(job => <TrainingCard key={job.id} job={job} />)}
+       </div>
+     );
+   }
+   ```
+
+**Deliverables**:
+- ✅ API client configured with auth
+- ✅ Training job API integrated
+- ✅ React Query setup for data fetching
+- ✅ Loading/error states working
+
+---
+
+### Week 7: State Management & Real-time Updates
+
+**Goal**: Add global state and WebSocket for real-time training updates
+
+**Tasks**:
+
+1. **Zustand Store** (1 day)
+   ```typescript
+   // platform/frontend/lib/store/training.ts
+   import { create } from "zustand";
+   import type { TrainingJob } from "@/lib/api/training";
+
+   interface TrainingStore {
+     activeJobs: Map<string, TrainingJob>;
+     updateJob: (job: TrainingJob) => void;
+     removeJob: (id: string) => void;
+   }
+
+   export const useTrainingStore = create<TrainingStore>((set) => ({
+     activeJobs: new Map(),
+     updateJob: (job) =>
+       set((state) => {
+         const newJobs = new Map(state.activeJobs);
+         newJobs.set(job.id, job);
+         return { activeJobs: newJobs };
+       }),
+     removeJob: (id) =>
+       set((state) => {
+         const newJobs = new Map(state.activeJobs);
+         newJobs.delete(id);
+         return { activeJobs: newJobs };
+       }),
+   }));
+   ```
+
+2. **WebSocket Integration** (2 days)
+   ```typescript
+   // platform/frontend/lib/websocket/training.ts
+   import { useEffect } from "react";
+   import { useTrainingStore } from "@/lib/store/training";
+
+   export function useTrainingWebSocket(jobId: string) {
+     const updateJob = useTrainingStore((state) => state.updateJob);
+
+     useEffect(() => {
+       const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
+       const ws = new WebSocket(`${WS_URL}/ws/training/${jobId}`);
+
+       ws.onmessage = (event) => {
+         const update = JSON.parse(event.data);
+         updateJob(update);
+       };
+
+       ws.onerror = (error) => {
+         console.error("WebSocket error:", error);
+       };
+
+       return () => {
+         ws.close();
+       };
+     }, [jobId, updateJob]);
+   }
+   ```
+
+3. **Toast Notifications** (1 day)
+   ```tsx
+   // platform/frontend/components/training/training-monitor.tsx
+   import { useEffect } from "react";
+   import { useToast } from "@/components/ui/use-toast";
+   import { useTrainingStore } from "@/lib/store/training";
+
+   export function TrainingMonitor() {
+     const { toast } = useToast();
+     const activeJobs = useTrainingStore((state) => state.activeJobs);
+
+     useEffect(() => {
+       activeJobs.forEach((job) => {
+         if (job.status === "completed") {
+           toast({
+             title: "Training Complete",
+             description: `${job.model_name} finished successfully`,
+             variant: "success",
+           });
+         } else if (job.status === "failed") {
+           toast({
+             title: "Training Failed",
+             description: `${job.model_name} encountered an error`,
+             variant: "destructive",
+           });
+         }
+       });
+     }, [activeJobs, toast]);
+
+     return null;
+   }
+   ```
+
+**Deliverables**:
+- ✅ Zustand store for global state
+- ✅ WebSocket connection for real-time updates
+- ✅ Toast notifications for training events
+- ✅ Automatic UI updates when job status changes
+
+---
+
+### Week 8: Testing & Polish
+
+**Goal**: Ensure quality and accessibility
+
+**Tasks**:
+
+1. **Unit Tests** (1.5 days)
+   ```tsx
+   // platform/frontend/__tests__/components/training-card.test.tsx
+   import { render, screen } from "@testing-library/react";
+   import userEvent from "@testing-library/user-event";
+   import { TrainingCard } from "@/components/training/training-card";
+
+   describe("TrainingCard", () => {
+     it("renders job information correctly", () => {
+       const job = {
+         id: "123",
+         model_name: "yolo11n",
+         status: "running" as const,
+         progress: 0.5,
+       };
+
+       render(<TrainingCard job={job} onView={jest.fn()} />);
+
+       expect(screen.getByText("yolo11n")).toBeInTheDocument();
+       expect(screen.getByText("running")).toBeInTheDocument();
+       expect(screen.getByText("50%")).toBeInTheDocument();
+     });
+
+     it("calls onView when button clicked", async () => {
+       const onView = jest.fn();
+       const job = { id: "123", model_name: "test", status: "completed" as const, progress: 1 };
+
+       render(<TrainingCard job={job} onView={onView} />);
+
+       await userEvent.click(screen.getByText("View Details"));
+       expect(onView).toHaveBeenCalledWith("123");
+     });
+   });
+   ```
+
+2. **Accessibility Audit** (1 day)
+   ```bash
+   # Install axe-core for accessibility testing
+   pnpm add -D @axe-core/react
+
+   # Run lighthouse audit
+   pnpm build
+   pnpm start
+   # Use Chrome DevTools Lighthouse for accessibility score (target: 95+)
+   ```
+
+3. **E2E Tests** (1.5 days)
+   ```typescript
+   // platform/frontend/e2e/training-flow.spec.ts
+   import { test, expect } from "@playwright/test";
+
+   test("user can create and monitor training job", async ({ page }) => {
+     await page.goto("http://localhost:3000/training");
+
+     // Create job
+     await page.click("text=New Training Job");
+     await page.fill('input[name="model_name"]', "yolo11n");
+     await page.click("text=Start Training");
+
+     // Wait for job to appear
+     await expect(page.locator("text=yolo11n")).toBeVisible();
+     await expect(page.locator("text=running")).toBeVisible();
+
+     // Monitor progress
+     await page.waitForSelector("text=completed", { timeout: 60000 });
+   });
+   ```
+
+**Deliverables**:
+- ✅ Unit tests for all components (80%+ coverage)
+- ✅ Accessibility score 95+ (Lighthouse)
+- ✅ E2E tests for critical user flows
+- ✅ Performance optimization (Lighthouse: 90+)
+
+**Milestone**: 🎯 **Production-ready frontend with backend integration**
 
 ---
 
