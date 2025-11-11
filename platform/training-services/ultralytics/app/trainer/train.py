@@ -1,43 +1,64 @@
 """
-YOLO Training Logic
+Training Logic
 
-Downloads dataset from S3, trains model, uploads checkpoint, sends callbacks.
+Downloads dataset from S3, trains YOLO model, uploads checkpoints to S3,
+and sends callbacks to Backend.
 """
 
-import logging
 import asyncio
+import logging
 from pathlib import Path
 from typing import Dict, Any
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
+from ultralytics import YOLO
 
 from app.config import settings
-from app.utils.s3_client import S3Client
-from app.utils.callback import send_callback
+from app.storage.s3 import S3Client
 
 logger = logging.getLogger(__name__)
 
 
+@retry(
+    stop=stop_after_attempt(settings.CALLBACK_RETRY_ATTEMPTS),
+    wait=wait_exponential(multiplier=1, min=settings.CALLBACK_RETRY_DELAY, max=10),
+)
+async def send_callback(url: str, data: Dict[str, Any]) -> None:
+    """Send callback to Backend with retry logic."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(url, json=data)
+        response.raise_for_status()
+        logger.info(f"Callback sent successfully: {data.get('status')}")
+
+
 async def train_model(
     job_id: str,
-    config: Dict[str, Any],
+    model_name: str,
     dataset_s3_uri: str,
     callback_url: str,
-):
+    config: Dict[str, Any],
+) -> None:
     """
-    Main training function.
+    Train a YOLO model.
 
-    This is a STUB implementation for Phase 1.
-    Full implementation in Phase 2 will include:
-    - Actual S3 download
-    - Real YOLO training
-    - Checkpoint upload
-    - Proper error handling
+    Flow:
+    1. Download dataset from S3
+    2. Train model with callbacks
+    3. Upload checkpoint to S3
+    4. Send completion callback
     """
+    s3_client = S3Client(
+        endpoint=settings.S3_ENDPOINT,
+        access_key=settings.AWS_ACCESS_KEY_ID,
+        secret_key=settings.AWS_SECRET_ACCESS_KEY,
+        bucket=settings.BUCKET_NAME,
+    )
+
+    workspace = Path(settings.WORKSPACE_DIR) / job_id
+    workspace.mkdir(parents=True, exist_ok=True)
+
     try:
-        logger.info(f"[{job_id}] Starting training")
-
         # Send start callback
         await send_callback(
             callback_url,
@@ -45,40 +66,108 @@ async def train_model(
                 "job_id": job_id,
                 "status": "running",
                 "progress": 0.0,
-                "message": "Training started",
+                "message": "Starting training...",
             },
         )
 
-        # TODO: Download dataset from S3
-        # s3_client = S3Client()
-        # local_dataset_path = await s3_client.download_dataset(dataset_s3_uri, job_id)
+        # Parse S3 URI
+        if not dataset_s3_uri.startswith("s3://"):
+            raise ValueError(f"Invalid S3 URI: {dataset_s3_uri}")
 
-        # TODO: Train model
-        # For now, simulate training with progress updates
-        epochs = config.get("epochs", 10)
-        for epoch in range(epochs):
-            # Simulate training time
-            await asyncio.sleep(2)
+        s3_path = dataset_s3_uri.replace(f"s3://{settings.BUCKET_NAME}/", "")
 
-            # Send progress callback
-            progress = (epoch + 1) / epochs
-            await send_callback(
-                callback_url,
-                {
-                    "job_id": job_id,
-                    "status": "running",
-                    "progress": progress,
-                    "message": f"Training epoch {epoch + 1}/{epochs}",
-                    "metrics": {
-                        "epoch": epoch + 1,
-                        "loss": 0.5 * (1 - progress),  # Fake decreasing loss
-                        "map": 0.3 + 0.4 * progress,  # Fake increasing mAP
-                    },
-                },
+        # Download dataset from S3
+        logger.info(f"Downloading dataset from {dataset_s3_uri}")
+        dataset_dir = workspace / "dataset"
+        dataset_dir.mkdir(exist_ok=True)
+
+        await send_callback(
+            callback_url,
+            {
+                "job_id": job_id,
+                "status": "running",
+                "progress": 0.05,
+                "message": "Downloading dataset from S3...",
+            },
+        )
+
+        # Download all files under s3_path to dataset_dir
+        await s3_client.download_directory(s3_path, dataset_dir)
+
+        logger.info(f"Dataset downloaded to {dataset_dir}")
+
+        # Training config
+        epochs = config.get("epochs", 50)
+        batch_size = config.get("batch", settings.DEFAULT_BATCH_SIZE)
+        image_size = config.get("imgsz", settings.DEFAULT_IMAGE_SIZE)
+        device = config.get("device", "cpu")  # cpu or 0,1,2... for GPU
+
+        # Find data.yaml
+        data_yaml = dataset_dir / "data.yaml"
+        if not data_yaml.exists():
+            raise FileNotFoundError(f"data.yaml not found in {dataset_dir}")
+
+        # Load YOLO model
+        logger.info(f"Loading model: {model_name}")
+        model = YOLO(f"{model_name}.pt")
+
+        await send_callback(
+            callback_url,
+            {
+                "job_id": job_id,
+                "status": "running",
+                "progress": 0.1,
+                "message": f"Model loaded, starting training for {epochs} epochs...",
+            },
+        )
+
+        # Setup project directory for outputs
+        project_dir = workspace / "runs"
+        project_dir.mkdir(exist_ok=True)
+
+        # Train model
+        logger.info(f"Training {model_name} for {epochs} epochs")
+
+        # Run training in executor to not block event loop
+        def train_sync():
+            return model.train(
+                data=str(data_yaml),
+                epochs=epochs,
+                batch=batch_size,
+                imgsz=image_size,
+                device=device,
+                project=str(project_dir),
+                name="train",
+                exist_ok=True,
+                verbose=True,
             )
 
-        # TODO: Upload checkpoint to S3
-        # checkpoint_s3_uri = await s3_client.upload_checkpoint(...)
+        # Run in thread pool to not block async
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(None, train_sync)
+
+        logger.info("Training completed")
+
+        # Find best checkpoint
+        train_dir = project_dir / "train"
+        weights_dir = train_dir / "weights"
+        best_checkpoint = weights_dir / "best.pt"
+
+        if not best_checkpoint.exists():
+            raise FileNotFoundError(f"Best checkpoint not found at {best_checkpoint}")
+
+        # Upload checkpoint to S3
+        logger.info("Uploading checkpoint to S3...")
+        checkpoint_s3_key = f"checkpoints/{job_id}/best.pt"
+        await s3_client.upload_file(best_checkpoint, checkpoint_s3_key)
+        checkpoint_s3_uri = s3_client.get_s3_uri(checkpoint_s3_key)
+
+        logger.info(f"Checkpoint uploaded to {checkpoint_s3_uri}")
+
+        # Get final metrics from results
+        final_metrics = {}
+        if hasattr(results, "results_dict"):
+            final_metrics = results.results_dict
 
         # Send completion callback
         await send_callback(
@@ -88,14 +177,15 @@ async def train_model(
                 "status": "completed",
                 "progress": 1.0,
                 "message": "Training completed successfully",
-                "checkpoint_s3_uri": f"s3://{settings.BUCKET_NAME}/checkpoints/{job_id}/best.pt",
+                "checkpoint_s3_uri": checkpoint_s3_uri,
+                "metrics": final_metrics,
             },
         )
 
-        logger.info(f"[{job_id}] Training completed successfully")
+        logger.info(f"Training job {job_id} completed successfully")
 
     except Exception as e:
-        logger.exception(f"[{job_id}] Training failed")
+        logger.exception(f"Training failed for job {job_id}")
 
         # Send error callback
         try:
@@ -104,9 +194,17 @@ async def train_model(
                 {
                     "job_id": job_id,
                     "status": "failed",
+                    "progress": 0.0,
                     "error": str(e),
                     "message": f"Training failed: {str(e)}",
                 },
             )
         except Exception as callback_error:
-            logger.error(f"[{job_id}] Failed to send error callback: {callback_error}")
+            logger.error(f"Failed to send error callback: {callback_error}")
+
+    finally:
+        # Cleanup workspace (optional - comment out for debugging)
+        # import shutil
+        # if workspace.exists():
+        #     shutil.rmtree(workspace)
+        logger.info(f"Training job {job_id} finished")
