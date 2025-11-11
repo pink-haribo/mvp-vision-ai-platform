@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 from typing import Optional
 
-from sqlalchemy import Column, String, DateTime, Float, Integer, Text, Enum, JSON
+from sqlalchemy import Column, String, DateTime, Float, Integer, Text, Enum, JSON, Boolean
 
 from app.db.session import Base
 
@@ -23,6 +23,67 @@ class JobStatus(PyEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class User(Base):
+    """
+    User Model
+
+    Represents a user account in the platform.
+    Supports authentication and authorization.
+    """
+
+    __tablename__ = "users"
+
+    # Primary key (UUID stored as string for SQLite compatibility)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    # Authentication
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    username = Column(String(100), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+
+    # Profile
+    full_name = Column(String(255), nullable=True)
+
+    # Permissions
+    is_active = Column(Boolean, nullable=False, default=True)
+    is_superuser = Column(Boolean, nullable=False, default=False)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self) -> str:
+        return f"<User(id={self.id}, username={self.username}, email={self.email})>"
+
+
+class Project(Base):
+    """
+    Project Model
+
+    Represents a project that groups datasets and training jobs.
+    Each project belongs to a user.
+    """
+
+    __tablename__ = "projects"
+
+    # Primary key (UUID stored as string for SQLite compatibility)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    # Project info
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+
+    # Owner
+    owner_id = Column(String(36), nullable=False, index=True)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self) -> str:
+        return f"<Project(id={self.id}, name={self.name}, owner_id={self.owner_id})>"
 
 
 class TrainingJob(Base):
@@ -40,6 +101,9 @@ class TrainingJob(Base):
 
     # User info
     user_id = Column(String(255), nullable=False, index=True)
+
+    # Project (optional - jobs can be created without a project)
+    project_id = Column(String(36), nullable=True, index=True)
 
     # Model config
     model_name = Column(String(255), nullable=False)  # e.g., "yolo11n", "resnet50"

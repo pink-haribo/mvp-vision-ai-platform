@@ -64,6 +64,8 @@ async def root():
 
 
 # Import and include routers
-from app.api import training
+from app.api import auth, projects, training
 
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(projects.router, prefix="/api/v1/projects", tags=["projects"])
 app.include_router(training.router, prefix="/api/v1/training", tags=["training"])

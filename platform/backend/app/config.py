@@ -46,5 +46,10 @@ class Settings(BaseSettings):
     # Backend URL (for callbacks)
     BACKEND_BASE_URL: str = "http://localhost:8000"
 
+    # Authentication (JWT)
+    JWT_SECRET_KEY: str = "your-secret-key-change-in-production-please"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+
 
 settings = Settings()
