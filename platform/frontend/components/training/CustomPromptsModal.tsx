@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { X, Plus, Trash2, Sparkles, AlertCircle, CheckCircle } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 
 interface CustomPromptsModalProps {
   isOpen: boolean

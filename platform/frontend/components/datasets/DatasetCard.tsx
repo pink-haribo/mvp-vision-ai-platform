@@ -2,7 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 import { Globe, Lock } from 'lucide-react';
 import { Dataset } from '@/types/dataset';
-import { cn } from '@/lib/utils';
+import { cn } from '@/lib/utils/cn';
 import { getAvatarColorStyle } from '@/lib/utils/avatarColors';
 
 interface DatasetCardProps {

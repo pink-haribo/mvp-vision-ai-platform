@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { ArrowUpDown, ArrowUp, ArrowDown, Search, X, Edit2, Shield, Trash2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 import { useAuth } from '@/contexts/AuthContext'
 import { getRoleLabel, getRoleBadgeColor } from '@/lib/utils/roleUtils'
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 
 interface ModalProps {
   isOpen: boolean
@@ -95,7 +95,7 @@ export default function Modal({
         )}
 
         {/* Content */}
-        <div className="px-6 py-4 max-h-[calc(100vh-200px)] overflow-y-auto">
+        <div className="px-6 py-4">
           {children}
         </div>
       </div>

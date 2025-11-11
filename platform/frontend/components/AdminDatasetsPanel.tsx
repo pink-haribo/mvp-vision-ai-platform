@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { ArrowUpDown, ArrowUp, ArrowDown, Search, Database, Tag, Globe, Lock } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 import { Dataset } from '@/types/dataset'
 import { getAvatarColorStyle } from '@/lib/utils/avatarColors'
 

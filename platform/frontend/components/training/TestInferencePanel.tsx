@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Upload, Settings, Play, AlertCircle, Terminal, Info, CheckCircle, XCircle, Trash2, X } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 import { SlidePanel } from '../SlidePanel'
 import ImageUploadList from './ImageUploadList'
 

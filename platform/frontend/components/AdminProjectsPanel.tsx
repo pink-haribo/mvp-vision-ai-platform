@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { ArrowUpDown, ArrowUp, ArrowDown, Search, X, Trash2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 
 interface Project {
   id: number

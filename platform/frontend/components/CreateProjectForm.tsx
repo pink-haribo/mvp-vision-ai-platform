@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { ArrowLeftIcon } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 
 interface CreateProjectFormProps {
   onCancel: () => void

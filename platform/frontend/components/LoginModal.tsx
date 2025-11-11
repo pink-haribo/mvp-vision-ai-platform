@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 import Modal from './Modal'
 
 interface LoginModalProps {

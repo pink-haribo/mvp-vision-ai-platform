@@ -1,6 +1,6 @@
 'use client'
 
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 
 export type BadgeVariant = 'active' | 'experimental' | 'deprecated' | 'default'
 
@@ -35,7 +35,7 @@ const BADGE_STYLES: Record<BadgeVariant, string> = {
  * <Badge variant="deprecated">Deprecated</Badge>
  * ```
  */
-export function Badge({ variant = 'default', children, className }: BadgeProps) {
+export default function Badge({ variant = 'default', children, className }: BadgeProps) {
   return (
     <span
       className={cn(
@@ -48,5 +48,3 @@ export function Badge({ variant = 'default', children, className }: BadgeProps) 
     </span>
   )
 }
-
-export default Badge

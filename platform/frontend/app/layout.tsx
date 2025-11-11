@@ -1,22 +1,24 @@
-import type { Metadata } from "next";
-import { Providers } from "./providers";
-import "./globals.css";
+import type { Metadata } from 'next'
+import { AuthProvider } from '@/contexts/AuthContext'
+import './globals.css'
 
 export const metadata: Metadata = {
-  title: "Vision AI Training Platform",
-  description: "Natural language-driven computer vision model training platform",
-};
+  title: 'Vision AI Training Platform',
+  description: 'Train computer vision models with natural language',
+}
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: {
+  children: React.ReactNode
+}) {
   return (
     <html lang="ko">
       <body>
-        <Providers>{children}</Providers>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
-  );
+  )
 }

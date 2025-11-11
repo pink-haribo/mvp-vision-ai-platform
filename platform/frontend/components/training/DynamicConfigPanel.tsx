@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 
 // Type definitions matching backend ConfigField
 interface ConfigField {

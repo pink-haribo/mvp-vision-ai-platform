@@ -3,35 +3,37 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
 
 interface User {
-  id: string
+  id: number
   email: string
-  username: string
   full_name: string | null
-  company: string | null
-  division: string | null
-  department: string | null
-  system_role: string
   is_active: boolean
-  badge_color: string | null
-  created_at: string
-  updated_at: string
+  system_role: string  // '''guest''' | '''standard_engineer''' | '''advanced_engineer''' | '''manager''' | '''admin'''
+  badge_color?: string | null
+  company?: string | null
+  division?: string | null
+  department?: string | null
+  phone_number?: string | null
+  bio?: string | null
 }
 
 interface RegisterData {
   email: string
-  username: string
   password: string
   full_name?: string
   company?: string
+  company_custom?: string
   division?: string
+  division_custom?: string
   department?: string
+  phone_number?: string
+  bio?: string
 }
 
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
   isLoading: boolean
-  login: (username: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<void>
   register: (data: RegisterData) => Promise<void>
   logout: () => void
   refreshToken: () => Promise<void>
@@ -62,10 +64,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } else {
             // Token invalid, clear it
             localStorage.removeItem('access_token')
+            localStorage.removeItem('refresh_token')
           }
         } catch (error) {
           console.error('Error checking auth:', error)
           localStorage.removeItem('access_token')
+          localStorage.removeItem('refresh_token')
         }
       }
       setIsLoading(false)
@@ -74,13 +78,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkAuth()
   }, [])
 
-  const login = async (username: string, password: string) => {
+  const login = async (email: string, password: string) => {
+    // OAuth2 format requires FormData with 'username' and 'password' fields
+    const formData = new FormData()
+    formData.append('username', email)  // OAuth2 uses 'username' field for email
+    formData.append('password', password)
+
     const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ username, password })
+      body: formData
     })
 
     if (!response.ok) {
@@ -90,11 +96,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const data = await response.json()
 
-    // Store token
+    // Store tokens
     localStorage.setItem('access_token', data.access_token)
+    localStorage.setItem('refresh_token', data.refresh_token)
 
-    // Set user from response (Platform backend returns user in login response)
-    setUser(data.user)
+    // Fetch user info
+    const userResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`, {
+      headers: {
+        'Authorization': `Bearer ${data.access_token}`
+      }
+    })
+
+    if (userResponse.ok) {
+      const userData = await userResponse.json()
+      setUser(userData)
+    }
   }
 
   const register = async (data: RegisterData) => {
@@ -112,18 +128,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Auto-login after registration
-    await login(data.username, data.password)
+    await login(data.email, data.password)
   }
 
   const logout = () => {
     localStorage.removeItem('access_token')
+    localStorage.removeItem('refresh_token')
     setUser(null)
   }
 
   const refreshToken = async () => {
-    // Platform backend doesn't support refresh tokens yet
-    // This is a placeholder for future implementation
-    console.log('Refresh token not implemented yet')
+    const refresh = localStorage.getItem('refresh_token')
+    if (!refresh) {
+      logout()
+      return
+    }
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ refresh_token: refresh })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        localStorage.setItem('access_token', data.access_token)
+        localStorage.setItem('refresh_token', data.refresh_token)
+      } else {
+        logout()
+      }
+    } catch (error) {
+      console.error('Error refreshing token:', error)
+      logout()
+    }
   }
 
   return (

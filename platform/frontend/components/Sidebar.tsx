@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { User, FolderIcon, PlusIcon, Settings, LogOut, Users, FolderKanban, Wand2, Database } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 import { useAuth } from '@/contexts/AuthContext'
 import { getRoleLabel, getRoleBadgeColor } from '@/lib/utils/roleUtils'
 import { getAvatarColorStyle, getAvatarRingColor } from '@/lib/utils/avatarColors'

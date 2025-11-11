@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 import { getModelDisplayNameSync, getTaskDisplayName, formatTrainingJobTitle } from '@/lib/utils/modelUtils'
 import MLflowMetricsCharts from './training/MLflowMetricsCharts'
 import DatabaseMetricsTable from './training/DatabaseMetricsTable'

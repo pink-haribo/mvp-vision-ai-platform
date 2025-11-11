@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Send, Download } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 
 interface Message {
   id: number

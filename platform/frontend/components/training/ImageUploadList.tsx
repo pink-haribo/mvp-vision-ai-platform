@@ -12,7 +12,7 @@
 
 import { useRef } from 'react'
 import { Upload, Trash2, Plus, X } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 
 export interface UploadedImage {
   id: string

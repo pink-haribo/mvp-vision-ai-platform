@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Upload, Wand2, Image as ImageIcon, Sparkles, ArrowRight, X } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 
 type ToolType = 'super_resolution' | 'background_removal' | 'enhancement'
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, Settings } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 import AdvancedConfigPanel from './training/AdvancedConfigPanel'
 import ModelSelector from './training/ModelSelector'
 import CustomPromptsModal from './training/CustomPromptsModal'

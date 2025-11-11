@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 import Modal from './Modal'
 
 interface ProfileModalProps {
@@ -144,16 +144,10 @@ export default function ProfileModal({
           </div>
         )}
 
-        {/* Read-only Information */}
-        <div className="mb-6 space-y-3">
-          <div className="p-4 bg-gray-800 rounded-lg">
-            <p className="text-xs text-gray-400 mb-1">이메일</p>
-            <p className="text-sm text-white">{user?.email}</p>
-          </div>
-          <div className="p-4 bg-gray-800 rounded-lg">
-            <p className="text-xs text-gray-400 mb-1">사용자명</p>
-            <p className="text-sm text-white">{user?.username}</p>
-          </div>
+        {/* Email (read-only) */}
+        <div className="mb-6 p-4 bg-gray-800 rounded-lg">
+          <p className="text-xs text-gray-400 mb-1">이메일</p>
+          <p className="text-sm text-white">{user?.email}</p>
         </div>
 
         {/* Profile Form */}
@@ -164,7 +158,7 @@ export default function ProfileModal({
 
             <div>
               <label htmlFor="fullName" className="block text-sm font-medium text-gray-300 mb-2">
-                이름 (선택사항)
+                이름
               </label>
               <input
                 id="fullName"
@@ -178,9 +172,6 @@ export default function ProfileModal({
                 )}
                 placeholder="홍길동"
               />
-              <p className="mt-1 text-xs text-gray-500">
-                입력하지 않으면 사용자명이 표시됩니다
-              </p>
             </div>
           </div>
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, PlayIcon, CheckCircle2Icon, XCircleIcon, ClockIcon, EditIcon, SaveIcon, XIcon, PlusIcon, CopyIcon, Crown, UserPlus, X as XClose } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 import { getAvatarColorStyle, getAvatarRingColor } from '@/lib/utils/avatarColors'
 import { getModelDisplayNameSync, getTaskDisplayName, formatTrainingJobTitle } from '@/lib/utils/modelUtils'
 import { useAuth } from '@/contexts/AuthContext'

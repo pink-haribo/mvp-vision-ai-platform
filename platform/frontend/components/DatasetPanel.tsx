@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Search, X, FolderPlus, Eye, ArrowUpDown, ArrowUp, ArrowDown, Database, Trash2, Globe, Lock } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils/cn'
 import { getAvatarColorStyle } from '@/lib/utils/avatarColors'
 import CreateDatasetModal from './datasets/CreateDatasetModal'
 import DatasetImageGallery from './datasets/DatasetImageGallery'
