@@ -1,42 +1,52 @@
-import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
+'use client'
 
-import { cn } from "@/lib/utils"
+import { cn } from '@/lib/utils'
 
-const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-  {
-    variants: {
-      variant: {
-        default:
-          "border-transparent bg-primary text-primary-foreground hover:opacity-80",
-        secondary:
-          "border-transparent bg-secondary text-secondary-foreground hover:opacity-80",
-        destructive:
-          "border-transparent bg-destructive text-destructive-foreground hover:opacity-80",
-        success:
-          "border-transparent bg-success text-success-foreground hover:opacity-80",
-        warning:
-          "border-transparent bg-warning text-warning-foreground hover:opacity-80",
-        info:
-          "border-transparent bg-info text-info-foreground hover:opacity-80",
-        outline: "text-foreground",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-    },
-  }
-)
+export type BadgeVariant = 'active' | 'experimental' | 'deprecated' | 'default'
 
-export interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {}
+interface BadgeProps {
+  variant?: BadgeVariant
+  children: React.ReactNode
+  className?: string
+}
 
-function Badge({ className, variant, ...props }: BadgeProps) {
+const BADGE_STYLES: Record<BadgeVariant, string> = {
+  active: 'bg-green-500 text-white',
+  experimental: 'bg-yellow-500 text-white',
+  deprecated: 'bg-gray-400 text-white',
+  default: 'bg-gray-200 text-gray-700',
+}
+
+/**
+ * Global Badge Component
+ *
+ * Used throughout the app for consistent badge styling.
+ *
+ * Variants:
+ * - active: Green badge for active/production-ready models
+ * - experimental: Yellow badge for experimental/beta features
+ * - deprecated: Gray badge for deprecated/legacy models
+ * - default: Default gray badge
+ *
+ * Example usage:
+ * ```tsx
+ * <Badge variant="active">Active</Badge>
+ * <Badge variant="experimental">Experimental</Badge>
+ * <Badge variant="deprecated">Deprecated</Badge>
+ * ```
+ */
+export function Badge({ variant = 'default', children, className }: BadgeProps) {
   return (
-    <div className={cn(badgeVariants({ variant }), className)} {...props} />
+    <span
+      className={cn(
+        'inline-flex items-center px-2 py-1 rounded-md text-xs font-bold',
+        BADGE_STYLES[variant],
+        className
+      )}
+    >
+      {children}
+    </span>
   )
 }
 
-export { Badge, badgeVariants }
+export default Badge
