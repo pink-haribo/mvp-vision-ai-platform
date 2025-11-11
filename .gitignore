@@ -122,3 +122,23 @@ mvp/backend/mlruns
 *.backup
 *_old.py
 *.bak
+
+# ===== Runtime Data (Local Execution) =====
+mlruns/
+runs/
+
+# Model weights (download if needed)
+*.pt
+*.pth
+*.onnx
+*.tflite
+
+# ===== Test Files =====
+test_*.json
+test_*.py
+**/test_output/
+
+# ===== Temporary Files =====
+*-analysis-*.md
+nul
+

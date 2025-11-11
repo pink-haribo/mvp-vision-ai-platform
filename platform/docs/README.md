@@ -35,6 +35,14 @@ Located in `platform/docs/migration/`
   - 5-phase migration strategy
   - Timeline and effort estimates
 
+### Design Reviews
+Located in `platform/docs/reviews/`
+
+- **[FINAL_DESIGN_REVIEW_2025-01-11.md](./reviews/FINAL_DESIGN_REVIEW_2025-01-11.md)** - Final design review before implementation
+  - Architecture verification
+  - P0/P1/P2 action items
+  - Design decisions and rationale
+
 ### Component-Specific READMEs
 Located in each component directory:
 
@@ -59,13 +67,18 @@ platform/
 │   │   ├── FRONTEND_DESIGN.md
 │   │   ├── INFRASTRUCTURE_DESIGN.md
 │   │   ├── OBSERVABILITY_DESIGN.md
-│   │   └── ISOLATION_DESIGN.md
+│   │   ├── ISOLATION_DESIGN.md
+│   │   ├── ERROR_HANDLING_DESIGN.md
+│   │   ├── INTEGRATION_FAILURE_HANDLING.md
+│   │   └── OPERATIONS_RUNBOOK.md
 │   ├── development/                 # Development process guides
 │   │   ├── 3_TIER_DEVELOPMENT.md
 │   │   ├── ENVIRONMENT_PARITY.md
 │   │   └── TESTING_STRATEGY.md
-│   └── migration/                   # Migration planning
-│       └── MVP_MIGRATION.md
+│   ├── migration/                   # Migration planning
+│   │   └── MVP_MIGRATION.md
+│   └── reviews/                     # Design reviews
+│       └── FINAL_DESIGN_REVIEW_2025-01-11.md
 ├── backend/
 │   └── README.md
 ├── frontend/
