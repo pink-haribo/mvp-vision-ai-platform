@@ -7,8 +7,12 @@ interface User {
   email: string
   username: string
   full_name: string | null
+  company: string | null
+  division: string | null
+  department: string | null
+  system_role: string
   is_active: boolean
-  is_superuser: boolean
+  badge_color: string | null
   created_at: string
   updated_at: string
 }
@@ -18,6 +22,9 @@ interface RegisterData {
   username: string
   password: string
   full_name?: string
+  company?: string
+  division?: string
+  department?: string
 }
 
 interface AuthContextType {

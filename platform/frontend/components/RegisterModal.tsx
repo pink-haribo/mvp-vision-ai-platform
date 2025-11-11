@@ -22,7 +22,9 @@ export default function RegisterModal({
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [fullName, setFullName] = useState('')
+  const [company, setCompany] = useState('')
+  const [division, setDivision] = useState('')
+  const [department, setDepartment] = useState('')
 
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -54,14 +56,18 @@ export default function RegisterModal({
         email,
         username,
         password,
-        full_name: fullName || undefined,
+        company: company || undefined,
+        division: division || undefined,
+        department: department || undefined,
       })
       // Reset form
       setEmail('')
       setUsername('')
       setPassword('')
       setConfirmPassword('')
-      setFullName('')
+      setCompany('')
+      setDivision('')
+      setDepartment('')
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')
@@ -75,7 +81,9 @@ export default function RegisterModal({
     setUsername('')
     setPassword('')
     setConfirmPassword('')
-    setFullName('')
+    setCompany('')
+    setDivision('')
+    setDepartment('')
     setError('')
     onSwitchToLogin?.()
   }
@@ -128,29 +136,66 @@ export default function RegisterModal({
               'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
               'text-white placeholder-gray-500'
             )}
-            placeholder="username"
           />
           <p className="mt-1 text-xs text-gray-500">
             영문, 숫자, 언더스코어만 사용 가능 (최소 3자)
           </p>
         </div>
 
-        {/* Full Name */}
+        {/* Company */}
         <div>
-          <label htmlFor="fullName" className="block text-sm font-medium text-gray-300 mb-2">
-            이름
+          <label htmlFor="company" className="block text-sm font-medium text-gray-300 mb-2">
+            회사명
           </label>
           <input
-            id="fullName"
+            id="company"
             type="text"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
+            value={company}
+            onChange={(e) => setCompany(e.target.value)}
             className={cn(
               'w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg',
               'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
               'text-white placeholder-gray-500'
             )}
-            placeholder="홍길동"
+            placeholder="회사명을 입력하세요"
+          />
+        </div>
+
+        {/* Division */}
+        <div>
+          <label htmlFor="division" className="block text-sm font-medium text-gray-300 mb-2">
+            사업부
+          </label>
+          <input
+            id="division"
+            type="text"
+            value={division}
+            onChange={(e) => setDivision(e.target.value)}
+            className={cn(
+              'w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg',
+              'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
+              'text-white placeholder-gray-500'
+            )}
+            placeholder="사업부명을 입력하세요"
+          />
+        </div>
+
+        {/* Department */}
+        <div>
+          <label htmlFor="department" className="block text-sm font-medium text-gray-300 mb-2">
+            부서
+          </label>
+          <input
+            id="department"
+            type="text"
+            value={department}
+            onChange={(e) => setDepartment(e.target.value)}
+            className={cn(
+              'w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg',
+              'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
+              'text-white placeholder-gray-500'
+            )}
+            placeholder="부서명을 입력하세요"
           />
         </div>
 

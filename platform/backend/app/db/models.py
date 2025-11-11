@@ -46,9 +46,15 @@ class User(Base):
     # Profile
     full_name = Column(String(255), nullable=True)
 
-    # Permissions
+    # Organization info
+    company = Column(String(255), nullable=True)
+    division = Column(String(255), nullable=True)
+    department = Column(String(255), nullable=True)
+
+    # Permissions (5-tier system: guest, engineer_i, engineer_ii, manager, admin)
+    system_role = Column(String(50), nullable=False, default='guest')
     is_active = Column(Boolean, nullable=False, default=True)
-    is_superuser = Column(Boolean, nullable=False, default=False)
+    badge_color = Column(String(20), nullable=True)  # Avatar badge color
 
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

@@ -20,6 +20,9 @@ class UserRegister(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=8, max_length=100)
     full_name: Optional[str] = None
+    company: Optional[str] = None
+    division: Optional[str] = None
+    department: Optional[str] = None
 
 
 class UserLogin(BaseModel):
@@ -39,8 +42,12 @@ class UserResponse(BaseModel):
     email: str
     username: str
     full_name: Optional[str]
+    company: Optional[str]
+    division: Optional[str]
+    department: Optional[str]
+    system_role: str
     is_active: bool
-    is_superuser: bool
+    badge_color: Optional[str]
     created_at: datetime
     updated_at: datetime
 
