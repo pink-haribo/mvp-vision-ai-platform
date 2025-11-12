@@ -35,6 +35,7 @@ function getStorageRemotePattern() {
 
 const nextConfig = {
   reactStrictMode: true,
+  output: 'standalone', // Enable standalone output for Docker
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1',
     NEXT_PUBLIC_STORAGE_ENDPOINT: process.env.NEXT_PUBLIC_STORAGE_ENDPOINT || 'http://localhost:30900',

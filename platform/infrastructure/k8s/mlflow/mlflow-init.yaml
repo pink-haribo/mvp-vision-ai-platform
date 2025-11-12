@@ -1,0 +1,46 @@
+# MLflow Database Initialization Job
+# Creates the 'mlflow' database in PostgreSQL
+#
+# Usage:
+#   kubectl apply -f mlflow-init.yaml
+#
+# This job should be run once before deploying MLflow
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mlflow-db-init
+  namespace: mlflow
+  labels:
+    app: mlflow
+    component: db-init
+spec:
+  ttlSecondsAfterFinished: 100  # Cleanup after 100 seconds
+  template:
+    metadata:
+      labels:
+        app: mlflow
+        component: db-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: db-init
+        image: postgres:16-alpine
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for PostgreSQL to be ready..."
+          until pg_isready -h postgres.platform.svc.cluster.local -p 5432 -U admin; do
+            echo "PostgreSQL is not ready yet..."
+            sleep 2
+          done
+
+          echo "PostgreSQL is ready. Creating mlflow database..."
+          PGPASSWORD=devpass psql -h postgres.platform.svc.cluster.local -p 5432 -U admin -d platform -c "CREATE DATABASE mlflow;" || echo "Database mlflow already exists"
+
+          echo "MLflow database initialization complete!"
+        env:
+        - name: PGPASSWORD
+          value: "devpass"

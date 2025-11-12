@@ -1,0 +1,135 @@
+# MLflow Tracking Server for Experiment Management
+# Tier 1 Development Environment
+#
+# Usage:
+#   kubectl apply -f mlflow.yaml
+#
+# Access:
+#   - Internal (K8s DNS): mlflow.mlflow.svc.cluster.local:5000
+#   - External (NodePort): http://localhost:30500
+#
+# Backend Store: PostgreSQL (postgres.platform:5432/mlflow)
+# Artifact Store: MinIO S3 (minio.platform:9000/vision-platform-dev/mlflow-artifacts)
+
+---
+# MLflow Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: mlflow
+  labels:
+    app: mlflow
+    tier: ml-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow
+  template:
+    metadata:
+      labels:
+        app: mlflow
+        tier: ml-platform
+    spec:
+      containers:
+      - name: mlflow
+        image: ghcr.io/mlflow/mlflow:v2.9.2
+        ports:
+        - containerPort: 5000
+          name: http
+          protocol: TCP
+        command:
+        - mlflow
+        - server
+        - --host
+        - "0.0.0.0"
+        - --port
+        - "5000"
+        - --backend-store-uri
+        - postgresql://admin:devpass@postgres.platform.svc.cluster.local:5432/mlflow
+        - --default-artifact-root
+        - s3://vision-platform-dev/mlflow-artifacts
+        env:
+        # MinIO S3 Configuration
+        - name: MLFLOW_S3_ENDPOINT_URL
+          value: "http://minio.platform.svc.cluster.local:9000"
+        - name: AWS_ACCESS_KEY_ID
+          value: "minioadmin"
+        - name: AWS_SECRET_ACCESS_KEY
+          value: "minioadmin"
+
+        # MLflow Configuration
+        - name: MLFLOW_TRACKING_URI
+          value: "http://0.0.0.0:5000"
+
+        # Disable SSL for local MinIO
+        - name: MLFLOW_S3_IGNORE_TLS
+          value: "true"
+
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+---
+# MLflow Service (Internal - ClusterIP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: mlflow
+  labels:
+    app: mlflow
+    tier: ml-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: mlflow
+  ports:
+  - port: 5000
+    targetPort: 5000
+    protocol: TCP
+    name: http
+
+---
+# MLflow Service (External - NodePort)
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-nodeport
+  namespace: mlflow
+  labels:
+    app: mlflow
+    tier: ml-platform
+spec:
+  type: NodePort
+  selector:
+    app: mlflow
+  ports:
+  - port: 5000
+    targetPort: 5000
+    nodePort: 30500
+    protocol: TCP
+    name: http
