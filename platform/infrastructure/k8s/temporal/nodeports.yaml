@@ -1,0 +1,51 @@
+# NodePort Services for Temporal
+# Apply after Helm deployment to enable localhost access
+#
+# Usage:
+#   kubectl apply -f nodeports.yaml
+
+---
+# Temporal Frontend gRPC NodePort
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-frontend-nodeport
+  namespace: temporal
+  labels:
+    app.kubernetes.io/name: temporal
+    app.kubernetes.io/instance: temporal
+    app.kubernetes.io/component: frontend
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: temporal
+    app.kubernetes.io/instance: temporal
+    app.kubernetes.io/component: frontend
+  ports:
+  - port: 7233
+    targetPort: 7233
+    nodePort: 30700
+    protocol: TCP
+    name: grpc
+
+---
+# Temporal Web UI NodePort
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-web-nodeport
+  namespace: temporal
+  labels:
+    app.kubernetes.io/name: temporal-web
+    app.kubernetes.io/instance: temporal
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: temporal-web
+    app.kubernetes.io/instance: temporal
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 30233
+    protocol: TCP
+    name: http

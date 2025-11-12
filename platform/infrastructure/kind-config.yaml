@@ -1,0 +1,76 @@
+# Kind Cluster Configuration for Platform Development (Tier 1)
+# This configuration creates a single-node cluster with port mappings for all services
+#
+# Usage:
+#   kind create cluster --config kind-config.yaml
+#
+# Access URLs after cluster creation:
+#   Frontend:    http://localhost:30300
+#   Backend API: http://localhost:30080
+#   MinIO API:   http://localhost:30900
+#   MinIO UI:    http://localhost:30901
+#   MLflow:      http://localhost:30500
+#   Grafana:     http://localhost:30030
+#   Prometheus:  http://localhost:30090
+#   Temporal UI: http://localhost:30233
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: platform-dev
+
+nodes:
+- role: control-plane
+  extraPortMappings:
+  # Application Services
+  - containerPort: 30080  # Backend API
+    hostPort: 30080
+    protocol: TCP
+  - containerPort: 30300  # Frontend
+    hostPort: 30300
+    protocol: TCP
+
+  # Data Services
+  - containerPort: 30543  # PostgreSQL
+    hostPort: 30543
+    protocol: TCP
+  - containerPort: 30679  # Redis
+    hostPort: 30679
+    protocol: TCP
+  - containerPort: 30900  # MinIO API
+    hostPort: 30900
+    protocol: TCP
+  - containerPort: 30901  # MinIO Console
+    hostPort: 30901
+    protocol: TCP
+
+  # ML Services
+  - containerPort: 30500  # MLflow
+    hostPort: 30500
+    protocol: TCP
+
+  # Observability
+  - containerPort: 30090  # Prometheus
+    hostPort: 30090
+    protocol: TCP
+  - containerPort: 30030  # Grafana
+    hostPort: 30030
+    protocol: TCP
+  - containerPort: 30100  # Loki
+    hostPort: 30100
+    protocol: TCP
+
+  # Orchestration
+  - containerPort: 30233  # Temporal UI
+    hostPort: 30233
+    protocol: TCP
+  - containerPort: 30700  # Temporal gRPC
+    hostPort: 30700
+    protocol: TCP
+
+  # Resource allocation for development
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "tier=development"

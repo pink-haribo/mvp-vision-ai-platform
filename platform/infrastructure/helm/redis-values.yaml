@@ -1,0 +1,40 @@
+# Redis Helm Values for Platform
+# Chart: bitnami/redis
+# Tier 1 Development Environment
+
+# Architecture
+architecture: standalone
+
+# Authentication
+auth:
+  enabled: false  # Development only - enable in production
+
+# Master configuration
+master:
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: standard
+
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 200m
+
+  service:
+    type: ClusterIP
+    ports:
+      redis: 6379
+
+# Metrics
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+
+# Disable replica for development
+replica:
+  replicaCount: 0
