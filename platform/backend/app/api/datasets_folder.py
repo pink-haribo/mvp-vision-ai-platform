@@ -184,12 +184,10 @@ async def upload_folder(
 
                 if success:
                     uploaded_count += 1
-                    # Generate presigned URL for this image
-                    presigned_url = storage.generate_presigned_url(storage_key, expiration=86400 * 365)  # 1 year
-                    if presigned_url:
-                        # Store mapping from original path to R2 URL
-                        image_path_mapping[relative_path] = presigned_url
-                        image_path_mapping[path_without_root] = presigned_url
+                    # Store mapping from original path to storage key (no presigned URL generation for faster upload)
+                    # Presigned URLs will be generated on-demand when images are retrieved
+                    image_path_mapping[relative_path] = storage_key
+                    image_path_mapping[path_without_root] = storage_key
                 else:
                     logger.warning(f"Failed to upload: {relative_path}")
             except Exception as e:
@@ -199,15 +197,15 @@ async def upload_folder(
 
         # Upload annotation.json if exists
         if annotation_data:
-            # Update image paths in annotations to R2 presigned URLs
-            logger.info("Updating image paths in annotations to R2 URLs...")
+            # Update image paths in annotations to storage keys (not presigned URLs)
+            logger.info("Updating image paths in annotations to storage keys...")
             updated_annotations = []
 
             for ann in annotation_data.get('annotations', []):
                 updated_ann = ann.copy()
                 original_path = ann.get('image_path', '')
 
-                # Try to find R2 URL for this image
+                # Try to find storage key for this image
                 if original_path in image_path_mapping:
                     updated_ann['image_path'] = image_path_mapping[original_path]
                     logger.debug(f"Updated path: {original_path} -> {updated_ann['image_path']}")
@@ -221,9 +219,9 @@ async def upload_folder(
                             updated_ann['image_path'] = image_path_mapping[path_without_root]
                             logger.debug(f"Updated path: {original_path} -> {updated_ann['image_path']}")
                         else:
-                            logger.warning(f"No R2 URL found for image: {original_path}")
+                            logger.warning(f"No storage key found for image: {original_path}")
                     else:
-                        logger.warning(f"No R2 URL found for image: {original_path}")
+                        logger.warning(f"No storage key found for image: {original_path}")
 
                 updated_annotations.append(updated_ann)
 
