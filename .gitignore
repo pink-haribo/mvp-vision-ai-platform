@@ -83,6 +83,9 @@ mvp/data/models/
 mvp/data/logs/
 mvp/data/db/
 
+# Platform data directories
+platform/data/
+
 # Training outputs
 mvp/backend/mvp/
 
