@@ -7,6 +7,7 @@ import { getAvatarColorStyle } from '@/lib/utils/avatarColors'
 import CreateDatasetModal from './datasets/CreateDatasetModal'
 import DatasetImageGallery from './datasets/DatasetImageGallery'
 import DatasetImageUpload from './datasets/DatasetImageUpload'
+import DatasetFolderUpload from './datasets/DatasetFolderUpload'
 
 interface Dataset {
   id: string
@@ -482,7 +483,11 @@ export default function DatasetPanel() {
                         <td colSpan={8} className="px-4 py-4 bg-gray-50">
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                           {/* Upload Section */}
-                          <div className="lg:col-span-1">
+                          <div className="lg:col-span-1 space-y-3">
+                            <DatasetFolderUpload
+                              datasetId={dataset.id}
+                              onSuccess={handleImageUploadSuccess}
+                            />
                             <DatasetImageUpload
                               datasetId={dataset.id}
                               onUploadSuccess={handleImageUploadSuccess}

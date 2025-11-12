@@ -10,7 +10,7 @@
 
 | 영역 | 진행률 | 상태 | 예상 기간 |
 |------|--------|------|-----------|
-| 0. Infrastructure Setup | 60% | 🟡 In Progress | Week 0 |
+| 0. Infrastructure Setup | 90% | 🟢 Near Complete | Week 0 |
 | 1. 사용자 & 프로젝트 | 75% | 🟡 In Progress | Week 1-2 |
 | 2. 데이터셋 관리 | 70% MVP → 0% Platform | 📋 Planned | Week 3 |
 | 3. Training Services 분리 | 0% | ⚪ Not Started | Week 3-4 |
@@ -18,14 +18,20 @@
 | 5. Analytics & Monitoring | 0% | ⚪ Not Started | Week 4-5 |
 | 6. Deployment & Infra | 0% | ⚪ Not Started | Week 5-6 |
 
-**전체 진행률**: 75% (Phase 1.1, 1.2 완료, 1.3 진행 중 94%)
+**전체 진행률**: 80% (Phase 0 90%, Phase 1.1, 1.2 완료, 1.3 진행 중 94%)
 
-**최근 업데이트**: 2025-01-12
-- ✅ Phase 0: Helm-based Infrastructure 60% 완료 (PostgreSQL, Redis, MinIO, Prometheus, Grafana, Loki, Temporal 배포 완료)
+**최근 업데이트**: 2025-11-12
+- ✅ Phase 0: Tier 1 Infrastructure 90% 완료
+  - ✅ All infrastructure in Kind cluster via Helm (PostgreSQL, Redis, MinIO, Temporal, Observability)
+  - ✅ MLflow deployed with PostgreSQL backend + MinIO S3 storage
+  - ✅ Backend & Frontend running locally (Tier 1 strategy)
+  - ✅ Automated startup workflow (start-dev-environment.ps1)
+  - ✅ Comprehensive documentation (QUICK_START.md)
 - ✅ Phase 1.1: Organization & Role System 완료 (100%)
 - ✅ Phase 1.2: Experiment Model & MLflow Integration 완료 (86%)
 - ✅ Phase 1.3: Invitation System 백엔드 완료 (94% - API, Password Reset 완료)
 - ✅ Phase 2 계획: Dataset Management 상세 분석 완료 (MVP 70% 구현됨, Platform 30% 추가 필요)
+- 🎯 **Next**: Phase 2 Dataset Management 시작 (기존 70% 검증 → Training Service 구현)
 
 ---
 
@@ -187,95 +193,61 @@
 - [ ] Test Frontend deployment
 - [ ] Access Frontend at http://localhost:30300
 
-#### Phase 0.3: K8s Manifests - MLflow Service ⚪ NOT STARTED
+#### Phase 0.3: K8s Manifests - MLflow Service ✅ COMPLETED (2025-11-12)
 
-**MLflow**
-- [ ] Create `k8s/mlflow/mlflow-pvc.yaml`
-  - [ ] PersistentVolumeClaim (5Gi for artifacts)
-- [ ] Create `k8s/mlflow/mlflow-deployment.yaml`
-  - [ ] Deployment with python:3.11-slim image
-  - [ ] Install mlflow via pip
-  - [ ] Command: `mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri postgresql://postgres:5432/mlflow --default-artifact-root /mlflow/artifacts`
-  - [ ] Environment variables for PostgreSQL connection
-  - [ ] Volume mount for artifacts
-- [ ] Create `k8s/mlflow/mlflow-service.yaml`
-  - [ ] NodePort service (port 5000 → nodePort 30500)
-- [ ] Test MLflow deployment
-- [ ] Access MLflow UI at http://localhost:30500
+**MLflow Deployment** (Raw K8s Manifest - Bitnami Helm chart failed)
+- [x] Create `k8s/mlflow/mlflow-init.yaml` - Namespace initialization
+- [x] Create `k8s/mlflow/mlflow.yaml`
+  - [x] PersistentVolumeClaim (1Gi for data)
+  - [x] Deployment with python:3.11-slim image
+  - [x] Runtime pip install (mlflow==2.10.0, psycopg2-binary, boto3)
+  - [x] Command: `mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri postgresql://admin:devpass@postgresql.platform:5432/mlflow --default-artifact-root s3://vision-platform-dev/mlflow/artifacts`
+  - [x] Environment variables (PostgreSQL, MinIO S3)
+  - [x] Volume mount for data persistence
+  - [x] ReadinessProbe (60s initial delay)
+  - [x] Resources (512Mi/500m request, 1Gi/1000m limit)
+- [x] Create MLflow ClusterIP service (port 5000)
+- [x] Create MLflow NodePort service (port 5000 → nodePort 30500)
+- [x] Manually create mlflow database in PostgreSQL
+- [x] Deploy MLflow to Kind cluster
+- [x] Test MLflow deployment
+- [x] Access MLflow UI at http://localhost:30500 ✅ Working
 
-#### Phase 0.4: K8s Manifests - Observability Stack ⚪ NOT STARTED
+#### Phase 0.4: K8s Manifests - Observability Stack ✅ COMPLETED (2025-11-12)
 
-**Prometheus**
-- [ ] Create `k8s/observability/prometheus-config.yaml` (ConfigMap)
-  - [ ] Scrape config for Backend metrics
-  - [ ] Scrape config for Training metrics
-- [ ] Create `k8s/observability/prometheus-pvc.yaml`
-  - [ ] PersistentVolumeClaim (5Gi for time-series data)
-- [ ] Create `k8s/observability/prometheus-deployment.yaml`
-  - [ ] Deployment with prom/prometheus:latest image
-  - [ ] Volume mount for config
-  - [ ] Volume mount for data persistence
-- [ ] Create `k8s/observability/prometheus-service.yaml`
-  - [ ] NodePort service (port 9090 → nodePort 30090)
-- [ ] Test Prometheus deployment
-- [ ] Access Prometheus UI at http://localhost:30090
+**Observability Stack Deployment** (Helm-based)
+- [x] Deploy kube-prometheus-stack Helm chart
+  - [x] Prometheus 61.9.0 (with scrape configs)
+  - [x] Grafana 8.7.1 (with datasources)
+  - [x] AlertManager (for alerting)
+  - [x] PersistentVolumes auto-provisioned
+  - [x] NodePort services (Prometheus: 30090, Grafana: 30030)
+  - [x] Default admin credentials (admin/prom-operator)
+- [x] Deploy Loki Helm chart (Grafana Loki 3.5.7)
+  - [x] Log aggregation and querying
+  - [x] Filesystem storage backend
+  - [x] NodePort service (port 3100 → nodePort 30100)
+  - [x] Integrated with Grafana datasources
+- [x] Test Prometheus deployment
+- [x] Access Prometheus UI at http://localhost:30090 ✅ Working
+- [x] Test Grafana deployment
+- [x] Access Grafana at http://localhost:30030 ✅ Working
+- [x] Verify Grafana datasources (Prometheus, Loki) ✅ Configured
 
-**Grafana**
-- [ ] Create `k8s/observability/grafana-pvc.yaml`
-  - [ ] PersistentVolumeClaim (2Gi for dashboards)
-- [ ] Create `k8s/observability/grafana-config.yaml` (ConfigMap)
-  - [ ] Datasource: Prometheus (http://prometheus:9090)
-  - [ ] Datasource: Loki (http://loki:3100)
-- [ ] Create `k8s/observability/grafana-deployment.yaml`
-  - [ ] Deployment with grafana/grafana:latest image
-  - [ ] Environment variables (GF_SECURITY_ADMIN_PASSWORD)
-  - [ ] Volume mount for config
-  - [ ] Volume mount for data persistence
-- [ ] Create `k8s/observability/grafana-service.yaml`
-  - [ ] NodePort service (port 3000 → nodePort 30030)
-- [ ] Test Grafana deployment
-- [ ] Access Grafana at http://localhost:30030
+#### Phase 0.5: K8s Manifests - Temporal Orchestration ✅ COMPLETED (2025-11-12)
 
-**Loki**
-- [ ] Create `k8s/observability/loki-config.yaml` (ConfigMap)
-  - [ ] Storage config (local filesystem)
-  - [ ] Limits config
-- [ ] Create `k8s/observability/loki-pvc.yaml`
-  - [ ] PersistentVolumeClaim (5Gi for logs)
-- [ ] Create `k8s/observability/loki-deployment.yaml`
-  - [ ] Deployment with grafana/loki:latest image
-  - [ ] Volume mount for config
-  - [ ] Volume mount for data persistence
-- [ ] Create `k8s/observability/loki-service.yaml`
-  - [ ] ClusterIP service (port 3100)
-- [ ] Test Loki deployment
-- [ ] Verify Loki in Grafana datasources
+**Temporal Deployment** (Helm-based)
+- [x] Deploy Temporal Helm chart (Temporal 1.29.0)
+  - [x] Temporal Server with PostgreSQL backend
+  - [x] Auto-setup with database migrations
+  - [x] PersistentVolumes auto-provisioned
+  - [x] NodePort services (gRPC: 30700, UI: 30233)
+  - [x] Frontend (Web UI) included
+- [x] Test Temporal Server deployment
+- [x] Test Temporal UI deployment
+- [x] Access Temporal UI at http://localhost:30233 ✅ Working
 
-#### Phase 0.5: K8s Manifests - Temporal Orchestration ⚪ NOT STARTED
-
-**Temporal Server**
-- [ ] Create `k8s/temporal/temporal-config.yaml` (ConfigMap)
-  - [ ] Database config (PostgreSQL)
-  - [ ] Namespace config
-- [ ] Create `k8s/temporal/temporal-deployment.yaml`
-  - [ ] Deployment with temporalio/auto-setup:latest image
-  - [ ] Environment variables for PostgreSQL
-  - [ ] Port: 7233 (gRPC)
-- [ ] Create `k8s/temporal/temporal-service.yaml`
-  - [ ] NodePort service (port 7233 → nodePort 30700)
-- [ ] Test Temporal deployment
-
-**Temporal UI**
-- [ ] Create `k8s/temporal/temporal-ui-deployment.yaml`
-  - [ ] Deployment with temporalio/ui:latest image
-  - [ ] Environment variables (TEMPORAL_ADDRESS=temporal:7233)
-  - [ ] Port: 8233
-- [ ] Create `k8s/temporal/temporal-ui-service.yaml`
-  - [ ] NodePort service (port 8233 → nodePort 30233)
-- [ ] Test Temporal UI deployment
-- [ ] Access Temporal UI at http://localhost:30233
-
-**Temporal Worker** (Backend에 통합)
+**Temporal Worker** (Backend에 통합) - Future Phase
 - [ ] Backend에 Temporal Worker 코드 추가
   - [ ] Worker 등록 (`app/workflows/worker.py`)
   - [ ] Training workflow 정의
@@ -318,31 +290,40 @@
   - [ ] RoleBinding: backend-training-manager
 - [ ] Update Backend Deployment to use ServiceAccount
 
-#### Phase 0.7: Scripts and Documentation ⚪ NOT STARTED
+#### Phase 0.7: Scripts and Documentation ✅ PARTIALLY COMPLETED (2025-11-12)
 
-**Setup Scripts**
-- [ ] Create `scripts/build-and-load-images.sh`
-  - [ ] Build all Docker images (backend, frontend)
-  - [ ] Load images to Kind cluster
-- [ ] Create `scripts/deploy-all.sh`
-  - [ ] Apply all K8s manifests in correct order
-  - [ ] Wait for pods to be ready
-  - [ ] Print access URLs
-- [ ] Create `scripts/teardown.sh`
-  - [ ] Delete Kind cluster
-  - [ ] Clean up Docker images
-- [ ] Windows equivalents (.ps1 scripts)
+**Setup Scripts** ✅
+- [x] Create `scripts/deploy-helm-all.ps1` (Helm-based deployment)
+  - [x] Add all Helm repositories
+  - [x] Deploy all services with values files
+  - [x] Wait for pods to be ready
+  - [x] Create NodePort services
+  - [x] Print access URLs
+- [x] Create `scripts/start-dev-environment.ps1` (Post-reboot startup)
+  - [x] Check Docker Desktop status
+  - [x] Check Kind cluster status
+  - [x] Wait for cluster readiness
+  - [x] Check all pod statuses
+  - [x] Display service URLs with credentials
+  - [x] Print next steps (Backend, Frontend startup)
 
-**Quick Start Guide**
-- [ ] Create `platform/infrastructure/README.md`
-  - [ ] Prerequisites (kind, kubectl, docker)
-  - [ ] Step-by-step setup instructions
-  - [ ] Access URLs
-  - [ ] Troubleshooting common issues
-- [ ] Update main README.md with Tier 1 setup instructions
+**Quick Start Guide** ✅
+- [x] Create `platform/QUICK_START.md`
+  - [x] Prerequisites (kind, kubectl, helm, docker)
+  - [x] First setup instructions (Kind, Helm, Infrastructure)
+  - [x] After reboot workflow (single command)
+  - [x] Backend & Frontend startup instructions
+  - [x] Service access URLs table
+  - [x] Troubleshooting common issues
+  - [x] Daily development routine
+- [x] Create `platform/infrastructure/README.md`
+  - [x] Infrastructure architecture overview
+  - [x] Helm chart details
+  - [x] Service descriptions
+- [ ] Update main README.md with Tier 1 setup instructions (Future)
 
-**Verification Tests**
-- [ ] Create `scripts/verify-infrastructure.sh`
+**Verification Tests** (Future)
+- [ ] Create `scripts/verify-infrastructure.ps1`
   - [ ] Check all pods are running
   - [ ] Check all services are accessible
   - [ ] Test Backend API health check
@@ -905,10 +886,15 @@
    - ❌ Framework별 split 구현 (YOLO, PyTorch, HuggingFace)
 
 2. **Snapshot 생성 API** - 모델은 있으나 API 없음:
-   - ✅ 모델 지원 (is_snapshot, parent_dataset_id)
+   - ✅ 모델 지원 (is_snapshot, parent_dataset_id, snapshot_created_at)
    - ❌ `POST /{dataset_id}/snapshot` API 없음
    - ❌ Training Job 시작 시 자동 snapshot 생성 없음
    - ❌ Snapshot 목록 조회 API 없음
+
+   **Snapshot Strategy**:
+   - meta 파일 (metadata.json) + annotation 파일 (annotations.json) 복사
+   - 이미지 파일은 parent dataset의 storage_path 참조 (중복 저장 방지)
+   - version_tag 자동 증가 (v1, v2, v3...)
 
 3. **Version Management** - 부분 구현:
    - ✅ version_tag 필드 존재
@@ -916,11 +902,16 @@
    - ❌ Version 비교 기능 없음
    - ❌ Version tag 자동 증가 로직 없음
 
-4. **Dataset Download/Export** - 개별 파일만 지원:
+4. **Dataset Download/Export** - 개별 파일 기반:
    - ✅ 개별 파일 다운로드 (`/file/{filename}`)
-   - ❌ 전체 데이터셋 다운로드/내보내기 없음
-   - ❌ ZIP 아카이브 생성 없음
+   - ✅ 파일 기반 버전 관리 (개별 파일 항상 최신 + meta/annotation 파일로 버전 추적)
    - ❌ 포맷 변환 내보내기 없음 (YOLO → COCO)
+
+   **Note**: ZIP 아카이브 대신 개별 파일 업로드/다운로드 전략 사용
+   - metadata.json: 데이터셋 메타정보, 버전 정보
+   - annotations.json: 라벨 정보, 클래스 정보
+   - 개별 이미지 파일: 항상 최신 상태 유지
+   - 스냅샷: parent_dataset_id로 버전 트리 관리
 
 5. **Organization-level Datasets** - 준비만 됨:
    - ✅ visibility='organization' 옵션 존재
@@ -929,9 +920,14 @@
 
 6. **Content Hash & Integrity** - 필드만 존재:
    - ✅ content_hash, integrity_status 필드
-   - ❌ 업로드 시 hash 자동 계산 없음
-   - ❌ 무결성 검증 워크플로우 없음
+   - ❌ 업로드 시 metadata.json hash 자동 계산 없음
+   - ❌ 무결성 검증 워크플로우 없음 (meta 파일 변경 감지)
    - ❌ Hash 기반 중복 데이터셋 감지 없음
+
+   **Hash Strategy**:
+   - metadata.json + annotations.json의 combined hash
+   - 이미지 파일은 hash 계산 제외 (성능 이유)
+   - content_hash로 동일 데이터셋 감지
 
 7. **Dataset Metrics & Statistics** - 누락:
    - ❌ 총 용량 (size_bytes) 추적 없음
