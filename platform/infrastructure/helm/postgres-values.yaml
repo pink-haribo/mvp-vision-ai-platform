@@ -1,0 +1,66 @@
+# PostgreSQL Helm Values for Platform
+# Chart: bitnami/postgresql
+# Tier 1 Development Environment
+
+# Authentication
+auth:
+  username: admin
+  password: devpass  # Development only - use secret in production
+  database: platform
+
+# Architecture
+architecture: standalone
+
+# Primary configuration
+primary:
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: standard
+
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+  # NodePort for external access
+  service:
+    type: ClusterIP
+    ports:
+      postgresql: 5432
+
+  # Explicit pg_hba.conf configuration (prevents reinitialization on pod restart)
+  pgHbaConfiguration: |
+    host     all             all             0.0.0.0/0               md5
+    host     all             all             ::/0                    md5
+    local    all             all                                     md5
+    host     all             all        127.0.0.1/32                 md5
+    host     all             all        ::1/128                      md5
+
+  # Extended PostgreSQL configuration
+  extendedConfiguration: |
+    # Custom settings for development
+    max_connections = 100
+    shared_buffers = 128MB
+
+# Create additional NodePort service for development
+service:
+  type: ClusterIP
+  ports:
+    postgresql: 5432
+
+# Metrics
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+
+# Additional databases (for MLflow, Temporal)
+initdbScripts:
+  init.sql: |
+    CREATE DATABASE mlflow;
+    CREATE DATABASE temporal;
+    CREATE DATABASE temporal_visibility;

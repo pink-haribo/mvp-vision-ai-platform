@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vision AI Platform - Design System Preview</title>
+
+  <!-- SUIT Font -->
+  <link href="https://cdn.jsdelivr.net/gh/sunn-us/SUIT/fonts/variable/woff2/SUIT-Variable.css" rel="stylesheet">
+
+  <style>
+    /* ==================== Design Tokens ==================== */
+    :root {
+      /* Background & Foreground */
+      --background: 0 0% 100%;           /* White */
+      --foreground: 222.2 84% 4.9%;      /* Near-black */
+
+      /* Brand Colors */
+      --primary: 222.2 47.4% 11.2%;      /* Dark navy */
+      --primary-foreground: 210 40% 98%; /* Text on primary */
+
+      --secondary: 210 40% 96.1%;        /* Light gray */
+      --secondary-foreground: 222.2 47.4% 11.2%;
+
+      /* Semantic Colors */
+      --success: 142 76% 36%;            /* Green */
+      --success-foreground: 0 0% 100%;
+
+      --warning: 38 92% 50%;             /* Orange */
+      --warning-foreground: 0 0% 100%;
+
+      --info: 199 89% 48%;               /* Blue */
+      --info-foreground: 0 0% 100%;
+
+      --destructive: 0 84.2% 60.2%;      /* Red */
+      --destructive-foreground: 210 40% 98%;
+
+      /* UI Elements */
+      --muted: 210 40% 96.1%;            /* Muted backgrounds */
+      --muted-foreground: 215.4 16.3% 46.9%;
+
+      --border: 214.3 31.8% 91.4%;       /* Borders */
+      --input: 214.3 31.8% 91.4%;        /* Input borders */
+      --ring: 222.2 84% 4.9%;            /* Focus rings */
+
+      /* Border Radius */
+      --radius: 0.5rem;                  /* 8px */
+    }
+
+    /* ==================== Base Styles ==================== */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'SUIT Variable', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      background: hsl(var(--background));
+      color: hsl(var(--foreground));
+      line-height: 1.5;
+      padding: 2rem;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 2.25rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    h2 {
+      font-size: 1.875rem;
+      font-weight: 600;
+      margin-top: 3rem;
+      margin-bottom: 1.5rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid hsl(var(--border));
+    }
+
+    h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 1rem;
+    }
+
+    p {
+      color: hsl(var(--muted-foreground));
+      margin-bottom: 2rem;
+    }
+
+    .section {
+      margin-bottom: 3rem;
+    }
+
+    .grid {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .grid-cols-2 {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .grid-cols-3 {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .grid-cols-4 {
+      grid-template-columns: repeat(4, 1fr);
+    }
+
+    /* ==================== Button Component ==================== */
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius);
+      font-size: 0.875rem;
+      font-weight: 500;
+      padding: 0.5rem 1rem;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+    }
+
+    .button:focus-visible {
+      outline: 2px solid hsl(var(--ring));
+      outline-offset: 2px;
+    }
+
+    .button-default {
+      background: hsl(var(--primary));
+      color: hsl(var(--primary-foreground));
+    }
+
+    .button-default:hover {
+      opacity: 0.9;
+    }
+
+    .button-secondary {
+      background: hsl(var(--secondary));
+      color: hsl(var(--secondary-foreground));
+    }
+
+    .button-secondary:hover {
+      background: hsl(var(--secondary) / 0.8);
+    }
+
+    .button-destructive {
+      background: hsl(var(--destructive));
+      color: hsl(var(--destructive-foreground));
+    }
+
+    .button-destructive:hover {
+      background: hsl(var(--destructive) / 0.9);
+    }
+
+    .button-outline {
+      border: 1px solid hsl(var(--input));
+      background: transparent;
+      color: hsl(var(--foreground));
+    }
+
+    .button-outline:hover {
+      background: hsl(var(--secondary));
+    }
+
+    .button-ghost {
+      background: transparent;
+      color: hsl(var(--foreground));
+    }
+
+    .button-ghost:hover {
+      background: hsl(var(--secondary));
+    }
+
+    .button-sm {
+      font-size: 0.75rem;
+      padding: 0.375rem 0.75rem;
+    }
+
+    .button-lg {
+      font-size: 1rem;
+      padding: 0.75rem 1.5rem;
+    }
+
+    /* ==================== Card Component ==================== */
+    .card {
+      border-radius: var(--radius);
+      border: 1px solid hsl(var(--border));
+      background: hsl(var(--background));
+      box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+    }
+
+    .card-header {
+      padding: 1.5rem;
+      border-bottom: 1px solid hsl(var(--border));
+    }
+
+    .card-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      line-height: 1;
+    }
+
+    .card-description {
+      font-size: 0.875rem;
+      color: hsl(var(--muted-foreground));
+      margin-top: 0.5rem;
+    }
+
+    .card-content {
+      padding: 1.5rem;
+    }
+
+    .card-footer {
+      padding: 1.5rem;
+      border-top: 1px solid hsl(var(--border));
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    /* ==================== Alert Component ==================== */
+    .alert {
+      border-radius: var(--radius);
+      border: 1px solid hsl(var(--border));
+      padding: 1rem;
+      display: flex;
+      gap: 0.75rem;
+      align-items: start;
+    }
+
+    .alert-icon {
+      width: 1rem;
+      height: 1rem;
+      flex-shrink: 0;
+      margin-top: 0.125rem;
+    }
+
+    .alert-content {
+      flex: 1;
+    }
+
+    .alert-title {
+      font-weight: 600;
+      font-size: 0.875rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .alert-description {
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+
+    .alert-default {
+      background: hsl(var(--background));
+      color: hsl(var(--foreground));
+    }
+
+    .alert-destructive {
+      border-color: hsl(var(--destructive) / 0.5);
+      background: hsl(var(--destructive) / 0.1);
+      color: hsl(var(--destructive));
+    }
+
+    .alert-success {
+      border-color: hsl(var(--success) / 0.5);
+      background: hsl(var(--success) / 0.1);
+      color: hsl(var(--success));
+    }
+
+    .alert-warning {
+      border-color: hsl(var(--warning) / 0.5);
+      background: hsl(var(--warning) / 0.1);
+      color: hsl(var(--warning));
+    }
+
+    .alert-info {
+      border-color: hsl(var(--info) / 0.5);
+      background: hsl(var(--info) / 0.1);
+      color: hsl(var(--info));
+    }
+
+    /* ==================== Color Palette ==================== */
+    .color-swatch {
+      height: 80px;
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    .swatch-primary {
+      background: hsl(var(--primary));
+      color: hsl(var(--primary-foreground));
+    }
+
+    .swatch-secondary {
+      background: hsl(var(--secondary));
+      color: hsl(var(--secondary-foreground));
+    }
+
+    .swatch-success {
+      background: hsl(var(--success));
+      color: hsl(var(--success-foreground));
+    }
+
+    .swatch-warning {
+      background: hsl(var(--warning));
+      color: hsl(var(--warning-foreground));
+    }
+
+    .swatch-info {
+      background: hsl(var(--info));
+      color: hsl(var(--info-foreground));
+    }
+
+    .swatch-destructive {
+      background: hsl(var(--destructive));
+      color: hsl(var(--destructive-foreground));
+    }
+
+    .swatch-muted {
+      background: hsl(var(--muted));
+      color: hsl(var(--muted-foreground));
+    }
+
+    .swatch-border {
+      background: hsl(var(--border));
+      color: hsl(var(--foreground));
+    }
+
+    /* ==================== Typography Scale ==================== */
+    .type-heading-1 { font-size: 2.25rem; font-weight: 700; line-height: 1.2; }
+    .type-heading-2 { font-size: 1.875rem; font-weight: 600; line-height: 1.3; }
+    .type-heading-3 { font-size: 1.5rem; font-weight: 600; line-height: 1.4; }
+    .type-heading-4 { font-size: 1.25rem; font-weight: 600; line-height: 1.4; }
+    .type-body-large { font-size: 1.125rem; font-weight: 400; line-height: 1.6; }
+    .type-body { font-size: 1rem; font-weight: 400; line-height: 1.5; }
+    .type-body-small { font-size: 0.875rem; font-weight: 400; line-height: 1.5; }
+    .type-caption { font-size: 0.75rem; font-weight: 400; line-height: 1.4; }
+
+    /* ==================== Spacing Examples ==================== */
+    .spacing-demo {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .spacing-box {
+      background: hsl(var(--primary));
+      border-radius: 4px;
+    }
+
+    /* ==================== Utility ==================== */
+    .text-muted {
+      color: hsl(var(--muted-foreground));
+    }
+
+    .mb-2 { margin-bottom: 0.5rem; }
+    .mb-4 { margin-bottom: 1rem; }
+
+    code {
+      background: hsl(var(--muted));
+      padding: 0.125rem 0.375rem;
+      border-radius: 0.25rem;
+      font-size: 0.875rem;
+      font-family: 'Monaco', 'Menlo', monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Vision AI Platform</h1>
+      <p>디자인 시스템 프리뷰 - SUIT 폰트 적용</p>
+    </header>
+
+    <!-- Color Palette -->
+    <section class="section">
+      <h2>🎨 Color Palette</h2>
+      <p>HSL 기반 CSS 변수를 사용한 디자인 토큰 시스템</p>
+
+      <div class="grid grid-cols-4">
+        <div>
+          <div class="color-swatch swatch-primary">Primary</div>
+          <p class="text-muted mb-2" style="font-size: 0.75rem; margin-top: 0.5rem;">
+            --primary<br>222.2 47.4% 11.2%
+          </p>
+        </div>
+        <div>
+          <div class="color-swatch swatch-secondary">Secondary</div>
+          <p class="text-muted mb-2" style="font-size: 0.75rem; margin-top: 0.5rem;">
+            --secondary<br>210 40% 96.1%
+          </p>
+        </div>
+        <div>
+          <div class="color-swatch swatch-success">Success</div>
+          <p class="text-muted mb-2" style="font-size: 0.75rem; margin-top: 0.5rem;">
+            --success<br>142 76% 36%
+          </p>
+        </div>
+        <div>
+          <div class="color-swatch swatch-warning">Warning</div>
+          <p class="text-muted mb-2" style="font-size: 0.75rem; margin-top: 0.5rem;">
+            --warning<br>38 92% 50%
+          </p>
+        </div>
+        <div>
+          <div class="color-swatch swatch-info">Info</div>
+          <p class="text-muted mb-2" style="font-size: 0.75rem; margin-top: 0.5rem;">
+            --info<br>199 89% 48%
+          </p>
+        </div>
+        <div>
+          <div class="color-swatch swatch-destructive">Destructive</div>
+          <p class="text-muted mb-2" style="font-size: 0.75rem; margin-top: 0.5rem;">
+            --destructive<br>0 84.2% 60.2%
+          </p>
+        </div>
+        <div>
+          <div class="color-swatch swatch-muted">Muted</div>
+          <p class="text-muted mb-2" style="font-size: 0.75rem; margin-top: 0.5rem;">
+            --muted<br>210 40% 96.1%
+          </p>
+        </div>
+        <div>
+          <div class="color-swatch swatch-border">Border</div>
+          <p class="text-muted mb-2" style="font-size: 0.75rem; margin-top: 0.5rem;">
+            --border<br>214.3 31.8% 91.4%
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Typography -->
+    <section class="section">
+      <h2>📝 Typography</h2>
+      <p>SUIT Variable 폰트를 사용한 타이포그래피 시스템 (weight: 100-900)</p>
+
+      <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+        <div>
+          <p class="text-muted mb-2">Heading 1 - 2.25rem (36px) / Bold</p>
+          <p class="type-heading-1">비전 AI 트레이닝 플랫폼</p>
+        </div>
+        <div>
+          <p class="text-muted mb-2">Heading 2 - 1.875rem (30px) / Semibold</p>
+          <p class="type-heading-2">자연어로 모델 학습하기</p>
+        </div>
+        <div>
+          <p class="text-muted mb-2">Heading 3 - 1.5rem (24px) / Semibold</p>
+          <p class="type-heading-3">학습 작업 관리</p>
+        </div>
+        <div>
+          <p class="text-muted mb-2">Heading 4 - 1.25rem (20px) / Semibold</p>
+          <p class="type-heading-4">데이터셋 업로드</p>
+        </div>
+        <div>
+          <p class="text-muted mb-2">Body Large - 1.125rem (18px) / Regular</p>
+          <p class="type-body-large">플랫폼을 통해 쉽게 컴퓨터 비전 모델을 학습할 수 있습니다.</p>
+        </div>
+        <div>
+          <p class="text-muted mb-2">Body - 1rem (16px) / Regular</p>
+          <p class="type-body">YOLO, ResNet, EfficientNet 등 다양한 모델을 지원합니다.</p>
+        </div>
+        <div>
+          <p class="text-muted mb-2">Body Small - 0.875rem (14px) / Regular</p>
+          <p class="type-body-small">학습 진행 상황을 실시간으로 모니터링할 수 있습니다.</p>
+        </div>
+        <div>
+          <p class="text-muted mb-2">Caption - 0.75rem (12px) / Regular</p>
+          <p class="type-caption">2025-01-11 14:30:25 KST</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Buttons -->
+    <section class="section">
+      <h2>🔘 Buttons</h2>
+      <p>다양한 variant와 size를 지원하는 버튼 컴포넌트</p>
+
+      <h3>Variants</h3>
+      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 2rem;">
+        <button class="button button-default">Default</button>
+        <button class="button button-secondary">Secondary</button>
+        <button class="button button-destructive">Destructive</button>
+        <button class="button button-outline">Outline</button>
+        <button class="button button-ghost">Ghost</button>
+      </div>
+
+      <h3>Sizes</h3>
+      <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+        <button class="button button-default button-sm">Small</button>
+        <button class="button button-default">Default</button>
+        <button class="button button-default button-lg">Large</button>
+      </div>
+    </section>
+
+    <!-- Cards -->
+    <section class="section">
+      <h2>🃏 Cards</h2>
+      <p>정보를 그룹화하는 카드 컴포넌트</p>
+
+      <div class="grid grid-cols-3">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">학습 작업 #1</div>
+            <div class="card-description">yolo11n 모델 학습</div>
+          </div>
+          <div class="card-content">
+            <p style="font-size: 0.875rem; margin: 0;">
+              상태: <strong>Running</strong><br>
+              진행률: 45%<br>
+              에포크: 23/50
+            </p>
+          </div>
+          <div class="card-footer">
+            <button class="button button-outline button-sm">중지</button>
+            <button class="button button-default button-sm">상세보기</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">데이터셋</div>
+            <div class="card-description">COCO 2017</div>
+          </div>
+          <div class="card-content">
+            <p style="font-size: 0.875rem; margin: 0;">
+              이미지: 118,287장<br>
+              클래스: 80개<br>
+              크기: 25 GB
+            </p>
+          </div>
+          <div class="card-footer">
+            <button class="button button-default button-sm">사용하기</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">모델 정보</div>
+            <div class="card-description">ResNet-50</div>
+          </div>
+          <div class="card-content">
+            <p style="font-size: 0.875rem; margin: 0;">
+              파라미터: 25.6M<br>
+              정확도: 76.2%<br>
+              프레임워크: timm
+            </p>
+          </div>
+          <div class="card-footer">
+            <button class="button button-default button-sm">학습 시작</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Alerts -->
+    <section class="section">
+      <h2>⚠️ Alerts</h2>
+      <p>사용자에게 중요한 정보를 전달하는 알림 컴포넌트</p>
+
+      <div style="display: flex; flex-direction: column; gap: 1rem;">
+        <div class="alert alert-default">
+          <svg class="alert-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+          <div class="alert-content">
+            <div class="alert-title">기본 알림</div>
+            <div class="alert-description">일반적인 정보를 전달할 때 사용합니다.</div>
+          </div>
+        </div>
+
+        <div class="alert alert-info">
+          <svg class="alert-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+          <div class="alert-content">
+            <div class="alert-title">정보 알림</div>
+            <div class="alert-description">학습 작업이 대기열에 추가되었습니다. 곧 시작됩니다.</div>
+          </div>
+        </div>
+
+        <div class="alert alert-success">
+          <svg class="alert-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+          </svg>
+          <div class="alert-content">
+            <div class="alert-title">성공</div>
+            <div class="alert-description">학습이 성공적으로 완료되었습니다!</div>
+          </div>
+        </div>
+
+        <div class="alert alert-warning">
+          <svg class="alert-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          <div class="alert-content">
+            <div class="alert-title">주의</div>
+            <div class="alert-description">이 작업은 되돌릴 수 없습니다. 신중하게 진행하세요.</div>
+          </div>
+        </div>
+
+        <div class="alert alert-destructive">
+          <svg class="alert-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="15" y1="9" x2="9" y2="15"></line>
+            <line x1="9" y1="9" x2="15" y2="15"></line>
+          </svg>
+          <div class="alert-content">
+            <div class="alert-title">오류</div>
+            <div class="alert-description">학습 중 오류가 발생했습니다. 다시 시도해주세요.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Spacing System -->
+    <section class="section">
+      <h2>📏 Spacing System</h2>
+      <p>4px 기반 스페이싱 시스템 (4의 배수만 사용)</p>
+
+      <div style="background: hsl(var(--muted)); padding: 1.5rem; border-radius: var(--radius);">
+        <div class="spacing-demo">
+          <code>4px</code>
+          <div class="spacing-box" style="width: 4px; height: 20px;"></div>
+        </div>
+        <div class="spacing-demo">
+          <code>8px</code>
+          <div class="spacing-box" style="width: 8px; height: 20px;"></div>
+        </div>
+        <div class="spacing-demo">
+          <code>12px</code>
+          <div class="spacing-box" style="width: 12px; height: 20px;"></div>
+        </div>
+        <div class="spacing-demo">
+          <code>16px</code>
+          <div class="spacing-box" style="width: 16px; height: 20px;"></div>
+        </div>
+        <div class="spacing-demo">
+          <code>24px</code>
+          <div class="spacing-box" style="width: 24px; height: 20px;"></div>
+        </div>
+        <div class="spacing-demo">
+          <code>32px</code>
+          <div class="spacing-box" style="width: 32px; height: 20px;"></div>
+        </div>
+        <div class="spacing-demo">
+          <code>48px</code>
+          <div class="spacing-box" style="width: 48px; height: 20px;"></div>
+        </div>
+        <div class="spacing-demo">
+          <code>64px</code>
+          <div class="spacing-box" style="width: 64px; height: 20px;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Design Principles -->
+    <section class="section">
+      <h2>💡 Design Principles</h2>
+
+      <div class="grid grid-cols-2" style="gap: 1.5rem;">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">1. Consistency First</div>
+          </div>
+          <div class="card-content">
+            <ul style="font-size: 0.875rem; line-height: 1.8; margin: 0; padding-left: 1.25rem;">
+              <li>디자인 토큰만 사용 (하드코딩 금지)</li>
+              <li>shadcn/ui 컴포넌트 재사용</li>
+              <li>4px 배수 스페이싱 준수</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">2. Accessibility by Default</div>
+          </div>
+          <div class="card-content">
+            <ul style="font-size: 0.875rem; line-height: 1.8; margin: 0; padding-left: 1.25rem;">
+              <li>WCAG 2.1 AA 준수</li>
+              <li>키보드 네비게이션 지원</li>
+              <li>스크린 리더 지원 (ARIA)</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">3. Mobile-First Responsive</div>
+          </div>
+          <div class="card-content">
+            <ul style="font-size: 0.875rem; line-height: 1.8; margin: 0; padding-left: 1.25rem;">
+              <li>모바일 우선 디자인</li>
+              <li>3개 브레이크포인트 (sm/md/lg)</li>
+              <li>터치 친화적 (최소 44x44px)</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">4. Performance Optimized</div>
+          </div>
+          <div class="card-content">
+            <ul style="font-size: 0.875rem; line-height: 1.8; margin: 0; padding-left: 1.25rem;">
+              <li>Next.js 이미지 최적화</li>
+              <li>코드 스플리팅</li>
+              <li>폰트 최적화 (next/font)</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer style="margin-top: 4rem; padding-top: 2rem; border-top: 1px solid hsl(var(--border)); text-align: center;">
+      <p style="font-size: 0.875rem; color: hsl(var(--muted-foreground));">
+        Vision AI Training Platform Design System v1.0<br>
+        Last Updated: 2025-01-11
+      </p>
+    </footer>
+  </div>
+</body>
+</html>

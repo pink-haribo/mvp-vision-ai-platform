@@ -12,29 +12,55 @@ Vision AI Training Platform은 개발자가 자연어로 대화하듯 Vision 모
 
 **주요 기능:**
 - 🗣️ 자연어 기반 모델 설정
-- 🚀 다양한 모델 아키텍처 지원 (timm, HuggingFace, Ultralytics 등)
-- 📊 실시간 학습 모니터링
+- 🚀 다양한 모델 아키텍처 지원 (timm, Ultralytics YOLO 등)
+- 📊 실시간 학습 모니터링 (MLflow + Prometheus + Grafana)
 - 🔌 원클릭 추론 API 생성
 - 🎨 직관적인 UI/UX
 
+**현재 상태:**
+- ✅ **MVP 완료** - 자연어 기반 학습, 실시간 모니터링, Kubernetes 학습 실행
+- ⏳ **Platform 개발 진행 중** - 3-tier 환경 격리, 프로덕션 배포 준비
+
 ## 🏗️ 아키텍처
 
+### MVP 아키텍처 (완료)
 ```
-Frontend (Next.js) ←→ API Gateway ←→ Backend Services
-                                      ↓
-                               Orchestrator (Temporal)
-                                      ↓
-                         Training Runner (Kubernetes)
+Frontend (Next.js) ←→ Backend (FastAPI) ←→ Training Service
+                          ↓                      ↓
+                    PostgreSQL           Kubernetes Jobs
+                          ↓                      ↓
+                     MLflow API          MLflow Tracking
 ```
 
-[상세 아키텍처 →](docs/ARCHITECTURE.md)
+### Platform 아키텍처 (개발 중)
+```
+3-Tier Isolated Environment:
+┌─────────────────────────────────────────────────┐
+│ Tier 1: Subprocess (Local Dev)                 │
+│   - Training in subprocess                     │
+│   - MinIO (local), MLflow (local)              │
+└─────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│ Tier 2: Kind (K8s Dev)                         │
+│   - Training in Kubernetes Jobs               │
+│   - MinIO (cluster), MLflow (cluster)          │
+└─────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│ Tier 3: Production (AWS/GCP)                   │
+│   - Training in Kubernetes Jobs               │
+│   - S3/R2, MLflow (production)                 │
+└─────────────────────────────────────────────────┘
+```
+
+[Platform 아키텍처 상세 →](platform/docs/architecture/)
 
 ## 🚀 Quick Start
 
-> **처음 시작하시나요?** [GETTING_STARTED.md](GETTING_STARTED.md) - 5분 안에 Training 실행하기
+### MVP 개발 환경 시작
 
-### Prerequisites
+> **처음 시작하시나요?** [MVP 시작 가이드](mvp/docs/guides/GETTING_STARTED.md)를 참고하세요.
 
+**Prerequisites:**
 ```bash
 - Docker Desktop 4.26+
 - Kind (Kubernetes in Docker)
@@ -50,14 +76,14 @@ winget install -e --id Kubernetes.kind
 winget install -e --id Kubernetes.kubectl
 ```
 
-### 로컬 개발 환경 시작 (한 번에!)
-
+**개발 환경 시작:**
 ```powershell
 # 1. 레포지토리 클론
-git clone https://github.com/your-org/vision-platform.git
-cd vision-platform
+git clone https://github.com/your-org/mvp-vision-ai-platform.git
+cd mvp-vision-ai-platform
 
-# 2. 개발 환경 시작 (처음 실행 시 10-15분 소요)
+# 2. MVP 개발 환경 시작
+cd mvp
 .\dev-start.ps1
 
 # 완료! 다음 서비스에 접근 가능:
@@ -67,163 +93,136 @@ cd vision-platform
 # - MinIO:      http://localhost:30901 (minioadmin/minioadmin)
 ```
 
-**이후 실행 (빠른 시작):**
+[MVP 개발 워크플로우 →](mvp/docs/guides/DEV_WORKFLOW.md)
+
+### Platform 개발 환경
+
+Platform 개발은 3-tier 환경 격리 전략을 따릅니다:
+
 ```powershell
-# 이미지 빌드 스킵 (2-3분 소요)
-.\dev-start.ps1 -SkipBuild
+# Tier 1: Subprocess 모드 (가장 빠른 개발)
+python platform/backend/main.py --mode subprocess
+
+# Tier 2: Kind 클러스터 (Kubernetes 테스트)
+.\platform\scripts\kind-setup.ps1
+
+# Tier 3: Production (AWS/GCP)
+# See platform/docs/deployment/
 ```
 
-**상태 확인:**
-```powershell
-# 현재 환경 상태 확인
-.\dev-status.ps1
-
-# 실시간 모니터링
-.\dev-status.ps1 -Watch
-```
-
-**환경 종료:**
-```powershell
-# 중지 (데이터 유지)
-.\dev-stop.ps1
-
-# 완전 삭제
-.\dev-stop.ps1 -DeleteCluster
-```
-
-[개발 스크립트 상세 가이드 →](DEV_SCRIPTS.md)
-
----
-
-### 개발 워크플로우 (Training 코드 수정 시)
-
-**매번 Docker 이미지를 빌드하지 않고 빠르게 개발:**
-
-**1. 로컬 개발 (가장 빠름 ⚡)**
-```powershell
-# Python으로 직접 실행 (MLflow, MinIO는 K8s 사용)
-.\dev-train-local.ps1 -Script mvp/training/train.py
-
-# 코드 수정 → 즉시 실행 → 결과 확인 (초 단위)
-```
-
-**2. K8s 테스트 (ConfigMap 주입)**
-```powershell
-# 이미지 빌드 없이 K8s에서 실행
-.\dev-train-k8s.ps1 -Watch
-
-# 코드를 ConfigMap으로 주입 → 기존 이미지 사용 (분 단위)
-```
-
-**3. 이미지 빌드 (최종 배포)**
-```powershell
-# 코드가 안정화되었을 때만
-cd mvp/training/docker
-.\build.ps1 -Target ultralytics
-```
-
-[개발 워크플로우 상세 가이드 →](DEV_WORKFLOW.md)
-
----
-
-### 수동 설정 (고급 사용자)
-cp .env.example .env
-
-# 3. 의존성 설치 & 실행
-make dev-up
-
-# Frontend: http://localhost:3000
-# API: http://localhost:8000
-# Docs: http://localhost:8000/docs
-```
-
-[상세 개발 가이드 →](docs/DEVELOPMENT.md)
+[3-Tier 개발 가이드 →](platform/docs/development/3_TIER_DEVELOPMENT.md)
 
 ## 📦 프로젝트 구조
 
 ```
-vision-platform/
-├── frontend/              # Next.js 애플리케이션
-├── backend/
-│   ├── api-gateway/      # Kong 설정
-│   ├── intent-parser/    # LLM 기반 의도 파싱
-│   ├── orchestrator/     # Temporal 워크플로우
-│   ├── model-registry/   # 모델 관리
-│   ├── data-service/     # 데이터 처리
-│   └── vm-controller/    # K8s 클러스터 관리
-├── training-runner/      # 학습 실행 환경
-├── infrastructure/       # Terraform, K8s manifests
-└── docs/                 # 문서
+mvp-vision-ai-platform/
+├── mvp/                      # ✅ MVP 구현 (완료, 유지 모드)
+│   ├── backend/              # FastAPI backend
+│   ├── frontend/             # Next.js frontend
+│   ├── training/             # Training scripts (timm, ultralytics)
+│   ├── infrastructure/       # Docker Compose, K8s manifests
+│   ├── scripts/              # Dev scripts (dev-*.ps1)
+│   └── docs/                 # MVP 문서
+│
+├── platform/                 # ⏳ Platform 구현 (개발 중)
+│   ├── backend/              # Platform backend (3-tier support)
+│   ├── training-services/    # Framework-specific services
+│   ├── infrastructure/       # Production K8s, Terraform
+│   └── docs/                 # Platform 설계 문서
+│
+├── docs/                     # 프로젝트 공용 문서
+│   └── CONVERSATION_LOG.md   # 개발 히스토리
+│
+└── README.md                 # 현재 파일
 ```
 
 ## 🛠️ 기술 스택
 
-**Frontend:** Next.js 14, React 18, TailwindCSS, Zustand  
-**Backend:** FastAPI, Python 3.11, PostgreSQL, Redis, MongoDB  
-**AI/ML:** LangChain, Claude/GPT-4, PyTorch, timm, transformers  
-**Orchestration:** Temporal, Celery, Kubernetes  
-**Infrastructure:** Docker, Terraform, AWS/GCP
+**MVP Stack:**
+- Frontend: Next.js 14, React 18, TailwindCSS, Zustand
+- Backend: FastAPI, Python 3.11, PostgreSQL, SQLite
+- Training: PyTorch, timm, Ultralytics YOLO
+- Monitoring: MLflow, Prometheus, Grafana
+- Infrastructure: Docker Compose, Kind (Kubernetes)
 
-[전체 기술 스택 →](docs/ARCHITECTURE.md#tech-stack)
+**Platform Stack (추가):**
+- Framework Services: timm-service, ultralytics-service, huggingface-service
+- Storage: S3/R2, MinIO (all tiers)
+- Orchestration: Temporal (planned)
+- Deployment: Terraform, AWS/GCP Kubernetes
+
+[전체 기술 스택 →](platform/docs/architecture/BACKEND_DESIGN.md)
 
 ## 📖 문서
 
-- [아키텍처 설계](docs/ARCHITECTURE.md)
-- [API 명세](docs/API_SPECIFICATION.md)
-- [개발 가이드](docs/DEVELOPMENT.md)
-- [디자인 시스템](docs/design/DESIGN_SYSTEM.md)
-- [배포 가이드](docs/infrastructure/DEPLOYMENT.md)
+### MVP 문서 (완료)
+- [MVP 문서 인덱스](mvp/docs/README.md)
+- [시작 가이드](mvp/docs/guides/GETTING_STARTED.md)
+- [개발 워크플로우](mvp/docs/guides/DEV_WORKFLOW.md)
+- [MVP 아키텍처](mvp/docs/architecture/)
+- [LLM 통합](mvp/docs/llm/)
+
+### Platform 문서 (개발 중)
+- [Platform 문서 인덱스](platform/docs/README.md)
+- [Platform 아키텍처](platform/docs/architecture/)
+- [3-Tier 개발](platform/docs/development/3_TIER_DEVELOPMENT.md)
+- [에러 핸들링](platform/docs/architecture/ERROR_HANDLING_DESIGN.md)
+- [운영 가이드](platform/docs/architecture/OPERATIONS_RUNBOOK.md)
+- [설계 리뷰](platform/docs/reviews/)
+
+### 공용 문서
+- [개발 히스토리](docs/CONVERSATION_LOG.md)
 
 ## 🎯 사용 예시
 
 ### 자연어로 모델 학습
 
 ```
-User: "ResNet50으로 고양이 품종 3개 분류하는 모델 만들어줘"
+User: "YOLO11n으로 객체 탐지 모델 만들어줘. 클래스는 person, car, dog"
 
 AI: 알겠습니다! 다음 설정으로 진행할게요:
-    - Model: ResNet50 (ImageNet pretrained)
-    - Task: Image Classification
-    - Classes: 3개
+    - Model: yolo11n
+    - Task: Object Detection
+    - Classes: person, car, dog (3개)
     - Epochs: 100 (권장)
-    - Batch Size: 32
-    
-    데이터셋은 어디 있나요?
+    - Image Size: 640x640
 
-User: "내 Google Drive의 cat_breeds 폴더"
+    데이터셋 경로를 알려주세요. (YOLO format)
+
+User: "data/coco-subset"
 
 AI: 학습을 시작합니다! 🚀
+    MLflow Run: http://localhost:30500/#/experiments/1/runs/abc123
 ```
 
 ### 실시간 모니터링
 
-- 📊 Epoch 진행률, Loss/Accuracy 실시간 업데이트
-- 💻 GPU/메모리 사용량 모니터링
-- 📈 Loss Curve 시각화
-- 🔔 학습 완료 알림
+- 📊 Epoch 진행률, Loss/mAP 실시간 업데이트
+- 💻 GPU/메모리 사용량 모니터링 (Prometheus + Grafana)
+- 📈 Training Metrics 시각화 (MLflow)
+- 🔔 학습 완료 WebSocket 알림
 
-### 추론 API 생성
+### 추론 API 생성 (planned)
 
 학습 완료 후 원클릭으로 REST API 생성:
 
 ```bash
-curl -X POST https://api.vision-platform.com/inference/wf_789xyz/predict \
+curl -X POST https://api.vision-platform.com/inference/{job_id}/predict \
   -H "Authorization: Bearer YOUR_TOKEN" \
-  -F "image=@cat.jpg"
+  -F "image=@sample.jpg"
 
 # Response
 {
   "predictions": [
-    {"class": "페르시안", "confidence": 0.95},
-    {"class": "샴", "confidence": 0.03},
-    {"class": "러시안블루", "confidence": 0.02}
+    {"class": "person", "confidence": 0.95, "bbox": [10, 20, 100, 200]},
+    {"class": "car", "confidence": 0.87, "bbox": [150, 30, 300, 250]}
   ]
 }
 ```
 
 ## 🤝 기여하기
 
-기여를 환영합니다! [CONTRIBUTING.md](docs/CONTRIBUTING.md)를 참고해주세요.
+기여를 환영합니다! [CONTRIBUTING.md](CONTRIBUTING.md)를 참고해주세요.
 
 1. Fork the Project
 2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
@@ -231,27 +230,34 @@ curl -X POST https://api.vision-platform.com/inference/wf_789xyz/predict \
 4. Push to the Branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## 📊 로드맵
+## 📊 개발 현황
 
-### Phase 1 (MVP) - Q1 2025
-- [x] 기본 UI/UX
-- [x] 자연어 파싱 (LLM)
-- [x] timm, HuggingFace 모델 지원
-- [x] 로컬 학습 실행
-- [ ] 기본 텔레메트리
+### ✅ MVP Phase (완료)
+- [x] 기본 UI/UX (Chat 기반 인터페이스)
+- [x] 자연어 파싱 (Gemini LLM)
+- [x] timm 모델 지원 (ResNet, EfficientNet)
+- [x] Ultralytics YOLO 지원 (Detection, Segmentation, Pose)
+- [x] Kubernetes 학습 실행 (Kind)
+- [x] 실시간 모니터링 (MLflow + Prometheus + Grafana)
+- [x] 콜백 기반 학습 상태 업데이트
 
-### Phase 2 - Q2 2025
-- [ ] Kubernetes 배포
-- [ ] Temporal 워크플로우
-- [ ] 5+ 모델 프레임워크 지원
-- [ ] 분산 학습
-- [ ] Advanced 모니터링
-
-### Phase 3 - Q3 2025
+### ⏳ Platform Phase (진행 중)
+- [x] 3-Tier 환경 격리 설계
+- [x] 에러 핸들링 설계
+- [x] 통합 실패 처리 설계
+- [x] 운영 가이드 작성
+- [ ] Framework-specific Training Services
+- [ ] Temporal 워크플로우 통합
+- [ ] 프로덕션 배포 (AWS/GCP)
 - [ ] Auto-scaling
 - [ ] Multi-tenancy
-- [ ] Enterprise 기능
+
+### 🔮 Future (계획)
+- [ ] HuggingFace Transformers 지원
+- [ ] MMDetection/MMSegmentation 지원
+- [ ] 분산 학습 (multi-GPU, multi-node)
 - [ ] Cost optimization
+- [ ] Enterprise 기능
 
 ## 📄 라이선스
 
@@ -259,9 +265,8 @@ MIT License - [LICENSE](LICENSE) 파일 참고
 
 ## 📧 문의
 
-- 이슈: [GitHub Issues](https://github.com/your-org/vision-platform/issues)
+- 이슈: [GitHub Issues](https://github.com/your-org/mvp-vision-ai-platform/issues)
 - 이메일: team@vision-platform.com
-- Slack: [Join our community](https://vision-platform.slack.com)
 
 ## 🙏 감사의 말
 
@@ -270,10 +275,11 @@ MIT License - [LICENSE](LICENSE) 파일 참고
 - [PyTorch](https://pytorch.org/)
 - [timm](https://github.com/huggingface/pytorch-image-models)
 - [Ultralytics YOLO](https://github.com/ultralytics/ultralytics)
-- [LangChain](https://github.com/langchain-ai/langchain)
-- [Temporal](https://temporal.io/)
+- [MLflow](https://mlflow.org/)
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [Next.js](https://nextjs.org/)
+- [Prometheus](https://prometheus.io/)
+- [Grafana](https://grafana.com/)
 
 ---
 

@@ -1,0 +1,58 @@
+# MLflow Helm Values for Platform
+# Chart: bitnami/mlflow
+# Tier 1 Development Environment
+
+# Tracking server configuration
+tracking:
+  auth:
+    enabled: false  # Disable auth for development
+
+# External PostgreSQL configuration (in platform namespace)
+externalDatabase:
+  dialectDriver: postgresql
+  host: postgresql.platform.svc.cluster.local
+  port: 5432
+  user: admin
+  password: devpass
+  database: mlflow
+
+# Use external MinIO as artifact store
+run:
+  artifact:
+    root: s3://vision-platform-dev/mlflow/artifacts
+
+# MinIO S3 configuration (via environment variables)
+extraEnvVars:
+  - name: AWS_ACCESS_KEY_ID
+    value: minioadmin
+  - name: AWS_SECRET_ACCESS_KEY
+    value: minioadmin
+  - name: MLFLOW_S3_ENDPOINT_URL
+    value: http://minio.platform.svc.cluster.local:9000
+
+# Resources
+resources:
+  requests:
+    memory: 256Mi
+    cpu: 250m
+  limits:
+    memory: 512Mi
+    cpu: 500m
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 5000
+
+# Disable built-in PostgreSQL and MinIO
+postgresql:
+  enabled: false
+
+minio:
+  enabled: false
+
+# Enable metrics for Prometheus
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true

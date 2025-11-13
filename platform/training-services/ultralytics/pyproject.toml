@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "ultralytics-trainer"
+version = "0.1.0"
+description = "Ultralytics YOLO Training Service"
+authors = ["Vision AI Team"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+pydantic = "^2.5.0"
+pydantic-settings = "^2.1.0"
+httpx = "^0.26.0"
+ultralytics = "^8.1.0"
+torch = "^2.1.0"
+torchvision = "^0.16.0"
+aioboto3 = "^12.3.0"  # S3 client
+tenacity = "^8.2.3"   # Retry logic
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.3"
+pytest-asyncio = "^0.23.2"
+black = "^23.12.1"
+isort = "^5.13.2"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

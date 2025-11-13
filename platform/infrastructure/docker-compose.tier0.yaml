@@ -1,0 +1,303 @@
+version: '3.8'
+
+# Tier-0 Infrastructure
+# Lightweight infrastructure for local development without Kubernetes
+# Use this when:
+# - Your PC has limited resources
+# - You want faster startup times
+# - You're doing rapid development iteration
+# - You don't need Kubernetes-specific features
+
+services:
+  # PostgreSQL - Main database
+  postgres:
+    image: postgres:16
+    container_name: platform-postgres-tier0
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: devpass
+      POSTGRES_DB: platform
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    volumes:
+      - postgres-data-tier0:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - platform-tier0
+
+  # Redis - Cache and session store
+  redis:
+    image: redis:7.2-alpine
+    container_name: platform-redis-tier0
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data-tier0:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - platform-tier0
+
+  # MinIO - S3-compatible object storage
+  minio:
+    image: minio/minio:latest
+    container_name: platform-minio-tier0
+    restart: unless-stopped
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # Console UI
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_BROWSER_REDIRECT_URL: http://localhost:9001
+    volumes:
+      - minio-data-tier0:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
+    networks:
+      - platform-tier0
+
+  # MinIO Setup - Create buckets
+  minio-setup:
+    image: minio/mc:latest
+    container_name: platform-minio-setup-tier0
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for MinIO to be ready...';
+      sleep 5;
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      echo 'Creating buckets...';
+      mc mb myminio/training-datasets --ignore-existing;
+      mc mb myminio/training-checkpoints --ignore-existing;
+      mc mb myminio/training-results --ignore-existing;
+      mc mb myminio/model-weights --ignore-existing;
+      mc mb myminio/config-schemas --ignore-existing;
+      mc mb myminio/vision-platform-dev --ignore-existing;
+      echo 'MinIO buckets created successfully';
+      echo 'Buckets:';
+      mc ls myminio;
+      "
+    networks:
+      - platform-tier0
+
+  # MLflow - Experiment tracking
+  mlflow:
+    build:
+      context: ./mlflow
+      dockerfile: Dockerfile
+    image: platform-mlflow:tier0
+    container_name: platform-mlflow-tier0
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      # PostgreSQL backend for experiments metadata
+      BACKEND_STORE_URI: postgresql://admin:devpass@postgres:5432/platform
+      # MinIO for artifacts storage
+      ARTIFACT_ROOT: s3://mlflow-artifacts
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      # MLflow server config
+      MLFLOW_TRACKING_URI: http://0.0.0.0:5000
+      MLFLOW_HOST: 0.0.0.0
+      MLFLOW_PORT: 5000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - platform-tier0
+
+  # Temporal - Workflow orchestration
+  temporal:
+    image: temporalio/auto-setup:1.22.4
+    container_name: platform-temporal-tier0
+    restart: unless-stopped
+    ports:
+      - "7233:7233"   # gRPC
+      - "8233:8233"   # Web UI
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=admin
+      - POSTGRES_PWD=devpass
+      - POSTGRES_SEEDS=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "localhost:7233", "cluster", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - platform-tier0
+
+  # ================================
+  # Observability Stack
+  # ================================
+
+  # Prometheus - Metrics collection and storage
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: platform-prometheus-tier0
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data-tier0:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - platform-tier0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Grafana - Visualization and dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: platform-grafana-tier0
+    restart: unless-stopped
+    ports:
+      - "3200:3000"  # Port 3200 to avoid conflict with Frontend on 3000
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3200
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - ./grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - grafana-data-tier0:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - platform-tier0
+
+  # Loki - Log aggregation
+  loki:
+    image: grafana/loki:latest
+    container_name: platform-loki-tier0
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+      - "9096:9096"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data-tier0:/loki
+    command: -config.file=/etc/loki/loki-config.yml
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - platform-tier0
+
+networks:
+  platform-tier0:
+    name: platform-tier0
+    driver: bridge
+
+volumes:
+  # Shared persistent storage (same path for Tier-0 and Tier-1)
+  # Data persists across tier migrations
+  postgres-data-tier0:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: C:/platform-data/postgres
+
+  redis-data-tier0:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: C:/platform-data/redis
+
+  minio-data-tier0:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: C:/platform-data/minio
+
+  prometheus-data-tier0:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: C:/platform-data/prometheus
+
+  grafana-data-tier0:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: C:/platform-data/grafana
+
+  loki-data-tier0:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: C:/platform-data/loki
+
+# Usage:
+# Start:  docker-compose -f docker-compose.tier0.yaml up -d
+# Stop:   docker-compose -f docker-compose.tier0.yaml down
+# Logs:   docker-compose -f docker-compose.tier0.yaml logs -f [service]
+# Reset:  docker-compose -f docker-compose.tier0.yaml down -v  (WARNING: deletes all data)

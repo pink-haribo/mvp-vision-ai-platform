@@ -1,0 +1,19 @@
+# Training Service Requirements (from pyproject.toml)
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+httpx==0.26.0
+aioboto3==12.3.0
+ultralytics==8.1.0
+torch==2.1.0
+torchvision==0.16.0
+pillow==10.1.0
+tenacity==8.2.3
+
+# Dev dependencies
+pytest==7.4.3
+pytest-asyncio==0.23.2
+black==23.12.1
+isort==5.13.2
+flake8==7.0.0
