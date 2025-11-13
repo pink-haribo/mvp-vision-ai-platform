@@ -242,6 +242,9 @@ class TrainingCompletionCallback(BaseModel):
     best_checkpoint_path: Optional[str] = Field(None, description="Path to best checkpoint")
     model_artifacts_path: Optional[str] = Field(None, description="Path to exported model artifacts")
 
+    # MLflow integration
+    mlflow_run_id: Optional[str] = Field(None, description="MLflow run ID for experiment tracking")
+
     # Timing
     total_duration_seconds: Optional[float] = Field(None, description="Total training duration")
 

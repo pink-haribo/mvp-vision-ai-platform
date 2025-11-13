@@ -1623,6 +1623,11 @@ async def training_completion_callback(
         if callback.best_checkpoint_path:
             job.best_checkpoint_path = callback.best_checkpoint_path
 
+        # Store MLflow run ID
+        if callback.mlflow_run_id:
+            job.mlflow_run_id = callback.mlflow_run_id
+            logger.info(f"[CALLBACK] Stored MLflow run ID: {callback.mlflow_run_id}")
+
         # Store error information if failed
         if callback.status == "failed" or (callback.exit_code and callback.exit_code != 0):
             job.error_message = callback.error_message or "Training failed (no error message provided)"

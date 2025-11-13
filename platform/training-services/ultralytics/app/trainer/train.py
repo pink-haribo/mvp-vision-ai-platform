@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 import httpx
+import mlflow
 import yaml
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ultralytics import YOLO
@@ -203,6 +204,8 @@ async def train_model(
         2: Callback failure
     """
     exit_code = 0
+    mlflow_run_id = None
+
     s3_client = S3Client(
         endpoint=settings.S3_ENDPOINT,
         access_key=settings.AWS_ACCESS_KEY_ID,
@@ -222,7 +225,24 @@ async def train_model(
         "best_epoch": None,
     }
 
+    # Initialize MLflow
+    if settings.MLFLOW_ENABLE:
+        try:
+            mlflow.set_tracking_uri(settings.MLFLOW_TRACKING_URI)
+            mlflow.set_experiment(settings.MLFLOW_EXPERIMENT_NAME)
+            logger.info(f"MLflow tracking URI: {settings.MLFLOW_TRACKING_URI}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize MLflow: {e}. Continuing without MLflow.")
+
     try:
+        # Start MLflow run
+        if settings.MLFLOW_ENABLE:
+            try:
+                mlflow.start_run(run_name=f"job-{job_id}")
+                mlflow_run_id = mlflow.active_run().info.run_id
+                logger.info(f"Started MLflow run: {mlflow_run_id}")
+            except Exception as e:
+                logger.warning(f"Failed to start MLflow run: {e}. Continuing without MLflow.")
         # Parse S3 URI
         if not dataset_s3_uri.startswith("s3://"):
             raise ValueError(f"Invalid S3 URI: {dataset_s3_uri}")
@@ -257,6 +277,27 @@ async def train_model(
         data_yaml = dataset_dir / "data.yaml"
         if not data_yaml.exists():
             raise FileNotFoundError(f"data.yaml not found in {dataset_dir}")
+
+        # Log parameters to MLflow
+        if settings.MLFLOW_ENABLE and mlflow.active_run():
+            try:
+                mlflow.log_params({
+                    "job_id": job_id,
+                    "model_name": model_name,
+                    "framework": "ultralytics",
+                    "task_type": config.get("task", "detect"),
+                    "epochs": epochs,
+                    "batch_size": batch_size,
+                    "image_size": image_size,
+                    "device": device,
+                    "dataset_s3_uri": dataset_s3_uri,
+                    "learning_rate": config.get("lr0", 0.01),  # YOLO default lr
+                    "optimizer": config.get("optimizer", "auto"),
+                    "augmentation": config.get("augment", True),
+                })
+                logger.info("Logged parameters to MLflow")
+            except Exception as e:
+                logger.warning(f"Failed to log parameters to MLflow: {e}")
 
         # Load YOLO model
         logger.info(f"Loading model: {model_name}")
@@ -315,6 +356,23 @@ async def train_model(
         if hasattr(results, "results_dict"):
             final_metrics_dict = results.results_dict
 
+        # Log final metrics to MLflow
+        if settings.MLFLOW_ENABLE and mlflow.active_run():
+            try:
+                # Log all available metrics
+                metrics_to_log = {}
+                for key, value in final_metrics_dict.items():
+                    if isinstance(value, (int, float)):
+                        # Clean up metric names for MLflow
+                        clean_key = key.replace("/", "_").replace("(", "").replace(")", "")
+                        metrics_to_log[clean_key] = value
+
+                if metrics_to_log:
+                    mlflow.log_metrics(metrics_to_log)
+                    logger.info(f"Logged {len(metrics_to_log)} metrics to MLflow")
+            except Exception as e:
+                logger.warning(f"Failed to log metrics to MLflow: {e}")
+
         # Extract metrics for callback
         final_metrics = {
             "accuracy": final_metrics_dict.get("metrics/mAP50(B)", None),
@@ -333,11 +391,37 @@ async def train_model(
             "final_checkpoint_path": str(best_checkpoint),
             "best_checkpoint_path": str(best_checkpoint),
             "model_artifacts_path": str(checkpoint_s3_uri),
+            "mlflow_run_id": mlflow_run_id,  # For linking to MLflow UI
             "exit_code": 0,  # Success
         }
 
         await send_completion_callback(callback_url, job_id, completion_data)
         logger.info(f"Training job {job_id} completed successfully")
+
+        # Log artifacts to MLflow
+        if settings.MLFLOW_ENABLE and mlflow.active_run():
+            try:
+                # Log best checkpoint
+                if best_checkpoint.exists():
+                    mlflow.log_artifact(str(best_checkpoint), artifact_path="checkpoints")
+                    logger.info("Logged checkpoint to MLflow")
+
+                # Log training results directory (plots, confusion matrix, etc.)
+                results_dir = train_dir / "results"
+                if results_dir.exists():
+                    for file in results_dir.iterdir():
+                        if file.is_file() and file.suffix in ['.png', '.jpg', '.csv']:
+                            mlflow.log_artifact(str(file), artifact_path="results")
+                    logger.info("Logged training results to MLflow")
+
+                # Add tags
+                mlflow.set_tags({
+                    "job_id": job_id,
+                    "status": "completed",
+                    "mlflow_run_id": mlflow_run_id,
+                })
+            except Exception as e:
+                logger.warning(f"Failed to log artifacts to MLflow: {e}")
 
         # K8s Job exit code: 0 = success
         exit_code = 0
@@ -345,6 +429,18 @@ async def train_model(
     except Exception as e:
         logger.exception(f"Training failed for job {job_id}")
         exit_code = 1  # K8s Job exit code: 1 = failure
+
+        # Log failure to MLflow
+        if settings.MLFLOW_ENABLE and mlflow.active_run():
+            try:
+                mlflow.set_tags({
+                    "job_id": job_id,
+                    "status": "failed",
+                    "error": str(e),
+                })
+                mlflow.log_param("error_message", str(e)[:250])  # MLflow param limit
+            except Exception as mlflow_error:
+                logger.warning(f"Failed to log error to MLflow: {mlflow_error}")
 
         # Send error completion callback
         try:
@@ -363,6 +459,14 @@ async def train_model(
             exit_code = 2  # Callback failure
 
     finally:
+        # End MLflow run
+        if settings.MLFLOW_ENABLE and mlflow.active_run():
+            try:
+                mlflow.end_run()
+                logger.info(f"Ended MLflow run: {mlflow_run_id}")
+            except Exception as e:
+                logger.warning(f"Failed to end MLflow run: {e}")
+
         # Cleanup workspace (optional - comment out for debugging)
         # import shutil
         # if workspace.exists():
