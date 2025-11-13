@@ -39,6 +39,21 @@ buckets:
   - name: vision-platform-dev
     policy: none
     purge: false
+  - name: training-datasets
+    policy: none
+    purge: false
+  - name: training-checkpoints
+    policy: none
+    purge: false
+  - name: training-results
+    policy: none
+    purge: false
+  - name: model-weights
+    policy: none
+    purge: false
+  - name: config-schemas
+    policy: none
+    purge: false
 
 # Environment variables
 environment:
