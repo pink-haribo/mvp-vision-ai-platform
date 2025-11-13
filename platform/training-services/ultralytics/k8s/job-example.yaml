@@ -1,0 +1,150 @@
+# K8s Job Example for Ultralytics Training Service
+#
+# This manifest shows how training jobs are executed in Tier-2 (K8s Production).
+# Backend creates K8s Jobs dynamically with parameters passed as environment variables.
+#
+# Usage:
+#   kubectl apply -f job-example.yaml
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: training-job-123
+  namespace: default
+  labels:
+    app: vision-platform
+    component: training
+    framework: ultralytics
+    job-id: "123"
+spec:
+  # Cleanup completed jobs after 1 hour
+  ttlSecondsAfterFinished: 3600
+
+  # Retry on failure (up to 3 times)
+  backoffLimit: 3
+
+  # Job timeout (24 hours)
+  activeDeadlineSeconds: 86400
+
+  template:
+    metadata:
+      labels:
+        app: vision-platform
+        component: training
+        framework: ultralytics
+        job-id: "123"
+    spec:
+      restartPolicy: Never
+
+      # Service account for S3 access (if using IRSA/Workload Identity)
+      # serviceAccountName: vision-platform-training
+
+      containers:
+      - name: trainer
+        image: your-registry/ultralytics-trainer:latest
+
+        # Resource requests and limits
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+            # nvidia.com/gpu: "1"  # Uncomment for GPU
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+            # nvidia.com/gpu: "1"
+
+        # Training parameters via environment variables
+        # CLI wrapper (__main__.py) reads these automatically
+        env:
+        - name: JOB_ID
+          value: "123"
+
+        - name: MODEL_NAME
+          value: "yolo11n"
+
+        - name: DATASET_S3_URI
+          value: "s3://vision-platform/datasets/my-dataset/"
+
+        - name: CALLBACK_URL
+          value: "http://backend.default.svc.cluster.local:8000/api/v1/training"
+
+        - name: TRAINING_CONFIG
+          value: '{"epochs": 50, "batch": 16, "imgsz": 640, "device": "cuda", "primary_metric": "mAP50", "primary_metric_mode": "max"}'
+
+        - name: LOG_LEVEL
+          value: "INFO"
+
+        # Training Service settings (from .env)
+        - name: EXECUTION_MODE
+          value: "job"  # K8s Job mode (exit with code)
+
+        - name: BACKEND_API_URL
+          value: "http://backend.default.svc.cluster.local:8000"
+
+        # S3 Storage (MinIO or AWS S3)
+        - name: S3_ENDPOINT
+          value: "http://minio.default.svc.cluster.local:9000"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: s3-credentials
+              key: access-key-id
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: s3-credentials
+              key: secret-access-key
+        - name: BUCKET_NAME
+          value: "vision-platform"
+
+        # MLflow Integration
+        - name: MLFLOW_TRACKING_URI
+          value: "http://mlflow.default.svc.cluster.local:5000"
+        - name: MLFLOW_EXPERIMENT_NAME
+          value: "vision-training"
+        - name: MLFLOW_ENABLE
+          value: "true"
+
+        # Training parameters
+        - name: WORKSPACE_DIR
+          value: "/tmp/training"
+        - name: CALLBACK_INTERVAL
+          value: "1"
+        - name: CHECKPOINT_INTERVAL
+          value: "5"
+
+        # Execute training via CLI wrapper
+        command:
+        - "python"
+        - "-m"
+        - "app"
+        # Note: No CLI args needed - all params passed via env vars
+
+        # Volume mounts (optional - for shared storage)
+        # volumeMounts:
+        # - name: dataset-cache
+        #   mountPath: /cache/datasets
+        # - name: model-cache
+        #   mountPath: /cache/models
+
+      # Volumes (optional)
+      # volumes:
+      # - name: dataset-cache
+      #   persistentVolumeClaim:
+      #     claimName: dataset-cache-pvc
+      # - name: model-cache
+      #   persistentVolumeClaim:
+      #     claimName: model-cache-pvc
+
+---
+# Secret for S3 credentials (example)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: s3-credentials
+  namespace: default
+type: Opaque
+stringData:
+  access-key-id: minioadmin
+  secret-access-key: minioadmin

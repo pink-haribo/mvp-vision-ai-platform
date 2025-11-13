@@ -11,16 +11,12 @@ from app.db.database import get_db
 from app.db import models
 from app.schemas import training
 from app.core.config import settings
-from app.utils.training_manager_k8s import TrainingManagerK8s
 from app.utils.mlflow_client import get_mlflow_client
 from app.services.websocket_manager import get_websocket_manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Global training manager instance
-training_manager = None
 
 
 async def auto_create_snapshot_if_needed(dataset_id: str, job_id: int, db: Session) -> str:
@@ -530,30 +526,75 @@ async def start_training_job(
         "callback_url": callback_url,
     }
 
-    logger.info(f"[JOB {job_id}] Starting training via {training_service_url}")
+    # Get training executor from environment (subprocess or k8s)
+    executor = os.getenv("TRAINING_EXECUTOR", "subprocess")
+    logger.info(f"[JOB {job_id}] Using training executor: {executor}")
 
     try:
-        # Call Training Service HTTP API
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{training_service_url}/training/start",
-                json=training_request
+        # Build absolute callback URL
+        callback_base_url = f"http://localhost:{settings.BACKEND_PORT}{settings.API_V1_PREFIX}/training"
+
+        if executor == "subprocess":
+            # Tier-0 (Docker Compose), Tier-1 (Kind): Execute via subprocess
+            from app.utils.training_subprocess import get_training_subprocess_manager
+
+            manager = get_training_subprocess_manager()
+
+            # Start training subprocess
+            process = await manager.start_training(
+                job_id=job_id,
+                framework=job.framework,
+                model_name=job.model_name,
+                dataset_s3_uri=dataset_s3_uri,
+                callback_url=callback_base_url,
+                config=training_config,
             )
-            response.raise_for_status()
 
-        # Update job status
-        job.status = "running"
-        job.started_at = datetime.utcnow()
-        db.commit()
-        db.refresh(job)
+            # Update job status
+            job.status = "running"
+            job.started_at = datetime.utcnow()
+            job.process_id = process.pid
+            db.commit()
+            db.refresh(job)
 
-        logger.info(f"[JOB {job_id}] Training started successfully")
+            logger.info(f"[JOB {job_id}] Training started via subprocess (PID: {process.pid})")
 
-    except httpx.HTTPError as e:
+        elif executor == "k8s":
+            # Tier-2 (K8s Production): Create K8s Job
+            from app.utils.training_k8s_job import create_training_k8s_job
+
+            k8s_job_name = await create_training_k8s_job(
+                job_id=job_id,
+                framework=job.framework,
+                model_name=job.model_name,
+                dataset_s3_uri=dataset_s3_uri,
+                callback_url=callback_base_url,
+                config=training_config,
+            )
+
+            # Update job status
+            job.status = "running"
+            job.started_at = datetime.utcnow()
+            job.k8s_job_name = k8s_job_name
+            db.commit()
+            db.refresh(job)
+
+            logger.info(f"[JOB {job_id}] Training started via K8s Job: {k8s_job_name}")
+
+        else:
+            raise ValueError(f"Unknown TRAINING_EXECUTOR: {executor}. Expected 'subprocess' or 'k8s'.")
+
+    except FileNotFoundError as e:
+        logger.error(f"[JOB {job_id}] Training Service setup error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Training Service not properly configured: {str(e)}"
+        )
+    except Exception as e:
         logger.error(f"[JOB {job_id}] Failed to start training: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to start training via Training Service: {str(e)}"
+            detail=f"Failed to start training: {str(e)}"
         )
 
     return job
@@ -564,7 +605,7 @@ async def cancel_training_job(job_id: int, db: Session = Depends(get_db)):
     """
     Cancel a running training job.
     """
-    global training_manager
+    from app.utils.training_subprocess import get_training_subprocess_manager
 
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
     if not job:
@@ -577,7 +618,11 @@ async def cancel_training_job(job_id: int, db: Session = Depends(get_db)):
         )
 
     # Stop training subprocess
-    if training_manager and training_manager.stop_training(job_id):
+    manager = get_training_subprocess_manager()
+    if manager.stop_training(job_id):
+        job.status = "cancelled"
+        job.completed_at = datetime.utcnow()
+        db.commit()
         db.refresh(job)
         return job
     else:
@@ -1404,14 +1449,12 @@ async def stop_training_job(
 
         logger.info(f"[stop-training] Stopping job {job_id} (status: {job.status})")
 
-        # Initialize training manager
-        global training_manager
-        if training_manager is None:
-            executor = os.getenv("TRAINING_EXECUTOR", "subprocess")
-            training_manager = TrainingManagerK8s(db, default_executor=executor)
+        # Stop training subprocess
+        from app.utils.training_subprocess import get_training_subprocess_manager
+        manager = get_training_subprocess_manager()
 
         # Stop the training job
-        success = training_manager.stop_training(job_id)
+        success = manager.stop_training(job_id)
 
         if not success:
             raise HTTPException(
