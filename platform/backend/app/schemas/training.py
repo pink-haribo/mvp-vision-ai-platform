@@ -11,6 +11,7 @@ from .configs import (
     ValidationConfig,
     TrainingConfigAdvanced,
 )
+from .dataset import SplitStrategy
 
 
 class TrainingConfig(BaseModel):
@@ -25,6 +26,12 @@ class TrainingConfig(BaseModel):
     dataset_id: Optional[str] = Field(None, description="Dataset ID from database (preferred)")
     dataset_path: Optional[str] = Field(None, description="Direct path to dataset (legacy)")
     dataset_format: str = Field("imagefolder", description="Dataset format (imagefolder, coco, yolo, etc.)")
+
+    # Dataset split configuration (optional - overrides dataset-level split)
+    split_strategy: Optional[SplitStrategy] = Field(
+        None,
+        description="Train/val split strategy. If not provided, uses dataset's split_config or runtime auto-split (80/20)."
+    )
 
     # Basic training parameters (backward compatible)
     epochs: int = Field(50, ge=1, le=1000, description="Number of epochs")
@@ -158,3 +165,95 @@ class TrainingLogResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============================================================================
+# Training Callback Schemas (Training Service → Backend)
+# ============================================================================
+
+class TrainingCallbackMetrics(BaseModel):
+    """Metrics sent from Training Service to Backend."""
+
+    loss: Optional[float] = None
+    accuracy: Optional[float] = None
+    learning_rate: Optional[float] = None
+
+    # Extra metrics (framework-specific)
+    extra_metrics: Optional[dict] = Field(
+        default_factory=dict,
+        description="Additional metrics (e.g., precision, recall, mAP, etc.)"
+    )
+
+
+class TrainingProgressCallback(BaseModel):
+    """
+    Progress update from Training Service to Backend.
+
+    Sent periodically during training (every N epochs based on CALLBACK_INTERVAL).
+    K8s Job compatible: Works for both long-running service and one-time job.
+    """
+
+    job_id: int = Field(..., description="Training job ID")
+    status: str = Field(..., description="Job status: running, completed, failed")
+
+    # Progress info
+    current_epoch: int = Field(..., ge=0, description="Current epoch number")
+    total_epochs: int = Field(..., gt=0, description="Total number of epochs")
+    progress_percent: Optional[float] = Field(None, ge=0, le=100, description="Overall progress percentage")
+
+    # Metrics
+    metrics: Optional[TrainingCallbackMetrics] = Field(None, description="Current epoch metrics")
+
+    # Checkpoints
+    checkpoint_path: Optional[str] = Field(None, description="Path to saved checkpoint (if available)")
+    best_checkpoint_path: Optional[str] = Field(None, description="Path to best checkpoint so far")
+
+    # Timing
+    epoch_duration_seconds: Optional[float] = Field(None, description="Duration of last epoch in seconds")
+    estimated_time_remaining: Optional[float] = Field(None, description="Estimated time remaining in seconds")
+
+    # Logs (optional)
+    logs: Optional[str] = Field(None, description="Recent training logs")
+
+    # Error info (for failed status)
+    error_message: Optional[str] = Field(None, description="Error message if status=failed")
+    traceback: Optional[str] = Field(None, description="Full traceback if status=failed")
+
+
+class TrainingCompletionCallback(BaseModel):
+    """
+    Final completion callback from Training Service to Backend.
+
+    Sent once when training finishes (success or failure).
+    K8s Job compatible: Exit code determines success/failure.
+    """
+
+    job_id: int = Field(..., description="Training job ID")
+    status: str = Field(..., description="Final status: completed or failed")
+
+    # Final results
+    total_epochs_completed: int = Field(..., ge=0, description="Total epochs completed")
+    final_metrics: Optional[TrainingCallbackMetrics] = Field(None, description="Final validation metrics")
+    best_metrics: Optional[TrainingCallbackMetrics] = Field(None, description="Best metrics achieved")
+    best_epoch: Optional[int] = Field(None, description="Epoch with best metrics")
+
+    # Artifacts
+    final_checkpoint_path: Optional[str] = Field(None, description="Path to final checkpoint")
+    best_checkpoint_path: Optional[str] = Field(None, description="Path to best checkpoint")
+    model_artifacts_path: Optional[str] = Field(None, description="Path to exported model artifacts")
+
+    # Timing
+    total_duration_seconds: Optional[float] = Field(None, description="Total training duration")
+
+    # Error info (if failed)
+    error_message: Optional[str] = Field(None, description="Error message if failed")
+    traceback: Optional[str] = Field(None, description="Full traceback if failed")
+    exit_code: Optional[int] = Field(None, description="Exit code (for K8s Job: 0=success, non-zero=failure)")
+
+
+class TrainingCallbackResponse(BaseModel):
+    """Response from Backend to Training Service after callback."""
+
+    success: bool = Field(..., description="Whether callback was processed successfully")
+    message: str = Field(..., description="Response message")
+    job_status: Optional[str] = Field(None, description="Current job status in Backend DB")
