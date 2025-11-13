@@ -13,6 +13,7 @@ from app.schemas import training
 from app.core.config import settings
 from app.utils.training_manager_k8s import TrainingManagerK8s
 from app.utils.mlflow_client import get_mlflow_client
+from app.services.websocket_manager import get_websocket_manager
 
 logger = logging.getLogger(__name__)
 
@@ -509,6 +510,8 @@ async def start_training_job(
         "batch": job.batch_size,
         "imgsz": 640,  # Default image size
         "device": "cpu",  # Will be "cuda" in production
+        "primary_metric": job.primary_metric or "loss",  # Metric to optimize
+        "primary_metric_mode": job.primary_metric_mode or "min",  # min or max
     }
 
     # Add split_config from advanced_config if available
@@ -1518,6 +1521,20 @@ async def training_progress_callback(
 
         logger.info(f"[CALLBACK] Successfully updated job {job_id}")
 
+        # Broadcast to WebSocket clients
+        ws_manager = get_websocket_manager()
+        await ws_manager.broadcast_to_job(job_id, {
+            "type": "training_progress",
+            "job_id": job_id,
+            "status": callback.status,
+            "current_epoch": callback.current_epoch,
+            "total_epochs": callback.total_epochs,
+            "progress_percent": callback.progress_percent,
+            "metrics": callback.metrics.dict() if callback.metrics else None,
+            "checkpoint_path": callback.checkpoint_path,
+            "best_checkpoint_path": callback.best_checkpoint_path,
+        })
+
         return training.TrainingCallbackResponse(
             success=True,
             message=f"Progress update received for epoch {callback.current_epoch}",
@@ -1649,6 +1666,22 @@ async def training_completion_callback(
             f"[CALLBACK] Successfully processed completion for job {job_id} "
             f"(status={job.status}, final_accuracy={job.final_accuracy})"
         )
+
+        # Broadcast completion to WebSocket clients
+        ws_manager = get_websocket_manager()
+        await ws_manager.broadcast_to_job(job_id, {
+            "type": "training_complete" if callback.status == "completed" else "training_error",
+            "job_id": job_id,
+            "status": callback.status,
+            "total_epochs_completed": callback.total_epochs_completed,
+            "final_metrics": callback.final_metrics.dict() if callback.final_metrics else None,
+            "best_metrics": callback.best_metrics.dict() if callback.best_metrics else None,
+            "best_epoch": callback.best_epoch,
+            "final_checkpoint_path": callback.final_checkpoint_path,
+            "best_checkpoint_path": callback.best_checkpoint_path,
+            "mlflow_run_id": callback.mlflow_run_id,
+            "error_message": callback.error_message,
+        })
 
         return training.TrainingCallbackResponse(
             success=True,

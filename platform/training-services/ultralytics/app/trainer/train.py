@@ -307,8 +307,78 @@ async def train_model(
         project_dir = workspace / "runs"
         project_dir.mkdir(exist_ok=True)
 
+        # Primary metric configuration
+        primary_metric = config.get("primary_metric", "loss")
+        primary_metric_mode = config.get("primary_metric_mode", "min")
+        best_metric_value = float('inf') if primary_metric_mode == "min" else float('-inf')
+        best_epoch = 0
+
         # Train model
-        logger.info(f"Training {model_name} for {epochs} epochs")
+        logger.info(f"Training {model_name} for {epochs} epochs (primary_metric={primary_metric}, mode={primary_metric_mode})")
+
+        # YOLO callback for epoch progress
+        def on_train_epoch_end(trainer):
+            """Called at the end of each training epoch"""
+            try:
+                nonlocal best_metric_value, best_epoch
+
+                epoch = trainer.epoch + 1  # YOLO uses 0-indexed epochs
+                training_state["current_epoch"] = epoch
+
+                # Extract metrics from trainer
+                metrics_dict = {}
+                if hasattr(trainer, 'metrics') and trainer.metrics:
+                    metrics_dict = trainer.metrics
+                elif hasattr(trainer, 'validator') and hasattr(trainer.validator, 'metrics'):
+                    metrics_dict = trainer.validator.metrics
+
+                # Get loss and accuracy
+                loss = metrics_dict.get('train/box_loss', metrics_dict.get('loss', None))
+                accuracy = metrics_dict.get('metrics/mAP50(B)', metrics_dict.get('mAP50', None))
+
+                # Check if this is the best epoch based on primary_metric
+                current_metric_value = metrics_dict.get(primary_metric, loss if primary_metric == "loss" else accuracy)
+                if current_metric_value is not None:
+                    is_best = False
+                    if primary_metric_mode == "min":
+                        is_best = current_metric_value < best_metric_value
+                    else:
+                        is_best = current_metric_value > best_metric_value
+
+                    if is_best:
+                        best_metric_value = current_metric_value
+                        best_epoch = epoch
+                        logger.info(f"New best {primary_metric}: {best_metric_value:.4f} at epoch {epoch}")
+
+                # Send progress callback every N epochs
+                if epoch % settings.CALLBACK_INTERVAL == 0 or epoch == epochs:
+                    progress_data = {
+                        "job_id": int(job_id),
+                        "status": "running",
+                        "current_epoch": epoch,
+                        "total_epochs": epochs,
+                        "progress_percent": (epoch / epochs) * 100,
+                        "metrics": {
+                            "loss": float(loss) if loss is not None else None,
+                            "accuracy": float(accuracy) if accuracy is not None else None,
+                            "learning_rate": float(trainer.optimizer.param_groups[0]['lr']) if trainer.optimizer else None,
+                            "extra_metrics": {k: float(v) if isinstance(v, (int, float)) else v for k, v in metrics_dict.items()},
+                        },
+                    }
+
+                    # Send callback asynchronously
+                    loop_ref = asyncio.get_event_loop()
+                    asyncio.run_coroutine_threadsafe(
+                        send_progress_callback(callback_url, job_id, progress_data),
+                        loop_ref
+                    )
+                    logger.info(f"Sent progress callback for epoch {epoch}/{epochs}")
+
+            except Exception as e:
+                logger.error(f"Error in epoch callback: {e}")
+
+        # Add callback to model
+        model.add_callback("on_train_epoch_end", on_train_epoch_end)
 
         # Run training in executor to not block event loop
         def train_sync():
@@ -387,7 +457,7 @@ async def train_model(
             "total_epochs_completed": epochs,
             "final_metrics": final_metrics,
             "best_metrics": final_metrics,  # YOLO already gives us best metrics
-            "best_epoch": epochs,  # Last epoch is typically best in YOLO
+            "best_epoch": best_epoch if best_epoch > 0 else epochs,  # Use tracked best epoch or last epoch
             "final_checkpoint_path": str(best_checkpoint),
             "best_checkpoint_path": str(best_checkpoint),
             "model_artifacts_path": str(checkpoint_s3_uri),
