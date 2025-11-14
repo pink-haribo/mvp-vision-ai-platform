@@ -1575,17 +1575,27 @@ async def training_progress_callback(
 
         # Store metrics in database if provided
         if callback.metrics:
+            # Extract metrics dynamically to support any trainer's metric structure
+            metrics_dict = callback.metrics.dict() if hasattr(callback.metrics, 'dict') else {}
+
+            # Try to extract standard fields from metrics or extra_metrics
+            extra_metrics = metrics_dict.get('extra_metrics', {})
+
             metric = models.TrainingMetric(
                 job_id=job_id,
                 epoch=callback.current_epoch,
                 step=None,  # Can be added if needed
-                loss=callback.metrics.loss,
-                accuracy=callback.metrics.accuracy,
-                learning_rate=callback.metrics.learning_rate,
-                extra_metrics=callback.metrics.extra_metrics,
+                # Standard fields with fallback to extra_metrics
+                loss=metrics_dict.get('loss') or extra_metrics.get('loss'),
+                accuracy=metrics_dict.get('accuracy') or extra_metrics.get('accuracy'),
+                learning_rate=metrics_dict.get('learning_rate') or extra_metrics.get('learning_rate') or extra_metrics.get('lr'),
+                # Store all metrics in extra_metrics for dynamic access
+                extra_metrics=extra_metrics if extra_metrics else metrics_dict,
                 checkpoint_path=callback.checkpoint_path,
             )
             db.add(metric)
+
+            logger.info(f"[CALLBACK] Created TrainingMetric record for epoch {callback.current_epoch}")
 
         # Update best checkpoint path if provided
         if callback.best_checkpoint_path:
@@ -1682,20 +1692,29 @@ async def training_completion_callback(
 
         # Store final metrics
         if callback.final_metrics:
-            job.final_accuracy = callback.final_metrics.accuracy
+            # Extract metrics dynamically to support any trainer's metric structure
+            metrics_dict = callback.final_metrics.dict() if hasattr(callback.final_metrics, 'dict') else {}
+            extra_metrics = metrics_dict.get('extra_metrics', {})
+
+            # Update job final accuracy if available
+            job.final_accuracy = metrics_dict.get('accuracy') or extra_metrics.get('accuracy')
 
             # Store as metric record
             metric = models.TrainingMetric(
                 job_id=job_id,
                 epoch=callback.total_epochs_completed,
                 step=None,
-                loss=callback.final_metrics.loss,
-                accuracy=callback.final_metrics.accuracy,
-                learning_rate=callback.final_metrics.learning_rate,
-                extra_metrics=callback.final_metrics.extra_metrics,
-                checkpoint_path=callback.final_checkpoint_path,
+                # Standard fields with fallback to extra_metrics
+                loss=metrics_dict.get('loss') or extra_metrics.get('loss'),
+                accuracy=metrics_dict.get('accuracy') or extra_metrics.get('accuracy'),
+                learning_rate=metrics_dict.get('learning_rate') or extra_metrics.get('learning_rate') or extra_metrics.get('lr'),
+                # Store all metrics in extra_metrics for dynamic access
+                extra_metrics=extra_metrics if extra_metrics else metrics_dict,
+                checkpoint_path=callback.final_checkpoint_path or callback.best_checkpoint_path,
             )
             db.add(metric)
+
+            logger.info(f"[CALLBACK] Created final TrainingMetric record for epoch {callback.total_epochs_completed}")
 
         # Store best metrics if provided
         if callback.best_metrics and callback.best_epoch:
