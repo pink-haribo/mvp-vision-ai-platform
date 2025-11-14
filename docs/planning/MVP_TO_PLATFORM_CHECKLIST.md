@@ -24,6 +24,23 @@
 
 **Current Session (2025-11-14 Evening)** 📋
 
+**Validation Callback Implementation** 🔄 IN PROGRESS (30%):
+- ✅ **Backend Validation Schemas** (commit 935aafd):
+  - ValidationCallbackRequest: Trainer → Backend callback payload
+  - ValidationImageData: Image-level prediction data structure
+  - Supports confusion matrix, metrics, visualization URLs, per-image results
+- ✅ **Backend POST Endpoint** (commit 935aafd):
+  - POST /validation/jobs/{job_id}/results
+  - Creates/updates ValidationResult + ValidationImageResult records
+  - Idempotent update-or-create pattern
+  - Logging with [VALIDATION CALLBACK] prefix
+- ⏳ **Trainer Implementation** (In Progress):
+  - [ ] Extract validation metrics from Ultralytics results
+  - [ ] Generate/find validation visualizations (confusion matrix, F1 curve, PR curve)
+  - [ ] Upload visualization images to MinIO Internal Storage
+  - [ ] Send validation callback to Backend API
+  - [ ] Test with actual training run
+
 **Frontend Code-Level Diagnostics** ✅ COMPLETED:
 - ✅ **DynamicConfigPanel.tsx**: Advanced Config UI 존재 및 정상 작동
   - Backend API `/training/config-schema` 연동 확인
