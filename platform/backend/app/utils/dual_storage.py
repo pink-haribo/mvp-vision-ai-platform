@@ -315,13 +315,14 @@ class DualStorageClient:
             return None
 
         try:
-            schema_key = f"schemas/{framework}.json"
+            # Schema is stored directly in config-schemas bucket (no schemas/ prefix)
+            schema_key = f"{framework}.json"
             response = self.internal_client.get_object(
                 Bucket=self.internal_bucket_schemas,
                 Key=schema_key
             )
             content = response['Body'].read()
-            logger.info(f"Retrieved schema from internal storage: {schema_key} ({len(content)} bytes)")
+            logger.info(f"Retrieved schema from internal storage: {self.internal_bucket_schemas}/{schema_key} ({len(content)} bytes)")
             return content
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchKey':
@@ -350,14 +351,15 @@ class DualStorageClient:
             return False
 
         try:
-            schema_key = f"schemas/{framework}.json"
+            # Schema is stored directly in config-schemas bucket (no schemas/ prefix)
+            schema_key = f"{framework}.json"
             self.internal_client.put_object(
                 Bucket=self.internal_bucket_schemas,
                 Key=schema_key,
                 Body=schema_data,
                 ContentType="application/json"
             )
-            logger.info(f"Uploaded schema to internal storage: {schema_key}")
+            logger.info(f"Uploaded schema to internal storage: {self.internal_bucket_schemas}/{schema_key}")
             return True
         except ClientError as e:
             logger.error(f"Failed to upload schema: {e}")

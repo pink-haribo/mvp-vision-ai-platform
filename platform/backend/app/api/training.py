@@ -1214,23 +1214,20 @@ async def get_config_schema(framework: str, task_type: str = None):
     """
     logger.info(f"[config-schema] Requested framework={framework}, task_type={task_type}")
 
-    # Load schema from S3/R2 (uploaded by GitHub Actions workflow)
+    # Load schema from Internal Storage (Results MinIO)
+    # Uploaded by GitHub Actions workflow (.github/workflows/upload-config-schemas.yml)
     # This maintains complete dependency isolation between Backend and Training Services
-    from app.utils.s3_storage import s3_storage
+    from app.utils.dual_storage import dual_storage
     import json
 
     try:
-        logger.info(f"[config-schema] Loading schema from S3: schemas/{framework}.json")
+        logger.info(f"[config-schema] Loading schema from Internal Storage: {framework}.json")
 
-        # Get schema from S3 (results bucket)
-        schema_key = f"schemas/{framework}.json"
-        schema_bytes = s3_storage.get_file_content(
-            schema_key,
-            bucket=s3_storage.bucket_results
-        )
+        # Get schema from Internal Storage (config-schemas bucket)
+        schema_bytes = dual_storage.get_schema(framework)
 
         if not schema_bytes:
-            logger.warning(f"[config-schema] Schema not found in S3: {schema_key}")
+            logger.warning(f"[config-schema] Schema not found: {framework}")
             raise HTTPException(
                 status_code=404,
                 detail=f"Configuration schema for framework '{framework}' not found. "

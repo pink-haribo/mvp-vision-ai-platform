@@ -117,19 +117,22 @@ def upload_schema_to_s3(
     dry_run: bool = False
 ) -> bool:
     """
-    Upload schema to S3/R2.
+    Upload schema to Internal Storage (Results MinIO).
+
+    Schemas are stored directly in config-schemas bucket (no schemas/ prefix).
 
     Args:
         schema: Configuration schema dict
         framework: Framework name
-        bucket: S3 bucket name
+        bucket: S3 bucket name (e.g., config-schemas)
         s3_client: Boto3 S3 client
         dry_run: If True, only validate without uploading
 
     Returns:
         True if successful, False otherwise
     """
-    s3_key = f"schemas/{framework}.json"
+    # Schema is stored directly in config-schemas bucket (no schemas/ prefix)
+    s3_key = f"{framework}.json"
     schema_json = json.dumps(schema, indent=2)
 
     if dry_run:
@@ -138,7 +141,7 @@ def upload_schema_to_s3(
         return True
 
     try:
-        # Upload to S3
+        # Upload to Internal Storage
         s3_client.put_object(
             Bucket=bucket,
             Key=s3_key,
@@ -177,8 +180,8 @@ def main():
     parser.add_argument(
         '--bucket',
         type=str,
-        default=os.getenv('S3_BUCKET_RESULTS', 'vision-platform-results'),
-        help='S3 bucket name (default: vision-platform-results)'
+        default=os.getenv('INTERNAL_BUCKET_SCHEMAS', 'config-schemas'),
+        help='Internal Storage bucket name (default: config-schemas)'
     )
 
     args = parser.parse_args()
@@ -210,18 +213,27 @@ def main():
     else:
         frameworks = [args.framework]
 
-    # Initialize S3 client
-    s3_endpoint = os.getenv('AWS_S3_ENDPOINT_URL')
-    s3_access_key = os.getenv('AWS_ACCESS_KEY_ID')
-    s3_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+    # Initialize S3 client for Internal Storage (Results MinIO - port 9002)
+    # Config schemas are stored in Internal Storage (same as checkpoints, weights)
+    s3_endpoint = os.getenv('INTERNAL_STORAGE_ENDPOINT') or os.getenv('AWS_S3_ENDPOINT_URL')
+    s3_access_key = os.getenv('INTERNAL_STORAGE_ACCESS_KEY') or os.getenv('AWS_ACCESS_KEY_ID')
+    s3_secret_key = os.getenv('INTERNAL_STORAGE_SECRET_KEY') or os.getenv('AWS_SECRET_ACCESS_KEY')
+    bucket_name = os.getenv('INTERNAL_BUCKET_SCHEMAS', args.bucket)
 
     if not args.dry_run:
         if not all([s3_endpoint, s3_access_key, s3_secret_key]):
-            print("[ERROR] Missing S3 credentials in environment variables:")
-            print("   - AWS_S3_ENDPOINT_URL")
-            print("   - AWS_ACCESS_KEY_ID")
-            print("   - AWS_SECRET_ACCESS_KEY")
+            print("[ERROR] Missing Internal Storage credentials in environment variables:")
+            print("   - INTERNAL_STORAGE_ENDPOINT (or AWS_S3_ENDPOINT_URL)")
+            print("   - INTERNAL_STORAGE_ACCESS_KEY (or AWS_ACCESS_KEY_ID)")
+            print("   - INTERNAL_STORAGE_SECRET_KEY (or AWS_SECRET_ACCESS_KEY)")
+            print("")
+            print("For Tier-0 development, config schemas are stored in:")
+            print("  Internal Storage (Results MinIO): http://localhost:9002")
+            print("  Bucket: config-schemas")
             sys.exit(1)
+
+        print(f"[INFO] Using Internal Storage: {s3_endpoint}")
+        print(f"[INFO] Target bucket: {bucket_name}")
 
         s3_client = boto3.client(
             's3',
@@ -232,16 +244,20 @@ def main():
 
         # Check bucket exists
         try:
-            s3_client.head_bucket(Bucket=args.bucket)
-            print(f"[OK] Bucket exists: {args.bucket}")
+            s3_client.head_bucket(Bucket=bucket_name)
+            print(f"[OK] Bucket exists: {bucket_name}")
         except ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code == '404':
-                print(f"[ERROR] Bucket not found: {args.bucket}")
+                print(f"[ERROR] Bucket not found: {bucket_name}")
+                print(f"[ERROR] Make sure Internal Storage (Results MinIO) is running on port 9002")
                 sys.exit(1)
             else:
                 print(f"[ERROR] Cannot access bucket: {e}")
                 sys.exit(1)
+
+        # Update args.bucket to use the detected bucket name
+        args.bucket = bucket_name
     else:
         s3_client = None
 
