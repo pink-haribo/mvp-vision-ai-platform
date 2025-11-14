@@ -13,14 +13,14 @@
 | 0. Infrastructure Setup | 95% | 🟢 Complete | Week 0 |
 | 1. 사용자 & 프로젝트 | 75% | 🟡 In Progress | Week 1-2 |
 | 2. 데이터셋 관리 | 85% ✅ Split & Snapshot Complete | 🟢 Phase 2.1-2.2 Done | Week 3 |
-| 3. Training Services 분리 | 79% ✅ Phase 3.1-3.3 Done, 3.2 90% | 🟡 In Progress | Week 3-4 |
+| 3. Training Services 분리 | 85% ✅ Phase 3.1-3.4 Done (Validation Callback) | 🟡 In Progress | Week 3-4 |
 | 4. Experiment & MLflow | 86% | 🟡 Backend Complete | Week 2 |
 | 5. Analytics & Monitoring | 0% | ⚪ Not Started | Week 4-5 |
 | 6. Deployment & Infra | 0% | ⚪ Not Started | Week 5-6 |
 
-**전체 진행률**: 93% (Phase 0 95%, Phase 1.1-1.3 완료, Phase 2.1-2.2 완료 85%, Phase 3.1-3.3 완료 + 3.2 90% = 79%)
+**전체 진행률**: 85% (Phase 0 95%, Phase 1 75%, Phase 2 85%, Phase 3 85% ✅ 3.4 완료, Phase 4 86%)
 
-**최근 업데이트**: 2025-11-14 (Frontend Diagnostics Complete)
+**최근 업데이트**: 2025-11-14 (Validation Callback System Complete)
 
 **Current Session (2025-11-14 Evening)** 📋
 
@@ -41,10 +41,12 @@
   - Auto-detect task type from model name
   - Extract class names from data.yaml
   - Send validation callback to Backend API
-- ⏳ **Testing**:
-  - [ ] Run actual training with validation
-  - [ ] Verify ValidationDashboard displays results
-  - [ ] Test confusion matrix visualization
+- ✅ **E2E Testing** (Job 17):
+  - ✅ Run actual training with validation (2 epochs, yolov8n)
+  - ✅ Validation plots generated and uploaded to MinIO Internal Storage
+  - ✅ Callback sent with correct payload (task_type, metrics, class_names, visualization_urls)
+  - ✅ 6 validation plots uploaded: confusion_matrix, confusion_matrix_normalized, F1/PR/P/R curves
+  - ⏳ Frontend ValidationDashboard full integration test (requires Backend job creation)
 
 **Frontend Code-Level Diagnostics** ✅ COMPLETED:
 - ✅ **DynamicConfigPanel.tsx**: Advanced Config UI 존재 및 정상 작동
