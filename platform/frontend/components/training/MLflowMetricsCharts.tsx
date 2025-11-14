@@ -103,65 +103,35 @@ export default function MLflowMetricsCharts({
   }
 
   const { metrics, primary_metric, primary_metric_mode } = metricsData;
-  const hasLoss = metrics.train_loss && metrics.train_loss.length > 0;
 
   // Log available metric keys for debugging
   console.log('[MLflowMetricsCharts] Available metric keys:', Object.keys(metrics));
   console.log('[MLflowMetricsCharts] Primary metric:', primary_metric);
 
-  // Helper function to find metric key with flexible matching
-  const findMetricKey = (baseKey: string, prefix?: string): string | null => {
-    if (!baseKey) return null;
+  // Extract all available metric keys dynamically (no hardcoded patterns)
+  const availableMetricKeys = Object.keys(metrics).filter(key =>
+    metrics[key] && Array.isArray(metrics[key]) && metrics[key].length > 0
+  );
 
-    // Try different key patterns
-    const patterns = prefix
-      ? [
-          `${prefix}_${baseKey}`,
-          `${prefix}/${baseKey}`,
-          baseKey,
-          baseKey.toLowerCase(),
-          `${baseKey}(B)`,
-          `metrics/${baseKey}`,
-          `metrics/${baseKey}(B)`,
-        ]
-      : [
-          baseKey,
-          baseKey.toLowerCase(),
-          `${baseKey}(B)`,
-          `metrics/${baseKey}`,
-          `metrics/${baseKey}(B)`,
-        ];
+  console.log('[MLflowMetricsCharts] Available metrics with data:', availableMetricKeys);
 
-    for (const pattern of patterns) {
-      if (metrics[pattern] && metrics[pattern].length > 0) {
-        console.log(`[MLflowMetricsCharts] Found metric key: ${pattern} for ${baseKey}`);
-        return pattern;
-      }
-    }
-
-    return null;
-  };
-
-  // Determine primary metric keys with flexible matching
+  // Group metrics by category (loss, accuracy, etc.) using heuristic matching
+  const lossMetrics = availableMetricKeys.filter(key => key.toLowerCase().includes('loss'));
   const primaryMetricKey = primary_metric || 'accuracy';
-  const trainPrimaryKey = findMetricKey(primaryMetricKey, 'train');
-  const valPrimaryKey = findMetricKey(primaryMetricKey, 'val');
 
-  // If train/val specific keys not found, try without prefix
-  const primaryKeyNoPrefix = !trainPrimaryKey && !valPrimaryKey
-    ? findMetricKey(primaryMetricKey)
-    : null;
+  // Find metrics that match the primary metric name (flexible)
+  const primaryMetrics = availableMetricKeys.filter(key =>
+    key.toLowerCase().includes(primaryMetricKey.toLowerCase())
+  );
 
-  console.log('[MLflowMetricsCharts] Primary metric search:');
-  console.log('  Base key:', primaryMetricKey);
-  console.log('  Train key:', trainPrimaryKey);
-  console.log('  Val key:', valPrimaryKey);
-  console.log('  No-prefix key:', primaryKeyNoPrefix);
+  console.log('[MLflowMetricsCharts] Loss metrics:', lossMetrics);
+  console.log('[MLflowMetricsCharts] Primary metrics:', primaryMetrics);
 
-  // Check if primary metric data exists
-  const hasPrimaryMetric = !!(trainPrimaryKey || valPrimaryKey || primaryKeyNoPrefix);
+  // Check if we have loss data (any loss-related metric)
+  const hasLoss = lossMetrics.length > 0;
 
-  console.log('[MLflowMetricsCharts] Has primary metric:', hasPrimaryMetric);
+  // Check if we have primary metric data
+  const hasPrimaryMetric = primaryMetrics.length > 0;
 
   // Format metric name for display
   const formatMetricName = (key: string) => {
@@ -182,48 +152,42 @@ export default function MLflowMetricsCharts({
     );
   };
 
-  // Build list of metrics to display
+  // Build list of metrics to display (using actual metric keys from data)
   const metricsToDisplay: Array<{
-    key: string;
+    key: string; // Display name
+    actualKey: string; // Actual key in metrics object
     isPrimary: boolean;
-    trainKey: string | null;
-    valKey: string | null;
-    noPrefixKey: string | null;
   }> = [];
 
-  // Always show primary metric first (if available)
+  // Always show primary metrics first (if available)
   if (hasPrimaryMetric) {
-    metricsToDisplay.push({
-      key: primaryMetricKey,
-      isPrimary: true,
-      trainKey: trainPrimaryKey,
-      valKey: valPrimaryKey,
-      noPrefixKey: primaryKeyNoPrefix,
+    primaryMetrics.forEach(metricKey => {
+      metricsToDisplay.push({
+        key: formatMetricName(metricKey),
+        actualKey: metricKey,
+        isPrimary: true,
+      });
     });
   }
 
-  // Add selected metrics with flexible key matching
-  selectedMetrics.forEach((metricKey) => {
-    // Skip if it's the primary metric (already added)
-    if (metricKey === primaryMetricKey) return;
+  // Add selected metrics if they exist in available metrics
+  if (selectedMetrics && selectedMetrics.length > 0) {
+    selectedMetrics.forEach((selectedKey) => {
+      // Find matching metric keys (flexible matching by substring)
+      const matchingKeys = availableMetricKeys.filter(key =>
+        key.toLowerCase().includes(selectedKey.toLowerCase()) &&
+        !primaryMetrics.includes(key) // Skip if already added as primary
+      );
 
-    const trainKey = findMetricKey(metricKey, 'train');
-    const valKey = findMetricKey(metricKey, 'val');
-    const noPrefixKey = !trainKey && !valKey ? findMetricKey(metricKey) : null;
-
-    // Check if data exists
-    const hasData = !!(trainKey || valKey || noPrefixKey);
-
-    if (hasData) {
-      metricsToDisplay.push({
-        key: metricKey,
-        isPrimary: false,
-        trainKey,
-        valKey,
-        noPrefixKey,
+      matchingKeys.forEach(metricKey => {
+        metricsToDisplay.push({
+          key: formatMetricName(metricKey),
+          actualKey: metricKey,
+          isPrimary: false,
+        });
       });
-    }
-  });
+    });
+  }
 
   // Color palette for multi-metric chart
   const multiMetricColors = [
@@ -240,36 +204,34 @@ export default function MLflowMetricsCharts({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Loss Chart (Always first) */}
-        {hasLoss && (
+        {/* Loss Chart (if available) */}
+        {hasLoss && lossMetrics.length > 0 && (
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <div className="flex items-center justify-between mb-4">
               <h4 className="text-sm font-semibold text-gray-900">Loss</h4>
               <div className="flex gap-4 text-xs">
-                <div className="flex items-center gap-1">
-                  <div className="w-3 h-3 bg-blue-500 rounded-sm"></div>
-                  <span className="text-gray-600">Train</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-3 h-3 bg-purple-500 rounded-sm"></div>
-                  <span className="text-gray-600">Val</span>
-                </div>
+                {lossMetrics.slice(0, 2).map((key, idx) => (
+                  <div key={key} className="flex items-center gap-1">
+                    <div className={`w-3 h-3 rounded-sm ${idx === 0 ? 'bg-blue-500' : 'bg-purple-500'}`}></div>
+                    <span className="text-gray-600">{formatMetricName(key)}</span>
+                  </div>
+                ))}
               </div>
             </div>
             <SimpleLineChart
-              trainData={metrics.train_loss || []}
-              valData={metrics.val_loss || []}
+              trainData={metrics[lossMetrics[0]] || []}
+              valData={lossMetrics[1] ? metrics[lossMetrics[1]] : []}
               color1="rgb(59, 130, 246)"
               color2="rgb(168, 85, 247)"
             />
-            {metrics.val_loss && metrics.val_loss.length > 0 && (
+            {lossMetrics[1] && metrics[lossMetrics[1]] && metrics[lossMetrics[1]].length > 0 && (
               <MetricSummary
-                label="Latest Val Loss"
-                value={metrics.val_loss[metrics.val_loss.length - 1].value}
+                label={`Latest ${formatMetricName(lossMetrics[1])}`}
+                value={metrics[lossMetrics[1]][metrics[lossMetrics[1]].length - 1].value}
                 trend={
-                  metrics.val_loss.length > 1
-                    ? metrics.val_loss[metrics.val_loss.length - 1].value <
-                      metrics.val_loss[metrics.val_loss.length - 2].value
+                  metrics[lossMetrics[1]].length > 1
+                    ? metrics[lossMetrics[1]][metrics[lossMetrics[1]].length - 1].value <
+                      metrics[lossMetrics[1]][metrics[lossMetrics[1]].length - 2].value
                     : null
                 }
               />
@@ -302,10 +264,7 @@ export default function MLflowMetricsCharts({
             {/* Show latest value for primary metric */}
             {metricsToDisplay.length > 0 && (() => {
               const primaryInfo = metricsToDisplay[0];
-              const valData = primaryInfo.valKey ? metrics[primaryInfo.valKey] : null;
-              const trainData = primaryInfo.trainKey ? metrics[primaryInfo.trainKey] : null;
-              const noPrefixData = primaryInfo.noPrefixKey ? metrics[primaryInfo.noPrefixKey] : null;
-              const dataToUse = valData || noPrefixData || trainData;
+              const dataToUse = metrics[primaryInfo.actualKey]; // Use actualKey directly
 
               if (dataToUse && dataToUse.length > 0) {
                 return (
@@ -340,11 +299,9 @@ function MultiMetricChart({
 }: {
   metrics: { [key: string]: MetricDataPoint[] };
   metricsToDisplay: Array<{
-    key: string;
+    key: string;        // Display name
+    actualKey: string;  // Actual key in metrics object
     isPrimary: boolean;
-    trainKey: string | null;
-    valKey: string | null;
-    noPrefixKey: string | null;
   }>;
   colors: string[];
 }) {
@@ -359,13 +316,10 @@ function MultiMetricChart({
   const height = 200;
   const padding = { top: 10, right: 10, bottom: 30, left: 50 };
 
-  // Collect all data points
+  // Collect all data points (use actualKey directly)
   const allDataPoints: { metricIndex: number; data: MetricDataPoint[] }[] = [];
   metricsToDisplay.forEach((metricInfo, index) => {
-    const valData = metricInfo.valKey ? metrics[metricInfo.valKey] : null;
-    const trainData = metricInfo.trainKey ? metrics[metricInfo.trainKey] : null;
-    const noPrefixData = metricInfo.noPrefixKey ? metrics[metricInfo.noPrefixKey] : null;
-    const dataToUse = valData || noPrefixData || trainData;
+    const dataToUse = metrics[metricInfo.actualKey]; // Use actualKey directly
 
     if (dataToUse && dataToUse.length > 0) {
       allDataPoints.push({ metricIndex: index, data: dataToUse });
