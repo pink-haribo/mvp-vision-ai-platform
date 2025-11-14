@@ -45,27 +45,26 @@
   - Backend .env + Trainer .env 모두 설정됨
   - train.py에서 MLflow tracking 완벽 구현
 
-**Critical Issues Identified** 🔴:
-1. **Metrics Not Populating TrainingMetric Table**
-   - 원인: training.py callback handlers가 DB 레코드 생성 안함
-   - 영향: DatabaseMetricsTable 항상 empty state
-   - 수정 필요: training.py:1527, 1631
+**Critical Issues Identified**:
+1. ✅ **Metrics Not Populating TrainingMetric Table** - RESOLVED (commit 917b4a2)
+   - 원인: Data structure mismatch (nested extra_metrics)
+   - 해결: Dynamic metric extraction with fallback chain
+   - 구현: training.py:1576-1598, 1693-1717
 
-2. **No Validation Results Callbacks**
+2. ⏸️ **No Validation Results Callbacks** - DEFERRED
    - 원인: train.py에 validation callback 미구현
    - 영향: ValidationDashboard shows "No validation results"
-   - 수정 필요: train.py on_train_epoch_end에 validation callback 추가
+   - 계획: 별도 이슈로 처리 (estimated 2-3 hours)
 
-3. **WebSocket Not Broadcasting**
-   - 원인: training.py callback handlers가 ws_manager 호출 안함
-   - 영향: Real-time updates 작동 안함
-   - 수정 필요: training.py에 ws_manager.broadcast_to_job() 추가
+3. ✅ **WebSocket Not Broadcasting** - ALREADY WORKING (commit 917b4a2 confirmed)
+   - 확인: training.py:1598-1610에 ws_manager.broadcast_to_job() 이미 존재
+   - 상태: 정상 작동 중
 
-4. ⚠️ **Metric Key Hardcoding** (User Concern)
+4. ✅ **Metric Key Hardcoding** (User Concern) - RESOLVED
    - 문제: MLflowMetricsCharts.tsx의 findMetricKey()가 패턴 매칭 사용
    - 요구사항: 다양한 모델 개발자의 임의 메트릭 키 지원
-   - 해결방안: Backend metric-schema API 활용 (이미 DatabaseMetricsTable에서 사용 중)
-   - 적용 필요: MLflowMetricsCharts.tsx를 DatabaseMetricsTable 방식으로 수정
+   - 해결: Backend dynamic extraction (commit 917b4a2) + Frontend refactor (commit 6ae8687)
+   - 패턴: Runtime key extraction > Hardcoded patterns, Substring matching > Exact patterns
 
 **Dynamic Metric Handling Pattern** (from MVP DatabaseMetricsTable):
 ```typescript
@@ -85,11 +84,11 @@ if (key.includes('loss')) return value.toFixed(4);
 ```
 
 **Action Items** (Before Frontend Testing):
-- [ ] Add TrainingMetric persistence in training.py callback handlers
-- [ ] Add WebSocket broadcasts in training.py callbacks
-- [ ] Add validation callback in train.py
-- [ ] Refactor MLflowMetricsCharts.tsx to use metric-schema API
-- [ ] Remove hardcoded metric key patterns
+- [x] Add TrainingMetric persistence in training.py callback handlers (commit 917b4a2)
+- [x] Add WebSocket broadcasts in training.py callbacks (already existed)
+- [ ] Add validation callback in train.py (deferred - complex 2-3hr task)
+- [x] Refactor MLflowMetricsCharts.tsx to use dynamic extraction (commit 6ae8687)
+- [x] Remove hardcoded metric key patterns (commit 6ae8687)
 
 **Recent Session (2025-11-14 Earlier)** 🎉
 
