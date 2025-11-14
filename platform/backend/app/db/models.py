@@ -252,6 +252,9 @@ class Dataset(Base):
     num_images = Column(Integer, nullable=False, default=0)
     class_names = Column(JSON, nullable=True)  # List of class names
 
+    # Train/Val split configuration (cached from annotations.json)
+    split_config = Column(JSON, nullable=True)  # {"method": "auto", "default_ratio": [0.8, 0.2], "seed": 42, "splits": {...}}
+
     # Versioning and snapshots
     is_snapshot = Column(Boolean, nullable=False, default=False, index=True)  # Is this a snapshot?
     parent_dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='CASCADE'), nullable=True, index=True)  # Parent if snapshot

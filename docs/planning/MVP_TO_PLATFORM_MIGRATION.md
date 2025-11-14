@@ -293,17 +293,19 @@ async def list_models():
 
 ### Phase 3: 환경 설정
 
-#### 3.1 MVP Backend .env 추가
+#### 3.1 MVP Backend .env 추가 (Updated 2025-11-13)
 
 ```bash
-# Training Service URLs
-ULTRALYTICS_SERVICE_URL=http://localhost:8001
-TIMM_SERVICE_URL=http://localhost:8002
-HUGGINGFACE_SERVICE_URL=http://localhost:8003
+# Training Service URLs - CURRENT ALLOCATION
+ULTRALYTICS_SERVICE_URL=http://localhost:8001  # Implemented & Running
+TIMM_SERVICE_URL=http://localhost:8002  # Planned (not yet implemented)
+HUGGINGFACE_SERVICE_URL=http://localhost:8003  # Planned (not yet implemented)
 
 # K8s mode (for production)
 # ULTRALYTICS_SERVICE_URL=http://ultralytics-service.default.svc.cluster.local:8000
 ```
+
+**Note**: Port allocation updated to reflect actual implementation (ultralytics=8001, timm=8002 planned)
 
 #### 3.2 Docker Compose (Local Development)
 

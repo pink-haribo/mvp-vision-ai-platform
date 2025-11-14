@@ -29,8 +29,13 @@ def create_directories():
         settings.OUTPUT_DIR,
         settings.MODEL_DIR,
         settings.LOG_DIR,
-        os.path.dirname(settings.DATABASE_URL.replace("sqlite:///", "")),
     ]
+
+    # Add database directory only for SQLite
+    if settings.DATABASE_URL.startswith("sqlite:///"):
+        db_dir = os.path.dirname(settings.DATABASE_URL.replace("sqlite:///", ""))
+        if db_dir:  # Only add if not empty string
+            directories.append(db_dir)
 
     for directory in directories:
         os.makedirs(directory, exist_ok=True)

@@ -13,6 +13,7 @@ import zipfile
 import shutil
 import json
 import uuid
+import random
 from datetime import datetime
 from sqlalchemy.orm import Session
 
@@ -21,6 +22,17 @@ from app.utils.storage_utils import get_storage_client, get_storage_type
 from app.db.database import get_db
 from app.db.models import Dataset, User
 from app.utils.dependencies import get_current_user
+from app.schemas.dataset import (
+    DatasetSplitCreateRequest,
+    DatasetSplitResponse,
+    DatasetSplitGetResponse,
+    SplitConfig,
+    SnapshotCreateRequest,
+    SnapshotResponse,
+    SnapshotListResponse,
+    SnapshotInfo,
+    DatasetCompareResponse
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -624,3 +636,541 @@ async def get_dataset_file(
             status_code=500,
             detail=f"Failed to fetch file: {str(e)}"
         )
+
+
+# ============================================================================
+# Dataset Split API
+# ============================================================================
+
+@router.post("/{dataset_id}/split", response_model=DatasetSplitResponse)
+async def create_or_update_dataset_split(
+    dataset_id: str,
+    request: DatasetSplitCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create or update dataset split configuration.
+
+    This will:
+    1. Load annotations.json from storage
+    2. Generate or validate split assignments
+    3. Update annotations.json with split_config
+    4. Cache split_config in datasets table
+    """
+    import random
+
+    # Check if dataset exists and user has access
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # Check ownership or permissions
+    if dataset.owner_id != current_user.id:
+        # TODO: Check dataset permissions
+        raise HTTPException(status_code=403, detail="You don't have permission to modify this dataset")
+
+    # Check if dataset has annotations
+    if not dataset.labeled or not dataset.annotation_path:
+        raise HTTPException(
+            status_code=400,
+            detail="Dataset must have annotations.json to configure splits"
+        )
+
+    try:
+        # Load annotations.json from storage
+        storage_client = get_storage_client()
+        annotations_key = dataset.annotation_path
+
+        logger.info(f"Loading annotations from: {annotations_key}")
+        annotations_data = storage_client.get_file_content(annotations_key)
+        annotations = json.loads(annotations_data.decode('utf-8'))
+
+        # Get list of images
+        images = annotations.get('images', [])
+        if not images:
+            raise HTTPException(status_code=400, detail="No images found in annotations.json")
+
+        num_images = len(images)
+        logger.info(f"Found {num_images} images in dataset")
+
+        # Generate splits based on method
+        splits = {}
+
+        if request.method == "manual":
+            # Use provided splits
+            if not request.splits:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Manual split requires 'splits' dictionary"
+                )
+            splits = request.splits
+
+        elif request.method == "auto":
+            # Auto-generate splits with specified ratio and seed
+            random.seed(request.seed)
+            image_ids = [img['id'] for img in images]
+            shuffled = image_ids.copy()
+            random.shuffle(shuffled)
+
+            # Calculate split index
+            train_ratio = request.default_ratio[0]
+            split_idx = int(len(shuffled) * train_ratio)
+
+            # Assign splits (ensure img_id is string for Pydantic validation)
+            for idx, img_id in enumerate(shuffled):
+                if idx < split_idx:
+                    splits[str(img_id)] = 'train'
+                else:
+                    splits[str(img_id)] = 'val'
+
+        elif request.method == "partial":
+            # Use provided splits and auto-fill the rest
+            if request.splits:
+                splits = request.splits.copy()
+
+            # Find images without split assignment
+            unassigned = [
+                img['id'] for img in images
+                if str(img['id']) not in splits or splits.get(str(img['id'])) is None
+            ]
+
+            if unassigned:
+                # Auto-assign remaining images
+                random.seed(request.seed)
+                random.shuffle(unassigned)
+
+                train_ratio = request.default_ratio[0]
+                split_idx = int(len(unassigned) * train_ratio)
+
+                for idx, img_id in enumerate(unassigned):
+                    splits[str(img_id)] = 'train' if idx < split_idx else 'val'
+
+        # Count train/val images
+        num_train = sum(1 for split in splits.values() if split == 'train')
+        num_val = sum(1 for split in splits.values() if split == 'val')
+
+        logger.info(f"Split result: {num_train} train, {num_val} val")
+
+        # Create split_config
+        split_config = {
+            "method": request.method,
+            "default_ratio": request.default_ratio,
+            "seed": request.seed,
+            "splits": splits,
+            "created_at": datetime.utcnow().isoformat() + "Z",
+            "created_by": current_user.id
+        }
+
+        # Update annotations.json
+        annotations['split_config'] = split_config
+
+        # Save back to storage
+        updated_annotations = json.dumps(annotations, indent=2).encode('utf-8')
+        storage_client.upload_bytes(updated_annotations, annotations_key, content_type='application/json')
+        logger.info(f"Updated annotations.json with split config")
+
+        # Update database cache
+        dataset.split_config = split_config
+        db.commit()
+        logger.info(f"Cached split config in database")
+
+        return DatasetSplitResponse(
+            dataset_id=dataset_id,
+            split_config=SplitConfig(**split_config),
+            num_splits=len(splits),
+            num_train=num_train,
+            num_val=num_val,
+            message="Dataset split configured successfully"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating dataset split: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create dataset split: {str(e)}"
+        )
+
+
+@router.get("/{dataset_id}/split", response_model=DatasetSplitGetResponse)
+async def get_dataset_split(
+    dataset_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get dataset split configuration.
+
+    Returns the split configuration if exists, or null if not configured.
+    """
+    # Check if dataset exists and user has access
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # Check access (public datasets are accessible to everyone)
+    if dataset.visibility == 'private' and dataset.owner_id != current_user.id:
+        # TODO: Check dataset permissions
+        raise HTTPException(status_code=403, detail="You don't have permission to access this dataset")
+
+    # Return split config from database cache
+    if dataset.split_config:
+        return DatasetSplitGetResponse(
+            dataset_id=dataset_id,
+            split_config=SplitConfig(**dataset.split_config),
+            has_split=True,
+            message="Dataset split configuration retrieved"
+        )
+    else:
+        return DatasetSplitGetResponse(
+            dataset_id=dataset_id,
+            split_config=None,
+            has_split=False,
+            message="Dataset has no split configuration"
+        )
+
+
+# ============================================================================
+# Snapshot Management Endpoints
+# ============================================================================
+
+@router.post("/{dataset_id}/snapshot", response_model=SnapshotResponse)
+async def create_dataset_snapshot(
+    dataset_id: str,
+    request: SnapshotCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a snapshot of a dataset.
+
+    Snapshots are immutable copies of datasets at a specific point in time.
+    They are stored separately and can be used for training to ensure reproducibility.
+
+    Args:
+        dataset_id: Parent dataset ID
+        request: Snapshot creation request (version_tag, description)
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        SnapshotResponse with created snapshot information
+    """
+    # Check if parent dataset exists
+    parent_dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not parent_dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # Check permissions (owner or editor can create snapshots)
+    if parent_dataset.visibility == 'private' and parent_dataset.owner_id != current_user.id:
+        # TODO: Check dataset permissions for editor role
+        raise HTTPException(status_code=403, detail="You don't have permission to create snapshots for this dataset")
+
+    # Cannot snapshot a snapshot
+    if parent_dataset.is_snapshot:
+        raise HTTPException(status_code=400, detail="Cannot create snapshot of a snapshot")
+
+    # Generate snapshot ID
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    snapshot_id = f"{dataset_id}-snapshot-{timestamp}"
+
+    # Generate snapshot name
+    snapshot_name = f"{parent_dataset.name} (Snapshot"
+    if request.version_tag:
+        snapshot_name += f" {request.version_tag}"
+    snapshot_name += f" - {timestamp})"
+
+    # Copy dataset files in storage
+    storage_client = get_storage_client()
+    parent_storage_path = parent_dataset.storage_path.rstrip('/')
+    snapshot_storage_path = f"datasets/snapshots/{snapshot_id}/"
+
+    try:
+        # List all files in parent dataset
+        logger.info(f"Creating snapshot: copying from {parent_storage_path} to {snapshot_storage_path}")
+
+        # Copy all files from parent to snapshot
+        # NOTE: This is a simplified implementation. In production, use storage provider's native copy/clone
+        files = storage_client.list_files(parent_storage_path)
+        logger.info(f"Found {len(files)} files to copy")
+
+        for file_path in files:
+            # Get relative path
+            relative_path = file_path.replace(parent_storage_path, '').lstrip('/')
+            if not relative_path:
+                continue
+
+            # Download and re-upload (inefficient but works across storage providers)
+            file_content = storage_client.get_file_content(file_path)
+            target_path = f"{snapshot_storage_path}{relative_path}"
+
+            # Determine content type
+            content_type = 'application/octet-stream'
+            if relative_path.endswith('.json'):
+                content_type = 'application/json'
+            elif relative_path.endswith('.yaml') or relative_path.endswith('.yml'):
+                content_type = 'application/x-yaml'
+            elif relative_path.lower().endswith(('.jpg', '.jpeg')):
+                content_type = 'image/jpeg'
+            elif relative_path.lower().endswith('.png'):
+                content_type = 'image/png'
+
+            storage_client.upload_bytes(file_content, target_path, content_type=content_type)
+
+        logger.info(f"Snapshot files copied successfully")
+
+    except Exception as e:
+        logger.error(f"Failed to copy dataset files: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to copy dataset files: {str(e)}")
+
+    # Create snapshot database record
+    snapshot_dataset = Dataset(
+        id=snapshot_id,
+        name=snapshot_name,
+        description=request.description or f"Snapshot of {parent_dataset.name}",
+        owner_id=current_user.id,
+        visibility=parent_dataset.visibility,  # Inherit visibility
+        tags=parent_dataset.tags,  # Copy tags
+        storage_path=snapshot_storage_path,
+        storage_type=parent_dataset.storage_type,
+        format=parent_dataset.format,
+        labeled=parent_dataset.labeled,
+        annotation_path=snapshot_storage_path + "annotations.json" if parent_dataset.annotation_path else None,
+        num_classes=parent_dataset.num_classes,
+        num_images=parent_dataset.num_images,
+        class_names=parent_dataset.class_names,
+        split_config=parent_dataset.split_config,  # Copy split config
+        is_snapshot=True,
+        parent_dataset_id=dataset_id,
+        snapshot_created_at=datetime.utcnow(),
+        version_tag=request.version_tag,
+        status='active',
+        integrity_status='valid',
+        version=1,
+        content_hash=parent_dataset.content_hash,  # Copy content hash
+        last_modified_at=parent_dataset.last_modified_at,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
+    )
+
+    db.add(snapshot_dataset)
+    db.commit()
+    db.refresh(snapshot_dataset)
+
+    logger.info(f"Snapshot created: {snapshot_id} from parent {dataset_id}")
+
+    # Build response
+    snapshot_info = SnapshotInfo(
+        id=snapshot_dataset.id,
+        name=snapshot_dataset.name,
+        version_tag=snapshot_dataset.version_tag,
+        description=snapshot_dataset.description,
+        snapshot_created_at=snapshot_dataset.snapshot_created_at.isoformat() + "Z",
+        num_images=snapshot_dataset.num_images,
+        num_classes=snapshot_dataset.num_classes,
+        format=snapshot_dataset.format,
+        storage_path=snapshot_dataset.storage_path
+    )
+
+    return SnapshotResponse(
+        snapshot_id=snapshot_id,
+        parent_dataset_id=dataset_id,
+        snapshot_info=snapshot_info,
+        message="Snapshot created successfully"
+    )
+
+
+@router.get("/{dataset_id}/snapshots", response_model=SnapshotListResponse)
+async def list_dataset_snapshots(
+    dataset_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List all snapshots of a dataset.
+
+    Returns snapshots in reverse chronological order (most recent first).
+
+    Args:
+        dataset_id: Parent dataset ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        SnapshotListResponse with list of snapshots
+    """
+    # Check if parent dataset exists
+    parent_dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not parent_dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # Check permissions
+    if parent_dataset.visibility == 'private' and parent_dataset.owner_id != current_user.id:
+        # TODO: Check dataset permissions
+        raise HTTPException(status_code=403, detail="You don't have permission to access this dataset")
+
+    # Query snapshots (children with parent_dataset_id = dataset_id)
+    snapshots = db.query(Dataset).filter(
+        Dataset.parent_dataset_id == dataset_id,
+        Dataset.is_snapshot == True,
+        Dataset.status == 'active'
+    ).order_by(Dataset.snapshot_created_at.desc()).all()
+
+    # Build snapshot info list
+    snapshot_infos = []
+    for snapshot in snapshots:
+        snapshot_infos.append(SnapshotInfo(
+            id=snapshot.id,
+            name=snapshot.name,
+            version_tag=snapshot.version_tag,
+            description=snapshot.description,
+            snapshot_created_at=snapshot.snapshot_created_at.isoformat() + "Z" if snapshot.snapshot_created_at else "",
+            num_images=snapshot.num_images,
+            num_classes=snapshot.num_classes,
+            format=snapshot.format,
+            storage_path=snapshot.storage_path
+        ))
+
+    return SnapshotListResponse(
+        dataset_id=dataset_id,
+        snapshots=snapshot_infos,
+        total=len(snapshot_infos),
+        message=f"Retrieved {len(snapshot_infos)} snapshot(s)"
+    )
+
+
+@router.delete("/{snapshot_id}")
+async def delete_dataset_snapshot(
+    snapshot_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a dataset snapshot.
+
+    Only snapshots (is_snapshot=True) can be deleted via this endpoint.
+    Parent datasets must use the regular dataset deletion endpoint.
+
+    Args:
+        snapshot_id: Snapshot dataset ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        Success message
+    """
+    # Check if snapshot exists
+    snapshot = db.query(Dataset).filter(Dataset.id == snapshot_id).first()
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    # Verify it's actually a snapshot
+    if not snapshot.is_snapshot:
+        raise HTTPException(
+            status_code=400,
+            detail="This is not a snapshot. Use the regular dataset deletion endpoint for parent datasets."
+        )
+
+    # Check permissions (only owner can delete)
+    if snapshot.owner_id != current_user.id:
+        # TODO: Check dataset permissions
+        raise HTTPException(status_code=403, detail="You don't have permission to delete this snapshot")
+
+    # Delete from storage
+    storage_client = get_storage_client()
+    try:
+        # Delete all files in snapshot storage path
+        files = storage_client.list_files(snapshot.storage_path.rstrip('/'))
+        logger.info(f"Deleting {len(files)} files from snapshot {snapshot_id}")
+
+        for file_path in files:
+            storage_client.delete_file(file_path)
+
+        logger.info(f"Snapshot files deleted successfully")
+    except Exception as e:
+        logger.error(f"Failed to delete snapshot files: {e}")
+        # Continue with database deletion even if storage deletion fails
+
+    # Delete from database
+    db.delete(snapshot)
+    db.commit()
+
+    logger.info(f"Snapshot deleted: {snapshot_id}")
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": "Snapshot deleted successfully",
+            "snapshot_id": snapshot_id
+        }
+    )
+
+
+@router.get("/compare", response_model=DatasetCompareResponse)
+async def compare_datasets(
+    dataset_a: str = Query(..., description="First dataset ID"),
+    dataset_b: str = Query(..., description="Second dataset ID"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Compare two datasets to identify differences.
+
+    Useful for comparing a parent dataset with its snapshot to see what changed,
+    or comparing two different versions of a dataset.
+
+    Args:
+        dataset_a: First dataset ID
+        dataset_b: Second dataset ID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        DatasetCompareResponse with comparison results
+    """
+    # Check if both datasets exist
+    dataset_a_obj = db.query(Dataset).filter(Dataset.id == dataset_a).first()
+    dataset_b_obj = db.query(Dataset).filter(Dataset.id == dataset_b).first()
+
+    if not dataset_a_obj:
+        raise HTTPException(status_code=404, detail=f"Dataset A '{dataset_a}' not found")
+    if not dataset_b_obj:
+        raise HTTPException(status_code=404, detail=f"Dataset B '{dataset_b}' not found")
+
+    # Check permissions for both datasets
+    for dataset in [dataset_a_obj, dataset_b_obj]:
+        if dataset.visibility == 'private' and dataset.owner_id != current_user.id:
+            # TODO: Check dataset permissions
+            raise HTTPException(status_code=403, detail=f"You don't have permission to access dataset {dataset.id}")
+
+    # Simple comparison based on database metadata
+    # For deep comparison, would need to load and compare annotations.json
+
+    images_added = max(0, dataset_b_obj.num_images - dataset_a_obj.num_images)
+    images_removed = max(0, dataset_a_obj.num_images - dataset_b_obj.num_images)
+    images_unchanged = min(dataset_a_obj.num_images, dataset_b_obj.num_images)
+
+    # Compare class names
+    classes_a = set(dataset_a_obj.class_names or [])
+    classes_b = set(dataset_b_obj.class_names or [])
+
+    classes_added = list(classes_b - classes_a)
+    classes_removed = list(classes_a - classes_b)
+
+    # For annotation changes, would need deep comparison of annotations.json
+    # Placeholder: assume 0 for now
+    annotation_changes = 0
+
+    return DatasetCompareResponse(
+        dataset_a_id=dataset_a,
+        dataset_b_id=dataset_b,
+        images_added=images_added,
+        images_removed=images_removed,
+        images_unchanged=images_unchanged,
+        classes_added=classes_added,
+        classes_removed=classes_removed,
+        annotation_changes=annotation_changes,
+        message="Comparison completed (metadata-based)"
+    )

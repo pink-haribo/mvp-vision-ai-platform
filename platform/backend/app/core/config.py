@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     # API Settings
     API_V1_PREFIX: str = "/api/v1"
     PROJECT_NAME: str = "Vision AI Training Platform - MVP"
+    BACKEND_PORT: int = 8000
 
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000"

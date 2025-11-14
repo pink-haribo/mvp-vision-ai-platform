@@ -19,9 +19,9 @@ $frontendDir = Join-Path $projectRoot "frontend"
 Write-Host "[1/6] Checking Docker Desktop..." -ForegroundColor Yellow
 try {
     docker version | Out-Null
-    Write-Host "  ✓ Docker Desktop is running" -ForegroundColor Green
+    Write-Host "  [OK] Docker Desktop is running" -ForegroundColor Green
 } catch {
-    Write-Host "  ✗ Docker Desktop is not running" -ForegroundColor Red
+    Write-Host "  [ERROR] Docker Desktop is not running" -ForegroundColor Red
     Write-Host "  Please start Docker Desktop and run this script again" -ForegroundColor Yellow
     exit 1
 }
@@ -43,7 +43,7 @@ foreach ($dir in $dataDirs) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
 }
-Write-Host "  ✓ All data directories ready" -ForegroundColor Green
+Write-Host "  [OK] All data directories ready" -ForegroundColor Green
 
 # Step 3: Start Docker Compose services
 Write-Host "[3/6] Starting infrastructure services..." -ForegroundColor Yellow
@@ -51,9 +51,9 @@ Set-Location $infraDir
 
 try {
     docker-compose -f docker-compose.tier0.yaml up -d
-    Write-Host "  ✓ Docker Compose started" -ForegroundColor Green
+    Write-Host "  [OK] Docker Compose started" -ForegroundColor Green
 } catch {
-    Write-Host "  ✗ Failed to start Docker Compose" -ForegroundColor Red
+    Write-Host "  [ERROR] Failed to start Docker Compose" -ForegroundColor Red
     Write-Host "  Error: $_" -ForegroundColor Red
     exit 1
 }
@@ -100,9 +100,9 @@ foreach ($svc in $services) {
     }
 
     if ($healthy) {
-        Write-Host " ✓" -ForegroundColor Green
+        Write-Host " [OK]" -ForegroundColor Green
     } else {
-        Write-Host " ✗ (timeout)" -ForegroundColor Red
+        Write-Host " [ERROR] (timeout)" -ForegroundColor Red
         $allHealthy = $false
     }
 }
@@ -110,7 +110,7 @@ foreach ($svc in $services) {
 Write-Host ""
 
 if (-not $allHealthy) {
-    Write-Host "  ⚠ Some services failed health check" -ForegroundColor Yellow
+    Write-Host "  [!] Some services failed health check" -ForegroundColor Yellow
     Write-Host "  You can proceed, but some features may not work" -ForegroundColor Yellow
     Write-Host ""
 }
@@ -123,14 +123,14 @@ $envTier0 = Join-Path $backendDir ".env.tier0"
 if (-not (Test-Path $envFile)) {
     Write-Host "  .env not found, copying from .env.tier0..." -ForegroundColor Gray
     Copy-Item $envTier0 $envFile
-    Write-Host "  ✓ .env file created" -ForegroundColor Green
+    Write-Host "  [OK] .env file created" -ForegroundColor Green
 } else {
     # Check if it's Tier-0 config
     $content = Get-Content $envFile -Raw
     if ($content -match "tier0-development") {
-        Write-Host "  ✓ .env is configured for Tier-0" -ForegroundColor Green
+        Write-Host "  [OK] .env is configured for Tier-0" -ForegroundColor Green
     } else {
-        Write-Host "  ⚠ .env exists but may not be Tier-0 config" -ForegroundColor Yellow
+        Write-Host "  [!] .env exists but may not be Tier-0 config" -ForegroundColor Yellow
         Write-Host "    To use Tier-0: cp .env.tier0 .env" -ForegroundColor Gray
     }
 }
@@ -146,7 +146,7 @@ $backendJob = Start-Job -ScriptBlock {
     Set-Location $backendDir
     & .\venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 } -ArgumentList $backendDir
-Write-Host "  ✓ Backend started (Job ID: $($backendJob.Id))" -ForegroundColor Green
+Write-Host "  [OK] Backend started (Job ID: $($backendJob.Id))" -ForegroundColor Green
 
 # Wait a bit for backend to start
 Start-Sleep -Seconds 3
@@ -159,7 +159,7 @@ $frontendJob = Start-Job -ScriptBlock {
     Set-Location $frontendDir
     pnpm dev
 } -ArgumentList $frontendDir
-Write-Host "  ✓ Frontend started (Job ID: $($frontendJob.Id))" -ForegroundColor Green
+Write-Host "  [OK] Frontend started (Job ID: $($frontendJob.Id))" -ForegroundColor Green
 
 # Return to infrastructure directory
 Set-Location $infraDir
@@ -167,7 +167,7 @@ Set-Location $infraDir
 # Display service information
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "  ✓ Tier-0 Environment Ready!" -ForegroundColor Green
+Write-Host "  [OK] Tier-0 Environment Ready!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
@@ -207,7 +207,7 @@ Write-Host "  Expected CPU: 10-20%" -ForegroundColor White
 Write-Host ""
 
 Write-Host "Tips:" -ForegroundColor Yellow
-Write-Host "  • All data is stored in C:\platform-data\ (shared with Tier-1)" -ForegroundColor Gray
-Write-Host "  • To switch to Tier-1: docker-compose down, then use Kind" -ForegroundColor Gray
-Write-Host "  • Your database and MinIO data will persist" -ForegroundColor Gray
+Write-Host "  - All data is stored in C:\platform-data (shared with Tier-1)" -ForegroundColor Gray
+Write-Host "  - To switch to Tier-1: docker-compose down then use Kind" -ForegroundColor Gray
+Write-Host "  - Your database and MinIO data will persist" -ForegroundColor Gray
 Write-Host ""

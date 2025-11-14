@@ -51,10 +51,10 @@ services:
     networks:
       - platform-tier0
 
-  # MinIO - S3-compatible object storage
-  minio:
+  # MinIO-Datasets - S3-compatible object storage for datasets and images
+  minio-datasets:
     image: minio/minio:latest
-    container_name: platform-minio-tier0
+    container_name: platform-minio-datasets-tier0
     restart: unless-stopped
     ports:
       - "9000:9000"   # API
@@ -64,7 +64,7 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
       MINIO_BROWSER_REDIRECT_URL: http://localhost:9001
     volumes:
-      - minio-data-tier0:/data
+      - minio-datasets-data-tier0:/data
     command: server /data --console-address ":9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
@@ -75,28 +75,69 @@ services:
     networks:
       - platform-tier0
 
-  # MinIO Setup - Create buckets
+  # MinIO-Results - S3-compatible object storage for checkpoints, weights, configs
+  minio-results:
+    image: minio/minio:latest
+    container_name: platform-minio-results-tier0
+    restart: unless-stopped
+    ports:
+      - "9002:9000"   # API (mapped to 9002 on host)
+      - "9003:9001"   # Console UI (mapped to 9003 on host)
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_BROWSER_REDIRECT_URL: http://localhost:9003
+    volumes:
+      - minio-results-data-tier0:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
+    networks:
+      - platform-tier0
+
+  # MinIO Setup - Create buckets in both storage instances
   minio-setup:
     image: minio/mc:latest
     container_name: platform-minio-setup-tier0
     depends_on:
-      minio:
+      minio-datasets:
+        condition: service_healthy
+      minio-results:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      echo 'Waiting for MinIO to be ready...';
+      echo 'Waiting for MinIO instances to be ready...';
       sleep 5;
-      mc alias set myminio http://minio:9000 minioadmin minioadmin;
-      echo 'Creating buckets...';
-      mc mb myminio/training-datasets --ignore-existing;
-      mc mb myminio/training-checkpoints --ignore-existing;
-      mc mb myminio/training-results --ignore-existing;
-      mc mb myminio/model-weights --ignore-existing;
-      mc mb myminio/config-schemas --ignore-existing;
-      mc mb myminio/vision-platform-dev --ignore-existing;
-      echo 'MinIO buckets created successfully';
-      echo 'Buckets:';
-      mc ls myminio;
+
+      echo '=== Setting up MinIO-Datasets (S3-A) ===';
+      mc alias set datasets http://minio-datasets:9000 minioadmin minioadmin;
+      echo 'Creating dataset buckets...';
+      mc mb datasets/training-datasets --ignore-existing;
+      mc mb datasets/vision-platform-dev --ignore-existing;
+      echo 'Dataset buckets:';
+      mc ls datasets;
+
+      echo '';
+      echo '=== Setting up MinIO-Results (S3-B) ===';
+      mc alias set results http://minio-results:9000 minioadmin minioadmin;
+      echo 'Creating result buckets...';
+      mc mb results/training-checkpoints --ignore-existing;
+      mc mb results/training-results --ignore-existing;
+      mc mb results/model-weights --ignore-existing;
+      mc mb results/config-schemas --ignore-existing;
+      mc mb results/mlflow-artifacts --ignore-existing;
+      mc mb results/vision-platform-results --ignore-existing;
+      echo 'Result buckets:';
+      mc ls results;
+
+      echo '';
+      echo '=== Dual Storage Setup Complete ===';
+      echo 'Datasets Storage: http://localhost:9000 (Console: http://localhost:9001)';
+      echo 'Results Storage:  http://localhost:9002 (Console: http://localhost:9003)';
       "
     networks:
       - platform-tier0
@@ -113,12 +154,12 @@ services:
       - "5000:5000"
     environment:
       # PostgreSQL backend for experiments metadata
-      BACKEND_STORE_URI: postgresql://admin:devpass@postgres:5432/platform
-      # MinIO for artifacts storage
+      BACKEND_STORE_URI: postgresql://admin:devpass@postgres:5432/mlflow
+      # MinIO-Results for artifacts storage
       ARTIFACT_ROOT: s3://mlflow-artifacts
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
-      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      MLFLOW_S3_ENDPOINT_URL: http://minio-results:9000
       # MLflow server config
       MLFLOW_TRACKING_URI: http://0.0.0.0:5000
       MLFLOW_HOST: 0.0.0.0
@@ -126,7 +167,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
+      minio-results:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
@@ -268,12 +309,19 @@ volumes:
       o: bind
       device: C:/platform-data/redis
 
-  minio-data-tier0:
+  minio-datasets-data-tier0:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: C:/platform-data/minio
+      device: C:/platform-data/minio-datasets
+
+  minio-results-data-tier0:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: C:/platform-data/minio-results
 
   prometheus-data-tier0:
     driver: local

@@ -4,6 +4,15 @@ import os
 import sys
 from pathlib import Path
 
+# Set minimal environment variables for testing BEFORE importing app modules
+os.environ.setdefault("GOOGLE_API_KEY", "test_google_api_key_for_testing")
+os.environ.setdefault("JWT_SECRET", "test_jwt_secret_for_testing")
+os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")  # Use different DB for tests
+os.environ.setdefault("AWS_ACCESS_KEY_ID", "test_access_key")
+os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test_secret_key")
+os.environ.setdefault("S3_ENDPOINT", "http://localhost:9000")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

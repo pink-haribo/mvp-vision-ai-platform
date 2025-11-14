@@ -5,6 +5,10 @@ pydantic==2.5.0
 pydantic-settings==2.1.0
 httpx==0.26.0
 aioboto3==12.3.0
+
+# Core ML dependencies - specific versions to avoid conflicts
+numpy==1.26.4
+opencv-python==4.9.0.80
 ultralytics==8.1.0
 torch==2.1.0
 torchvision==0.16.0

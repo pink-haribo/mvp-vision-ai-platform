@@ -5,20 +5,144 @@ import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+import httpx
 
 from app.db.database import get_db
 from app.db import models
 from app.schemas import training
 from app.core.config import settings
-from app.utils.training_manager_k8s import TrainingManagerK8s
 from app.utils.mlflow_client import get_mlflow_client
+from app.services.websocket_manager import get_websocket_manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Global training manager instance
-training_manager = None
+
+async def auto_create_snapshot_if_needed(dataset_id: str, job_id: int, db: Session) -> str:
+    """
+    Automatically create a snapshot of the dataset before training starts.
+
+    This ensures reproducibility by freezing the dataset state at the time of training.
+    If the dataset hasn't changed since the last snapshot, the existing snapshot is reused.
+
+    Args:
+        dataset_id: Dataset ID to snapshot
+        job_id: Training job ID (used in version tag)
+        db: Database session
+
+    Returns:
+        Snapshot dataset ID (either newly created or existing)
+    """
+    from app.db.models import Dataset
+    from app.utils.storage_utils import get_storage_client
+    import json
+
+    # Get parent dataset
+    parent_dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not parent_dataset:
+        logger.warning(f"[SNAPSHOT] Dataset {dataset_id} not found, skipping snapshot")
+        return None
+
+    # Cannot snapshot a snapshot
+    if parent_dataset.is_snapshot:
+        logger.info(f"[SNAPSHOT] Dataset {dataset_id} is already a snapshot, skipping")
+        return dataset_id
+
+    # Check if we have existing snapshots
+    existing_snapshots = db.query(Dataset).filter(
+        Dataset.parent_dataset_id == dataset_id,
+        Dataset.is_snapshot == True,
+        Dataset.status == 'active'
+    ).order_by(Dataset.snapshot_created_at.desc()).all()
+
+    # Check if latest snapshot has same content_hash (dataset unchanged)
+    if existing_snapshots and existing_snapshots[0].content_hash == parent_dataset.content_hash:
+        logger.info(f"[SNAPSHOT] Dataset {dataset_id} unchanged, reusing snapshot {existing_snapshots[0].id}")
+        return existing_snapshots[0].id
+
+    # Need to create new snapshot
+    logger.info(f"[SNAPSHOT] Creating new snapshot for dataset {dataset_id} (job {job_id})")
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    snapshot_id = f"{dataset_id}-snapshot-job{job_id}-{timestamp}"
+    version_tag = f"training-job-{job_id}"
+
+    snapshot_name = f"{parent_dataset.name} (Training Snapshot - Job {job_id})"
+    snapshot_storage_path = f"datasets/snapshots/{snapshot_id}/"
+
+    # Copy dataset files in storage
+    storage_client = get_storage_client()
+    parent_storage_path = parent_dataset.storage_path.rstrip('/')
+
+    try:
+        # List and copy all files
+        files = storage_client.list_files(parent_storage_path)
+        logger.info(f"[SNAPSHOT] Copying {len(files)} files from {parent_storage_path} to {snapshot_storage_path}")
+
+        for file_path in files:
+            relative_path = file_path.replace(parent_storage_path, '').lstrip('/')
+            if not relative_path:
+                continue
+
+            file_content = storage_client.get_file_content(file_path)
+            target_path = f"{snapshot_storage_path}{relative_path}"
+
+            # Determine content type
+            content_type = 'application/octet-stream'
+            if relative_path.endswith('.json'):
+                content_type = 'application/json'
+            elif relative_path.endswith('.yaml') or relative_path.endswith('.yml'):
+                content_type = 'application/x-yaml'
+            elif relative_path.lower().endswith(('.jpg', '.jpeg')):
+                content_type = 'image/jpeg'
+            elif relative_path.lower().endswith('.png'):
+                content_type = 'image/png'
+
+            storage_client.upload_bytes(file_content, target_path, content_type=content_type)
+
+        logger.info(f"[SNAPSHOT] Files copied successfully")
+
+    except Exception as e:
+        logger.error(f"[SNAPSHOT] Failed to copy dataset files: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create snapshot: {str(e)}")
+
+    # Create snapshot database record
+    snapshot_dataset = Dataset(
+        id=snapshot_id,
+        name=snapshot_name,
+        description=f"Automatic snapshot created for training job {job_id}",
+        owner_id=parent_dataset.owner_id,
+        visibility=parent_dataset.visibility,
+        tags=parent_dataset.tags,
+        storage_path=snapshot_storage_path,
+        storage_type=parent_dataset.storage_type,
+        format=parent_dataset.format,
+        labeled=parent_dataset.labeled,
+        annotation_path=snapshot_storage_path + "annotations.json" if parent_dataset.annotation_path else None,
+        num_classes=parent_dataset.num_classes,
+        num_images=parent_dataset.num_images,
+        class_names=parent_dataset.class_names,
+        split_config=parent_dataset.split_config,
+        is_snapshot=True,
+        parent_dataset_id=dataset_id,
+        snapshot_created_at=datetime.utcnow(),
+        version_tag=version_tag,
+        status='active',
+        integrity_status='valid',
+        version=1,
+        content_hash=parent_dataset.content_hash,
+        last_modified_at=parent_dataset.last_modified_at,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
+    )
+
+    db.add(snapshot_dataset)
+    db.commit()
+    db.refresh(snapshot_dataset)
+
+    logger.info(f"[SNAPSHOT] Created snapshot {snapshot_id} for job {job_id}")
+    return snapshot_id
 
 
 @router.post("/jobs", response_model=training.TrainingJobResponse)
@@ -76,9 +200,17 @@ async def create_training_job(
         dataset_format = dataset.format
         logger.info(f"[DATASET] Using dataset from DB: {dataset_id} (format: {dataset_format})")
 
+        # Get split configuration from dataset (if exists)
+        dataset_split_config = dataset.split_config if dataset.split_config else None
+        if dataset_split_config:
+            logger.info(f"[DATASET] Found split configuration: {dataset_split_config.get('method')}")
+        else:
+            logger.info(f"[DATASET] No split configuration found, will use defaults")
+
     elif config.dataset_path:
         # Legacy: direct path provided
         dataset_path = config.dataset_path
+        dataset_split_config = None  # No split config for legacy path
         logger.info(f"[DATASET] Using direct path (legacy): {dataset_path}")
 
     if not config.model_name:
@@ -142,6 +274,14 @@ async def create_training_job(
             primary_metric = "loss"
             primary_metric_mode = "min"
 
+    # Prepare advanced_config with split_config
+    advanced_config_dict = job_request.config.advanced_config.model_dump() if job_request.config.advanced_config else {}
+
+    # Add dataset split_config to advanced_config if available
+    if dataset_split_config:
+        advanced_config_dict['split_config'] = dataset_split_config
+        logger.info(f"[CONFIG] Added split_config to advanced_config")
+
     # Create training job
     job = models.TrainingJob(
         session_id=job_request.session_id,
@@ -160,7 +300,7 @@ async def create_training_job(
         epochs=job_request.config.epochs,
         batch_size=job_request.config.batch_size,
         learning_rate=job_request.config.learning_rate,
-        advanced_config=job_request.config.advanced_config.model_dump() if job_request.config.advanced_config else None,
+        advanced_config=advanced_config_dict if advanced_config_dict else None,
         primary_metric=primary_metric,
         primary_metric_mode=primary_metric_mode,
         status="pending",
@@ -312,7 +452,7 @@ async def start_training_job(
     """
     Start a training job.
 
-    This endpoint starts the actual training process using subprocess.
+    This endpoint starts the actual training process by calling the Training Service HTTP API.
 
     Args:
         job_id: Training job ID
@@ -320,13 +460,6 @@ async def start_training_job(
         resume: If True, resume training from checkpoint (restore optimizer/scheduler state).
                 If False, only load model weights.
     """
-    global training_manager
-
-    # Initialize training manager if not already done
-    if training_manager is None:
-        executor = os.getenv("TRAINING_EXECUTOR", "subprocess")
-        training_manager = TrainingManagerK8s(db, default_executor=executor)
-
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Training job not found")
@@ -337,23 +470,134 @@ async def start_training_job(
             detail=f"Cannot start job with status '{job.status}'",
         )
 
-    # Validate checkpoint path if provided
-    if checkpoint_path and not os.path.exists(checkpoint_path):
+    # Auto-create snapshot before training starts (if dataset_id provided)
+    if job.dataset_id:
+        try:
+            snapshot_id = await auto_create_snapshot_if_needed(job.dataset_id, job_id, db)
+            if snapshot_id:
+                job.dataset_snapshot_id = snapshot_id
+                db.commit()
+                logger.info(f"[JOB {job_id}] Using dataset snapshot: {snapshot_id}")
+            else:
+                logger.info(f"[JOB {job_id}] No snapshot created (dataset not found or already snapshot)")
+        except Exception as e:
+            logger.error(f"[JOB {job_id}] Failed to create snapshot: {e}")
+            # Don't fail the training if snapshot creation fails
+            logger.warning(f"[JOB {job_id}] Continuing training without snapshot")
+
+    # Determine Training Service URL based on framework
+    if job.framework == "ultralytics":
+        training_service_url = settings.ULTRALYTICS_SERVICE_URL
+    elif job.framework == "timm":
+        training_service_url = settings.TIMM_SERVICE_URL
+    elif job.framework == "huggingface":
+        training_service_url = settings.HUGGINGFACE_SERVICE_URL
+    else:
         raise HTTPException(
             status_code=400,
-            detail=f"Checkpoint file not found: {checkpoint_path}"
+            detail=f"Unsupported framework: {job.framework}"
         )
 
-    # Start training subprocess
-    success = training_manager.start_training(job_id, checkpoint_path=checkpoint_path, resume=resume)
+    # Prepare training configuration
+    training_config = {
+        "model": job.model_name,
+        "task": job.task_type,
+        "epochs": job.epochs,
+        "batch": job.batch_size,
+        "imgsz": 640,  # Default image size
+        "device": "cpu",  # Will be "cuda" in production
+        "primary_metric": job.primary_metric or "loss",  # Metric to optimize
+        "primary_metric_mode": job.primary_metric_mode or "min",  # min or max
+    }
 
-    if not success:
+    # Add split_config from advanced_config if available
+    if job.advanced_config and "split_config" in job.advanced_config:
+        training_config["split_config"] = job.advanced_config["split_config"]
+        logger.info(f"[JOB {job_id}] Including split_config in training request")
+
+    # Prepare Training Service request
+    dataset_s3_uri = f"s3://training-datasets/datasets/{job.dataset_id}/"
+    callback_url = f"{settings.API_V1_PREFIX}/training/jobs/{job_id}/callback"
+
+    training_request = {
+        "job_id": str(job_id),
+        "config": training_config,
+        "dataset_s3_uri": dataset_s3_uri,
+        "callback_url": callback_url,
+    }
+
+    # Get training executor from environment (subprocess or k8s)
+    executor = os.getenv("TRAINING_EXECUTOR", "subprocess")
+    logger.info(f"[JOB {job_id}] Using training executor: {executor}")
+
+    try:
+        # Build absolute callback URL
+        backend_port = os.getenv("BACKEND_PORT", "8000")
+        callback_base_url = f"http://localhost:{backend_port}{settings.API_V1_PREFIX}/training"
+
+        if executor == "subprocess":
+            # Tier-0 (Docker Compose), Tier-1 (Kind): Execute via subprocess
+            from app.utils.training_subprocess import get_training_subprocess_manager
+
+            manager = get_training_subprocess_manager()
+
+            # Start training subprocess
+            process = await manager.start_training(
+                job_id=job_id,
+                framework=job.framework,
+                model_name=job.model_name,
+                dataset_s3_uri=dataset_s3_uri,
+                callback_url=callback_base_url,
+                config=training_config,
+            )
+
+            # Update job status
+            job.status = "running"
+            job.started_at = datetime.utcnow()
+            job.process_id = process.pid
+            db.commit()
+            db.refresh(job)
+
+            logger.info(f"[JOB {job_id}] Training started via subprocess (PID: {process.pid})")
+
+        elif executor == "k8s":
+            # Tier-2 (K8s Production): Create K8s Job
+            from app.utils.training_k8s_job import create_training_k8s_job
+
+            k8s_job_name = await create_training_k8s_job(
+                job_id=job_id,
+                framework=job.framework,
+                model_name=job.model_name,
+                dataset_s3_uri=dataset_s3_uri,
+                callback_url=callback_base_url,
+                config=training_config,
+            )
+
+            # Update job status
+            job.status = "running"
+            job.started_at = datetime.utcnow()
+            job.k8s_job_name = k8s_job_name
+            db.commit()
+            db.refresh(job)
+
+            logger.info(f"[JOB {job_id}] Training started via K8s Job: {k8s_job_name}")
+
+        else:
+            raise ValueError(f"Unknown TRAINING_EXECUTOR: {executor}. Expected 'subprocess' or 'k8s'.")
+
+    except FileNotFoundError as e:
+        logger.error(f"[JOB {job_id}] Training Service setup error: {e}")
         raise HTTPException(
             status_code=500,
-            detail="Failed to start training process"
+            detail=f"Training Service not properly configured: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"[JOB {job_id}] Failed to start training: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to start training: {str(e)}"
         )
 
-    db.refresh(job)
     return job
 
 
@@ -362,7 +606,7 @@ async def cancel_training_job(job_id: int, db: Session = Depends(get_db)):
     """
     Cancel a running training job.
     """
-    global training_manager
+    from app.utils.training_subprocess import get_training_subprocess_manager
 
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
     if not job:
@@ -375,7 +619,11 @@ async def cancel_training_job(job_id: int, db: Session = Depends(get_db)):
         )
 
     # Stop training subprocess
-    if training_manager and training_manager.stop_training(job_id):
+    manager = get_training_subprocess_manager()
+    if manager.stop_training(job_id):
+        job.status = "cancelled"
+        job.completed_at = datetime.utcnow()
+        db.commit()
         db.refresh(job)
         return job
     else:
@@ -929,32 +1177,62 @@ async def get_config_schema(framework: str, task_type: str = None):
     This endpoint returns the configuration schema that can be used to dynamically
     generate UI forms for advanced training configuration.
 
+    Schemas are uploaded to S3/R2 by GitHub Actions workflow (.github/workflows/upload-config-schemas.yml)
+    and dynamically loaded by the Frontend without requiring Backend redeployment.
+
     Args:
-        framework: Framework name ('timm', 'ultralytics', etc.)
-        task_type: Optional task type for framework-specific schemas
+        framework: Framework name ('ultralytics', 'timm', etc.)
+        task_type: Optional task type for framework-specific schemas (currently unused)
 
     Returns:
         Configuration schema with fields, types, defaults, and presets
+
+    Example Response:
+        {
+            "framework": "ultralytics",
+            "description": "Ultralytics YOLO Training Configuration",
+            "version": "1.0",
+            "fields": [
+                {
+                    "name": "optimizer_type",
+                    "type": "select",
+                    "default": "Adam",
+                    "options": ["Adam", "AdamW", "SGD"],
+                    "description": "Optimizer algorithm",
+                    "group": "optimizer",
+                    "required": false,
+                    "advanced": false
+                },
+                ...
+            ],
+            "presets": {
+                "easy": { "mosaic": 1.0, "fliplr": 0.5, "amp": true },
+                "medium": { "mosaic": 1.0, "mixup": 0.1, ... },
+                "advanced": { "mosaic": 1.0, "mixup": 0.15, "copy_paste": 0.1, ... }
+            }
+        }
     """
     logger.info(f"[config-schema] Requested framework={framework}, task_type={task_type}")
 
-    # Load schema from INTERNAL storage (uploaded by training/scripts/upload_schema_to_storage.py)
-    # This maintains complete dependency isolation between Backend and Training
+    # Load schema from Internal Storage (Results MinIO)
+    # Uploaded by GitHub Actions workflow (.github/workflows/upload-config-schemas.yml)
+    # This maintains complete dependency isolation between Backend and Training Services
     from app.utils.dual_storage import dual_storage
     import json
 
     try:
-        logger.info(f"[config-schema] Loading schema from internal storage: schemas/{framework}.json")
+        logger.info(f"[config-schema] Loading schema from Internal Storage: {framework}.json")
 
-        # Get schema from internal storage (config-schemas bucket)
+        # Get schema from Internal Storage (config-schemas bucket)
         schema_bytes = dual_storage.get_schema(framework)
 
         if not schema_bytes:
-            logger.warning(f"[config-schema] Schema not found in internal storage: {framework}")
+            logger.warning(f"[config-schema] Schema not found: {framework}")
             raise HTTPException(
                 status_code=404,
                 detail=f"Configuration schema for framework '{framework}' not found. "
-                       f"Please run: mvp/training/scripts/upload_schema_to_storage.py --framework {framework}"
+                       f"Available frameworks: ultralytics, timm, huggingface. "
+                       f"Schemas are uploaded via GitHub Actions from platform/trainers/*/config_schema.py"
             )
 
         # Parse JSON
@@ -971,7 +1249,7 @@ async def get_config_schema(framework: str, task_type: str = None):
         logger.error(f"[config-schema] Invalid JSON in schema file: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Schema file is corrupted. Please re-upload."
+            detail=f"Schema file is corrupted. Please re-upload via GitHub Actions."
         )
     except Exception as e:
         logger.error(f"[config-schema] Error loading schema: {str(e)}")
@@ -1202,14 +1480,12 @@ async def stop_training_job(
 
         logger.info(f"[stop-training] Stopping job {job_id} (status: {job.status})")
 
-        # Initialize training manager
-        global training_manager
-        if training_manager is None:
-            executor = os.getenv("TRAINING_EXECUTOR", "subprocess")
-            training_manager = TrainingManagerK8s(db, default_executor=executor)
+        # Stop training subprocess
+        from app.utils.training_subprocess import get_training_subprocess_manager
+        manager = get_training_subprocess_manager()
 
         # Stop the training job
-        success = training_manager.stop_training(job_id)
+        success = manager.stop_training(job_id)
 
         if not success:
             raise HTTPException(
@@ -1240,4 +1516,261 @@ async def stop_training_job(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to stop training job: {str(e)}"
+        )
+
+
+# ============================================================================
+# Training Service Callbacks (K8s Job Compatible)
+# ============================================================================
+
+
+@router.post(
+    "/jobs/{job_id}/callback/progress",
+    response_model=training.TrainingCallbackResponse
+)
+async def training_progress_callback(
+    job_id: int,
+    callback: training.TrainingProgressCallback,
+    db: Session = Depends(get_db)
+):
+    """
+    Receive progress updates from Training Service.
+
+    K8s Job Compatible: Works for both long-running service and one-time job.
+    Training Service sends periodic updates (every N epochs based on CALLBACK_INTERVAL).
+
+    Args:
+        job_id: Training job ID
+        callback: Progress update data
+        db: Database session
+
+    Returns:
+        Acknowledgment response
+    """
+    try:
+        # Verify job exists
+        job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+        if not job:
+            logger.error(f"[CALLBACK] Job {job_id} not found")
+            raise HTTPException(status_code=404, detail="Training job not found")
+
+        logger.info(
+            f"[CALLBACK] Progress update for job {job_id}: "
+            f"epoch {callback.current_epoch}/{callback.total_epochs}, "
+            f"status={callback.status}"
+        )
+
+        # Update job status
+        job.status = callback.status
+
+        # Update started_at if this is the first progress update
+        if job.started_at is None and callback.status == "running":
+            job.started_at = datetime.utcnow()
+
+        # Handle completion or failure
+        if callback.status in ["completed", "failed"]:
+            job.completed_at = datetime.utcnow()
+            if callback.error_message:
+                job.error_message = callback.error_message
+
+        # Store metrics in database if provided
+        if callback.metrics:
+            metric = models.TrainingMetric(
+                job_id=job_id,
+                epoch=callback.current_epoch,
+                step=None,  # Can be added if needed
+                loss=callback.metrics.loss,
+                accuracy=callback.metrics.accuracy,
+                learning_rate=callback.metrics.learning_rate,
+                extra_metrics=callback.metrics.extra_metrics,
+                checkpoint_path=callback.checkpoint_path,
+            )
+            db.add(metric)
+
+        # Update best checkpoint path if provided
+        if callback.best_checkpoint_path:
+            job.best_checkpoint_path = callback.best_checkpoint_path
+
+        db.commit()
+
+        logger.info(f"[CALLBACK] Successfully updated job {job_id}")
+
+        # Broadcast to WebSocket clients
+        ws_manager = get_websocket_manager()
+        await ws_manager.broadcast_to_job(job_id, {
+            "type": "training_progress",
+            "job_id": job_id,
+            "status": callback.status,
+            "current_epoch": callback.current_epoch,
+            "total_epochs": callback.total_epochs,
+            "progress_percent": callback.progress_percent,
+            "metrics": callback.metrics.dict() if callback.metrics else None,
+            "checkpoint_path": callback.checkpoint_path,
+            "best_checkpoint_path": callback.best_checkpoint_path,
+        })
+
+        return training.TrainingCallbackResponse(
+            success=True,
+            message=f"Progress update received for epoch {callback.current_epoch}",
+            job_status=job.status
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"[CALLBACK] Error processing progress update: {str(e)}")
+        logger.error(traceback.format_exc())
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process progress callback: {str(e)}"
+        )
+
+
+@router.post(
+    "/jobs/{job_id}/callback/completion",
+    response_model=training.TrainingCallbackResponse
+)
+async def training_completion_callback(
+    job_id: int,
+    callback: training.TrainingCompletionCallback,
+    db: Session = Depends(get_db)
+):
+    """
+    Receive final completion callback from Training Service.
+
+    K8s Job Compatible: Handles exit_code for K8s Job success/failure detection.
+    Training Service sends this once when training finishes (success or failure).
+
+    Args:
+        job_id: Training job ID
+        callback: Completion data with final results
+        db: Database session
+
+    Returns:
+        Acknowledgment response
+    """
+    try:
+        # Verify job exists
+        job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+        if not job:
+            logger.error(f"[CALLBACK] Job {job_id} not found")
+            raise HTTPException(status_code=404, detail="Training job not found")
+
+        logger.info(
+            f"[CALLBACK] Completion callback for job {job_id}: "
+            f"status={callback.status}, "
+            f"epochs_completed={callback.total_epochs_completed}, "
+            f"exit_code={callback.exit_code}"
+        )
+
+        # Update job status
+        # K8s Job compatibility: Use exit_code if provided
+        if callback.exit_code is not None:
+            if callback.exit_code == 0:
+                job.status = "completed"
+            else:
+                job.status = "failed"
+                if not callback.error_message:
+                    callback.error_message = f"Training failed with exit code {callback.exit_code}"
+        else:
+            job.status = callback.status
+
+        # Update completion time
+        job.completed_at = datetime.utcnow()
+
+        # Store final metrics
+        if callback.final_metrics:
+            job.final_accuracy = callback.final_metrics.accuracy
+
+            # Store as metric record
+            metric = models.TrainingMetric(
+                job_id=job_id,
+                epoch=callback.total_epochs_completed,
+                step=None,
+                loss=callback.final_metrics.loss,
+                accuracy=callback.final_metrics.accuracy,
+                learning_rate=callback.final_metrics.learning_rate,
+                extra_metrics=callback.final_metrics.extra_metrics,
+                checkpoint_path=callback.final_checkpoint_path,
+            )
+            db.add(metric)
+
+        # Store best metrics if provided
+        if callback.best_metrics and callback.best_epoch:
+            # Update existing metric record for best epoch
+            best_metric = db.query(models.TrainingMetric).filter(
+                models.TrainingMetric.job_id == job_id,
+                models.TrainingMetric.epoch == callback.best_epoch
+            ).first()
+
+            if best_metric:
+                best_metric.extra_metrics = best_metric.extra_metrics or {}
+                best_metric.extra_metrics["is_best"] = True
+                best_metric.checkpoint_path = callback.best_checkpoint_path
+
+        # Update checkpoint paths
+        if callback.best_checkpoint_path:
+            job.best_checkpoint_path = callback.best_checkpoint_path
+
+        # Store MLflow run ID
+        if callback.mlflow_run_id:
+            job.mlflow_run_id = callback.mlflow_run_id
+            logger.info(f"[CALLBACK] Stored MLflow run ID: {callback.mlflow_run_id}")
+
+        # Store error information if failed
+        if callback.status == "failed" or (callback.exit_code and callback.exit_code != 0):
+            job.error_message = callback.error_message or "Training failed (no error message provided)"
+
+            # Log traceback if available
+            if callback.traceback:
+                logger.error(f"[CALLBACK] Job {job_id} traceback:\n{callback.traceback}")
+                # Store traceback in logs
+                log_entry = models.TrainingLog(
+                    job_id=job_id,
+                    log_type="stderr",
+                    content=f"TRACEBACK:\n{callback.traceback}"
+                )
+                db.add(log_entry)
+
+        db.commit()
+
+        logger.info(
+            f"[CALLBACK] Successfully processed completion for job {job_id} "
+            f"(status={job.status}, final_accuracy={job.final_accuracy})"
+        )
+
+        # Broadcast completion to WebSocket clients
+        ws_manager = get_websocket_manager()
+        await ws_manager.broadcast_to_job(job_id, {
+            "type": "training_complete" if callback.status == "completed" else "training_error",
+            "job_id": job_id,
+            "status": callback.status,
+            "total_epochs_completed": callback.total_epochs_completed,
+            "final_metrics": callback.final_metrics.dict() if callback.final_metrics else None,
+            "best_metrics": callback.best_metrics.dict() if callback.best_metrics else None,
+            "best_epoch": callback.best_epoch,
+            "final_checkpoint_path": callback.final_checkpoint_path,
+            "best_checkpoint_path": callback.best_checkpoint_path,
+            "mlflow_run_id": callback.mlflow_run_id,
+            "error_message": callback.error_message,
+        })
+
+        return training.TrainingCallbackResponse(
+            success=True,
+            message=f"Training {callback.status} after {callback.total_epochs_completed} epochs",
+            job_status=job.status
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"[CALLBACK] Error processing completion callback: {str(e)}")
+        logger.error(traceback.format_exc())
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process completion callback: {str(e)}"
         )
