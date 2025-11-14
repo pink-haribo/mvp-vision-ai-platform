@@ -1177,32 +1177,65 @@ async def get_config_schema(framework: str, task_type: str = None):
     This endpoint returns the configuration schema that can be used to dynamically
     generate UI forms for advanced training configuration.
 
+    Schemas are uploaded to S3/R2 by GitHub Actions workflow (.github/workflows/upload-config-schemas.yml)
+    and dynamically loaded by the Frontend without requiring Backend redeployment.
+
     Args:
-        framework: Framework name ('timm', 'ultralytics', etc.)
-        task_type: Optional task type for framework-specific schemas
+        framework: Framework name ('ultralytics', 'timm', etc.)
+        task_type: Optional task type for framework-specific schemas (currently unused)
 
     Returns:
         Configuration schema with fields, types, defaults, and presets
+
+    Example Response:
+        {
+            "framework": "ultralytics",
+            "description": "Ultralytics YOLO Training Configuration",
+            "version": "1.0",
+            "fields": [
+                {
+                    "name": "optimizer_type",
+                    "type": "select",
+                    "default": "Adam",
+                    "options": ["Adam", "AdamW", "SGD"],
+                    "description": "Optimizer algorithm",
+                    "group": "optimizer",
+                    "required": false,
+                    "advanced": false
+                },
+                ...
+            ],
+            "presets": {
+                "easy": { "mosaic": 1.0, "fliplr": 0.5, "amp": true },
+                "medium": { "mosaic": 1.0, "mixup": 0.1, ... },
+                "advanced": { "mosaic": 1.0, "mixup": 0.15, "copy_paste": 0.1, ... }
+            }
+        }
     """
     logger.info(f"[config-schema] Requested framework={framework}, task_type={task_type}")
 
-    # Load schema from INTERNAL storage (uploaded by training/scripts/upload_schema_to_storage.py)
-    # This maintains complete dependency isolation between Backend and Training
-    from app.utils.dual_storage import dual_storage
+    # Load schema from S3/R2 (uploaded by GitHub Actions workflow)
+    # This maintains complete dependency isolation between Backend and Training Services
+    from app.utils.s3_storage import s3_storage
     import json
 
     try:
-        logger.info(f"[config-schema] Loading schema from internal storage: schemas/{framework}.json")
+        logger.info(f"[config-schema] Loading schema from S3: schemas/{framework}.json")
 
-        # Get schema from internal storage (config-schemas bucket)
-        schema_bytes = dual_storage.get_schema(framework)
+        # Get schema from S3 (results bucket)
+        schema_key = f"schemas/{framework}.json"
+        schema_bytes = s3_storage.get_file_content(
+            schema_key,
+            bucket=s3_storage.bucket_results
+        )
 
         if not schema_bytes:
-            logger.warning(f"[config-schema] Schema not found in internal storage: {framework}")
+            logger.warning(f"[config-schema] Schema not found in S3: {schema_key}")
             raise HTTPException(
                 status_code=404,
                 detail=f"Configuration schema for framework '{framework}' not found. "
-                       f"Please run: mvp/training/scripts/upload_schema_to_storage.py --framework {framework}"
+                       f"Available frameworks: ultralytics, timm, huggingface. "
+                       f"Schemas are uploaded via GitHub Actions from platform/trainers/*/config_schema.py"
             )
 
         # Parse JSON
@@ -1219,7 +1252,7 @@ async def get_config_schema(framework: str, task_type: str = None):
         logger.error(f"[config-schema] Invalid JSON in schema file: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Schema file is corrupted. Please re-upload."
+            detail=f"Schema file is corrupted. Please re-upload via GitHub Actions."
         )
     except Exception as e:
         logger.error(f"[config-schema] Error loading schema: {str(e)}")
