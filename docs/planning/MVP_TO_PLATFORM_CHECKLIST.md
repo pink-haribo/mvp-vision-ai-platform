@@ -18,11 +18,37 @@
 | 5. Analytics & Monitoring | 0% | ⚪ Not Started | Week 4-5 |
 | 6. Deployment & Infra | 0% | ⚪ Not Started | Week 5-6 |
 
-**전체 진행률**: 89% (198/222 tasks) ✅ Phase 3.6 Core Complete (Documentation Added)
+**전체 진행률**: 90% (201/222 tasks) ✅ Phase 3.6 Documentation Complete
 
-**최근 업데이트**: 2025-11-16 (Phase 3.6 Week 3-4: Platform Inference + Frontend + Convention Design)
+**최근 업데이트**: 2025-11-16 (Phase 3.6: Complete Documentation - Convention, Guides, API Examples)
 
 **Current Session (2025-11-16 Evening - Continued)** 📋
+
+**Phase 3.6 Week 4 Day 2: Complete Documentation** ✅ COMPLETED (3 new tasks - Total: 92/100 - 92%):
+- ✅ **EXPORT_DEPLOYMENT_DESIGN.md Updated** `platform\docs\architecture\EXPORT_DEPLOYMENT_DESIGN.md` (+260 lines):
+  - Implementation Status section added
+  - Completed Components: Backend 100%, Trainer 75%, Frontend 100%, Documentation 100%
+  - Key Design Decisions: Convention-based, Platform inference, Subprocess isolation
+  - API Examples: Create export, deploy, run inference
+  - Troubleshooting guide: 5 common issues with solutions
+  - References updated to include EXPORT_CONVENTION.md
+- ✅ **Ultralytics EXPORT_GUIDE.md** `platform\trainers\ultralytics\EXPORT_GUIDE.md` (800+ lines):
+  - Quick start and export script CLI usage
+  - All 6 export formats with detailed configurations (ONNX, TensorRT, CoreML, TFLite, TorchScript, OpenVINO)
+  - Capability matrix by model (YOLOv8, YOLO11, YOLO-World, SAM2)
+  - Task-specific metadata schemas (detection, segmentation, pose, open-vocabulary)
+  - Runtime wrapper integration guides (Python ONNX Runtime, C++ OpenCV, Swift CoreML, Kotlin TFLite)
+  - Validation workflow and troubleshooting (8 common issues)
+  - Advanced usage: Batch export, custom configs, programmatic export
+- ✅ **CLAUDE.md Updated** `CLAUDE.md` (+140 lines):
+  - Model Export & Deployment section added after "Supported Model Frameworks"
+  - Convention-based export design principles (CRITICAL for new trainers)
+  - Export workflow visualization
+  - Supported formats table and deployment types (platform endpoint, edge package, container, download)
+  - API examples for create export, deploy, run inference
+  - Frontend integration details (8 components, user flow)
+  - Design rationale: Why convention-based over shared base module
+- ✅ **Git Commit & Push**: `docs(phase-3.6): complete export/deployment documentation` (commit 1a3f0d1)
 
 **Phase 3.6 Week 4 Day 1: Core Design Documentation** ✅ COMPLETED (14 new tasks - Total: 89/100 - 89%):
 - ✅ **EXPORT_CONVENTION.md** `docs\EXPORT_CONVENTION.md` (450+ lines):
@@ -2252,19 +2278,22 @@ if (key.includes('loss')) return value.toFixed(4);
   - [x] Main workflow following convention
   - [x] Validation and error handling examples
   - [x] Copy-paste ready for new trainers
-- [ ] Update EXPORT_DEPLOYMENT_DESIGN.md
-  - [ ] Add implementation status
-  - [ ] Add API examples
-  - [ ] Reference EXPORT_CONVENTION.md
-- [ ] Create platform/trainers/ultralytics/EXPORT_GUIDE.md
-  - [ ] Export script usage examples
-  - [ ] Supported formats with configs
-  - [ ] Runtime wrapper examples
-  - [ ] Metadata schema for Ultralytics models
-- [ ] Update CLAUDE.md
-  - [ ] Add export/deployment workflow section
-  - [ ] Reference EXPORT_CONVENTION.md for new trainers
-  - [ ] Document export API endpoints
+- [x] **EXPORT_DEPLOYMENT_DESIGN.md** - Implementation Status & API Examples
+  - [x] Add implementation status (Backend 100%, Frontend 100%, Trainer 75%)
+  - [x] Add API examples (create export, deploy, inference)
+  - [x] Reference EXPORT_CONVENTION.md
+  - [x] Troubleshooting guide
+- [x] **platform/trainers/ultralytics/EXPORT_GUIDE.md** - Complete Ultralytics Guide (800+ lines)
+  - [x] Export script usage examples
+  - [x] All 6 supported formats with configurations
+  - [x] Runtime wrapper integration guides (Python, C++, Swift, Kotlin)
+  - [x] Task-specific metadata schemas (detection, segmentation, pose, open-vocab)
+  - [x] Validation and troubleshooting
+- [x] **CLAUDE.md** - Export/Deployment Section Added
+  - [x] Convention-based export design principles
+  - [x] Export workflow and deployment types
+  - [x] API examples and frontend integration
+  - [x] Why convention-based over shared base module
 
 **Testing** ⏸️ NOT STARTED
 - [ ] Unit tests
@@ -2281,16 +2310,19 @@ if (key.includes('loss')) return value.toFixed(4);
   - [ ] Platform endpoint inference
   - [ ] Edge package generation
 
-**Progress**: 89/100 tasks completed (89%) ✅ CORE IMPLEMENTATION COMPLETE
+**Progress**: 92/100 tasks completed (92%) ✅ DOCUMENTATION COMPLETE
 - Week 1 Day 1-2: Backend Models & API ✅ 11/11 (100%)
 - Week 2 Day 1-3: Trainer Export Scripts ✅ 9/12 (75% - Runtime wrappers pending)
 - Week 2 Day 4-5: Backend Integration ✅ 2/2 (100%)
 - Week 3 Day 1-3: Platform Inference Endpoint ✅ 3/3 (100%)
 - Week 3 Day 4-7: Frontend Implementation ✅ 50/50 (100%)
-- Week 4 Day 1: Core Design Documentation ✅ 14/14 (100%)
+- Week 4 Day 1-2: Complete Documentation ✅ 17/17 (100%)
   - EXPORT_CONVENTION.md (convention-based export design)
   - export_template.py (reference implementation template)
-- Remaining: Documentation (3 tasks), Testing (11 tasks), K8s Job templates (3 tasks)
+  - EXPORT_DEPLOYMENT_DESIGN.md (implementation status, API examples)
+  - platform/trainers/ultralytics/EXPORT_GUIDE.md (complete guide)
+  - CLAUDE.md (export/deployment section)
+- Remaining: Testing (11 tasks), K8s Job templates (3 tasks)
 
 **Priority**: High (but after Phase 3.2 & 3.5 completion)
 
