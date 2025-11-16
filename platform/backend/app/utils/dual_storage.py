@@ -331,6 +331,39 @@ class DualStorageClient:
                 logger.error(f"Failed to get schema: {e}")
             return None
 
+    def get_capabilities(self, framework: str) -> Optional[bytes]:
+        """
+        Get model capabilities from internal storage.
+
+        Capabilities are stored in config-schemas bucket with prefix 'model-capabilities/'.
+
+        Args:
+            framework: Framework name (e.g., "ultralytics", "timm")
+
+        Returns:
+            Capabilities content as bytes, or None if not found
+        """
+        if not self.internal_client:
+            logger.error("Internal storage not initialized")
+            return None
+
+        try:
+            # Capabilities are stored with model-capabilities/ prefix
+            capabilities_key = f"model-capabilities/{framework}.json"
+            response = self.internal_client.get_object(
+                Bucket=self.internal_bucket_schemas,
+                Key=capabilities_key
+            )
+            content = response['Body'].read()
+            logger.info(f"Retrieved capabilities from internal storage: {self.internal_bucket_schemas}/{capabilities_key} ({len(content)} bytes)")
+            return content
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                logger.warning(f"Capabilities not found: {framework}")
+            else:
+                logger.error(f"Failed to get capabilities: {e}")
+            return None
+
     def upload_schema(
         self,
         schema_data: bytes,

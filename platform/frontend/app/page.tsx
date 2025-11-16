@@ -37,8 +37,9 @@ export default function Home() {
   const [trainingConfig, setTrainingConfig] = useState<TrainingConfig | null>(null)
   const [trainingProjectId, setTrainingProjectId] = useState<number | null>(null)
   const [sidebarKey, setSidebarKey] = useState(0) // For forcing Sidebar refresh
-  const [centerWidth, setCenterWidth] = useState(35) // Chat panel width (35%)
+  const [centerWidth, setCenterWidth] = useState(25) // Chat panel width (25%)
   const [isDragging, setIsDragging] = useState(false)
+  const [chatCollapsed, setChatCollapsed] = useState(false) // Chat panel collapse state
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Modal states
@@ -102,11 +103,18 @@ export default function Home() {
   }
 
   const handleCreateProject = () => {
+    console.log('handleCreateProject called')
     setPreviousProjectId(selectedProjectId) // Save current project for back button
     setIsCreatingProject(true)
+    console.log('isCreatingProject set to true')
     setSelectedProjectId(null)   // Close project detail if open
     setIsCreatingTraining(false) // Close training config if open
     setTrainingJobId(null)       // Close training panel if open
+    setShowAdminProjects(false)  // Close admin panels if open
+    setShowAdminUsers(false)
+    setShowAdminDatasets(false)
+    setShowDatasets(false)       // Close dataset panel if open
+    setShowImageTools(false)     // Close image tools if open
   }
 
   const handleProjectCreated = (projectId: number) => {
@@ -290,31 +298,59 @@ export default function Home() {
 
       {/* Main Content Area - 3 Column Layout */}
       <main ref={containerRef} className="flex-1 flex overflow-hidden relative">
-        {/* Chat Panel - Center (Resizable) */}
-        <div
-          style={{ width: `${centerWidth}%` }}
-          className="border-r border-gray-200"
-        >
-          <ChatPanel
-            sessionId={sessionId}
-            onSessionCreated={setSessionId}
-            onTrainingRequested={setTrainingJobId}
-            onProjectSelected={handleProjectSelect}
-          />
-        </div>
+        {/* Chat Panel - Center (Resizable) - Conditionally rendered */}
+        {!chatCollapsed && (
+          <>
+            <div
+              style={{ width: `${centerWidth}%` }}
+              className="border-r border-gray-200"
+            >
+              <ChatPanel
+                sessionId={sessionId}
+                onSessionCreated={setSessionId}
+                onTrainingRequested={setTrainingJobId}
+                onProjectSelected={handleProjectSelect}
+                onCollapse={() => setChatCollapsed(true)}
+              />
+            </div>
 
-        {/* Resizer */}
-        <div
-          onMouseDown={handleMouseDown}
-          className={`w-1 bg-gray-200 hover:bg-violet-400 cursor-col-resize transition-colors relative group ${
-            isDragging ? 'bg-violet-500' : ''
-          }`}
-        >
-          <div className="absolute inset-y-0 -left-1 -right-1" />
-        </div>
+            {/* Resizer */}
+            <div
+              onMouseDown={handleMouseDown}
+              className={`w-1 bg-gray-200 hover:bg-violet-400 cursor-col-resize transition-colors relative group ${
+                isDragging ? 'bg-violet-500' : ''
+              }`}
+            >
+              <div className="absolute inset-y-0 -left-1 -right-1" />
+            </div>
+          </>
+        )}
 
         {/* Workspace Panel - Right (Dynamic Content) */}
-        <div style={{ width: `${100 - centerWidth}%` }} className="flex-1">
+        <div style={{ width: chatCollapsed ? '100%' : `${100 - centerWidth}%` }} className="flex-1 relative">
+          {/* Circular expand button when chat is collapsed */}
+          {chatCollapsed && (
+            <button
+              onClick={() => setChatCollapsed(false)}
+              className="absolute bottom-6 left-6 w-14 h-14 bg-violet-600 text-white rounded-full shadow-lg hover:bg-violet-700 hover:shadow-xl transition-all duration-200 z-50 flex items-center justify-center group"
+              title="채팅 패널 열기"
+            >
+              <svg
+                className="w-6 h-6 transform group-hover:scale-110 transition-transform"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                />
+              </svg>
+            </button>
+          )}
+
           {showDatasets ? (
             // Show dataset panel
             <DatasetPanel />
