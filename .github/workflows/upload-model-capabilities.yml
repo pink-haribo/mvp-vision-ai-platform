@@ -5,7 +5,6 @@ on:
     branches:
       - main
       - production
-      - mvp-to-platform-migration
     paths:
       - 'platform/trainers/*/capabilities.json'
       - 'platform/scripts/upload_model_capabilities.py'
@@ -79,7 +78,7 @@ jobs:
 
       # Main/Production: Upload to Cloudflare R2
       - name: Upload capabilities to Cloudflare R2
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production' || github.ref == 'refs/heads/mvp-to-platform-migration')
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production')
         env:
           AWS_S3_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -89,7 +88,7 @@ jobs:
           python platform/scripts/upload_model_capabilities.py --all
 
       - name: Generate upload summary
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production' || github.ref == 'refs/heads/mvp-to-platform-migration')
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production')
         run: |
           echo "### 🚀 Model Capabilities Upload Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
