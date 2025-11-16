@@ -2,211 +2,113 @@
 
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
-import requests
-import os
+from pydantic import BaseModel
+import json
+import logging
 
-# Import model registries (optional in production API mode)
-import sys
-from pathlib import Path
-
-# Try to import model_registry (only available in local/subprocess mode)
-try:
-    # Add training directory to path
-    # In development: project_root/mvp/training
-    training_dir = Path(__file__).parent.parent.parent.parent / "training"
-    if training_dir.exists():
-        sys.path.insert(0, str(training_dir))
-
-    from model_registry import (
-        TIMM_MODEL_REGISTRY,
-        ULTRALYTICS_MODEL_REGISTRY,
-        HUGGINGFACE_MODEL_REGISTRY,
-        get_all_models,
-        get_model_info as get_registry_model_info
-    )
-    MODEL_REGISTRY_AVAILABLE = True
-except ImportError:
-    # Production API mode: model_registry not available
-    # Will fetch models from Training Services instead
-    MODEL_REGISTRY_AVAILABLE = False
-
-    # Static model definitions for production (minimal set)
-    STATIC_MODELS = [
-        # timm models
-        {
-            "framework": "timm",
-            "model_name": "resnet50",
-            "display_name": "ResNet-50",
-            "description": "Deep residual network with 50 layers",
-            "params": "25.6M",
-            "input_size": 224,
-            "task_types": ["image_classification"],
-            "pretrained_available": True,
-            "recommended_batch_size": 32,
-            "recommended_lr": 0.001,
-            "tags": ["cnn", "popular"],
-            "priority": 1
-        },
-        {
-            "framework": "timm",
-            "model_name": "resnet18",
-            "display_name": "ResNet-18",
-            "description": "Lightweight residual network with 18 layers",
-            "params": "11.7M",
-            "input_size": 224,
-            "task_types": ["image_classification"],
-            "pretrained_available": True,
-            "recommended_batch_size": 64,
-            "recommended_lr": 0.001,
-            "tags": ["cnn", "fast"],
-            "priority": 1
-        },
-        {
-            "framework": "timm",
-            "model_name": "efficientnet_b0",
-            "display_name": "EfficientNet-B0",
-            "description": "Efficient neural network with balanced scaling",
-            "params": "5.3M",
-            "input_size": 224,
-            "task_types": ["image_classification"],
-            "pretrained_available": True,
-            "recommended_batch_size": 32,
-            "recommended_lr": 0.001,
-            "tags": ["efficient", "popular"],
-            "priority": 1
-        },
-        # ultralytics models
-        {
-            "framework": "ultralytics",
-            "model_name": "yolo11n",
-            "display_name": "YOLO11n (Nano)",
-            "description": "Ultra-fast YOLO model for real-time detection",
-            "params": "2.6M",
-            "input_size": 640,
-            "task_types": ["object_detection", "instance_segmentation"],
-            "pretrained_available": True,
-            "recommended_batch_size": 16,
-            "recommended_lr": 0.01,
-            "tags": ["fast", "realtime"],
-            "priority": 1
-        },
-        {
-            "framework": "ultralytics",
-            "model_name": "yolo11s",
-            "display_name": "YOLO11s (Small)",
-            "description": "Balanced YOLO model for accuracy and speed",
-            "params": "9.4M",
-            "input_size": 640,
-            "task_types": ["object_detection", "instance_segmentation"],
-            "pretrained_available": True,
-            "recommended_batch_size": 16,
-            "recommended_lr": 0.01,
-            "tags": ["balanced", "popular"],
-            "priority": 1
-        },
-        {
-            "framework": "ultralytics",
-            "model_name": "yolo11m",
-            "display_name": "YOLO11m (Medium)",
-            "description": "High-accuracy YOLO model",
-            "params": "20.1M",
-            "input_size": 640,
-            "task_types": ["object_detection", "instance_segmentation"],
-            "pretrained_available": True,
-            "recommended_batch_size": 8,
-            "recommended_lr": 0.01,
-            "tags": ["accurate"],
-            "priority": 2
-        },
-    ]
-
-    def fetch_models_from_service(service_url: str, timeout: int = 5) -> List[Dict[str, Any]]:
-        """
-        Fetch models from a Training Service.
-
-        Args:
-            service_url: Base URL of the Training Service
-            timeout: Request timeout in seconds
-
-        Returns:
-            List of model dictionaries, empty list if service unavailable
-        """
-        try:
-            response = requests.get(f"{service_url}/models/list", timeout=timeout)
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("models", [])
-        except Exception as e:
-            print(f"[WARNING] Failed to fetch models from {service_url}: {e}")
-
-        return []
-
-    def get_all_models():
-        """
-        Get all models from Training Services or static definitions.
-
-        In production (Railway), fetches models from Training Services via HTTP.
-        Falls back to static definitions if services unavailable.
-        """
-        models = []
-
-        # Try to fetch from Training Services
-        training_services = {
-            "timm": os.getenv("TIMM_SERVICE_URL"),
-            "ultralytics": os.getenv("ULTRALYTICS_SERVICE_URL"),
-            "huggingface": os.getenv("HUGGINGFACE_SERVICE_URL"),
-        }
-
-        services_available = False
-        for framework, service_url in training_services.items():
-            if service_url:
-                service_models = fetch_models_from_service(service_url)
-                if service_models:
-                    models.extend(service_models)
-                    services_available = True
-
-        # Fallback to static models if no services available
-        if not services_available:
-            print("[INFO] No Training Services available, using static model definitions")
-            models = STATIC_MODELS
-
-        return models
-
-    def get_registry_model_info(framework: str, model_name: str):
-        """
-        Get specific model info by framework and name.
-
-        Tries Training Services first, falls back to static definitions.
-        """
-        # Try to fetch from Training Service
-        training_services = {
-            "timm": os.getenv("TIMM_SERVICE_URL"),
-            "ultralytics": os.getenv("ULTRALYTICS_SERVICE_URL"),
-            "huggingface": os.getenv("HUGGINGFACE_SERVICE_URL"),
-        }
-
-        service_url = training_services.get(framework)
-        if service_url:
-            try:
-                response = requests.get(f"{service_url}/models/{model_name}", timeout=5)
-                if response.status_code == 200:
-                    data = response.json()
-                    # Remove framework and model_name from response (they're redundant)
-                    data.pop("framework", None)
-                    data.pop("model_name", None)
-                    return data
-            except Exception as e:
-                print(f"[WARNING] Failed to fetch model {model_name} from {service_url}: {e}")
-
-        # Fallback to static definitions
-        for model in STATIC_MODELS:
-            if model["framework"] == framework and model["model_name"] == model_name:
-                return model
-
-        return None
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/models", tags=["models"])
+
+
+# ============================================================
+# Helper Functions
+# ============================================================
+
+def load_framework_capabilities(framework: str) -> Optional[Dict[str, Any]]:
+    """
+    Load model capabilities for a specific framework from R2/S3.
+
+    Capabilities are stored in Internal Storage (Results MinIO) in the config-schemas bucket
+    with prefix 'model-capabilities/'.
+
+    Uploaded by GitHub Actions workflow (.github/workflows/upload-model-capabilities.yml)
+    from platform/trainers/*/capabilities.json files.
+
+    Args:
+        framework: Framework name (e.g., "ultralytics", "timm", "huggingface")
+
+    Returns:
+        Capabilities dict, or None if not found
+    """
+    from app.utils.dual_storage import dual_storage
+
+    try:
+        logger.info(f"[models] Loading capabilities from Internal Storage: {framework}")
+
+        # Get capabilities from Internal Storage (config-schemas bucket, model-capabilities/ prefix)
+        capabilities_bytes = dual_storage.get_capabilities(framework)
+
+        if not capabilities_bytes:
+            logger.warning(f"[models] Capabilities not found: {framework}")
+            return None
+
+        # Parse JSON
+        capabilities_dict = json.loads(capabilities_bytes.decode('utf-8'))
+
+        logger.info(
+            f"[models] Capabilities loaded: {framework} - "
+            f"{len(capabilities_dict.get('models', []))} models, "
+            f"{len(capabilities_dict.get('task_types', []))} task types"
+        )
+
+        return capabilities_dict
+
+    except json.JSONDecodeError as e:
+        logger.error(f"[models] Invalid JSON in capabilities file for {framework}: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"[models] Error loading capabilities for {framework}: {str(e)}")
+        return None
+
+
+def get_all_models() -> List[Dict[str, Any]]:
+    """
+    Get all models from all available frameworks.
+
+    Loads capabilities from R2/S3 for each known framework.
+    If a framework's capabilities are not found, it's skipped with a warning.
+
+    Returns:
+        List of all model dictionaries
+    """
+    known_frameworks = ["ultralytics", "timm", "huggingface"]
+    all_models = []
+
+    for framework in known_frameworks:
+        capabilities = load_framework_capabilities(framework)
+        if capabilities and "models" in capabilities:
+            # Add framework to each model
+            for model in capabilities["models"]:
+                model_copy = model.copy()
+                model_copy["framework"] = framework
+                all_models.append(model_copy)
+
+    logger.info(f"[models] Loaded {len(all_models)} models from {len(known_frameworks)} frameworks")
+
+    return all_models
+
+
+def get_model_info_by_name(framework: str, model_name: str) -> Optional[Dict[str, Any]]:
+    """
+    Get specific model info by framework and model name.
+
+    Args:
+        framework: Framework name (e.g., "ultralytics")
+        model_name: Model name (e.g., "yolo11n")
+
+    Returns:
+        Model info dict, or None if not found
+    """
+    capabilities = load_framework_capabilities(framework)
+    if not capabilities or "models" not in capabilities:
+        return None
+
+    for model in capabilities["models"]:
+        if model["model_name"] == model_name:
+            return model
+
+    return None
 
 
 # ============================================================
@@ -218,36 +120,22 @@ class ModelInfo(BaseModel):
     framework: str
     model_name: str
     display_name: str
+    task_types: List[str]
     description: str
-    params: str
-    input_size: int
-    task_types: List[str]  # Changed from task_type to task_types (plural, array)
-    pretrained_available: bool
-    recommended_batch_size: int
-    recommended_lr: float
-    tags: List[str]
-    priority: int
-
-
-class ModelBenchmark(BaseModel):
-    """Model benchmark performance."""
-    # Will contain different fields based on task type
-    pass
+    supported: bool
+    parameters: Optional[Dict[str, Any]] = None  # Model-specific parameters (min, macs, etc.)
 
 
 class ModelGuide(BaseModel):
     """Complete model guide information."""
     model: ModelInfo
-    benchmark: Dict[str, Any]
-    use_cases: List[str]
-    pros: List[str]
-    cons: List[str]
-    when_to_use: str
+    use_cases: Optional[List[str]] = None
+    pros: Optional[List[str]] = None
+    cons: Optional[List[str]] = None
+    when_to_use: Optional[str] = None
     when_not_to_use: Optional[str] = None
-    alternatives: List[Dict[str, str]]
-    recommended_settings: Dict[str, Any]
-    real_world_examples: Optional[List[Dict[str, Any]]] = None
-    special_features: Optional[Dict[str, Any]] = None  # For YOLO-World, etc.
+    alternatives: Optional[List[Dict[str, str]]] = None
+    recommended_settings: Optional[Dict[str, Any]] = None
 
 
 # ============================================================
@@ -256,48 +144,64 @@ class ModelGuide(BaseModel):
 
 @router.get("/list", response_model=List[ModelInfo])
 async def list_models(
-    framework: Optional[str] = Query(None, description="Filter by framework (timm, ultralytics, huggingface)"),
+    framework: Optional[str] = Query(None, description="Filter by framework (ultralytics, timm, huggingface)"),
     task_type: Optional[str] = Query(None, description="Filter by task type"),
-    tags: Optional[str] = Query(None, description="Comma-separated tags to filter by"),
-    priority: Optional[int] = Query(None, ge=0, le=2, description="Filter by priority (0=P0, 1=P1, 2=P2)")
+    supported_only: bool = Query(True, description="Show only supported models")
 ):
     """
     List all available models with optional filtering.
 
-    Examples:
-    - /models/list - All models
-    - /models/list?framework=timm - Only timm models
-    - /models/list?framework=huggingface - Only HuggingFace models
-    - /models/list?task_type=object_detection - Only detection models
-    - /models/list?task_type=super_resolution - Only super-resolution models
-    - /models/list?tags=p0,latest - P0 and latest models
-    - /models/list?priority=0 - Only P0 models
-    """
-    all_models_data = get_all_models()
+    Model capabilities are loaded from R2/S3 storage.
+    Uploaded via GitHub Actions from platform/trainers/*/capabilities.json files.
 
-    # Convert to ModelInfo objects
+    Examples:
+    - /models/list - All supported models
+    - /models/list?framework=ultralytics - Only Ultralytics models
+    - /models/list?task_type=detection - Only detection models
+    - /models/list?supported_only=false - Include unsupported models
+
+    Raises:
+        HTTPException: If no capabilities are available for any framework
+    """
+    # Get all models or single framework
+    if framework:
+        capabilities = load_framework_capabilities(framework)
+        if not capabilities:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model capabilities for framework '{framework}' not found. "
+                       f"Available frameworks: ultralytics, timm, huggingface. "
+                       f"Capabilities are uploaded via GitHub Actions from platform/trainers/*/capabilities.json"
+            )
+
+        all_models_data = []
+        for model in capabilities.get("models", []):
+            model_copy = model.copy()
+            model_copy["framework"] = framework
+            all_models_data.append(model_copy)
+    else:
+        all_models_data = get_all_models()
+
+    if not all_models_data:
+        raise HTTPException(
+            status_code=503,
+            detail="No model capabilities available. "
+                   "Model capabilities must be uploaded via GitHub Actions from platform/trainers/*/capabilities.json. "
+                   "Check that workflows/.github/workflows/upload-model-capabilities.yml has run successfully."
+        )
+
+    # Filter models
     models = []
     for model_data in all_models_data:
-        # Filter by framework
-        if framework and model_data["framework"] != framework:
-            continue
-
         # Filter by task type
         if task_type:
             model_task_types = model_data.get("task_types", [])
             if task_type not in model_task_types:
                 continue
 
-        # Filter by priority
-        if priority is not None and model_data.get("priority") != priority:
+        # Filter by supported status
+        if supported_only and not model_data.get("supported", False):
             continue
-
-        # Filter by tags
-        if tags:
-            tag_list = [t.strip() for t in tags.split(",")]
-            model_tags = model_data.get("tags", [])
-            if not any(tag in model_tags for tag in tag_list):
-                continue
 
         # Create ModelInfo
         try:
@@ -305,19 +209,14 @@ async def list_models(
                 framework=model_data["framework"],
                 model_name=model_data["model_name"],
                 display_name=model_data["display_name"],
-                description=model_data["description"],
-                params=model_data["params"],
-                input_size=model_data["input_size"],
                 task_types=model_data["task_types"],
-                pretrained_available=model_data["pretrained_available"],
-                recommended_batch_size=model_data["recommended_batch_size"],
-                recommended_lr=model_data["recommended_lr"],
-                tags=model_data["tags"],
-                priority=model_data.get("priority", 2)
+                description=model_data["description"],
+                supported=model_data.get("supported", False),
+                parameters=model_data.get("parameters")
             )
             models.append(model_info)
         except Exception as e:
-            print(f"Warning: Failed to create ModelInfo for {model_data.get('model_name')}: {e}")
+            logger.warning(f"Failed to create ModelInfo for {model_data.get('model_name')}: {e}")
             continue
 
     return models
@@ -325,37 +224,38 @@ async def list_models(
 
 @router.get("/get", response_model=Dict[str, Any])
 async def get_model_by_query(
-    framework: str = Query(..., description="Framework name (timm, ultralytics, huggingface)"),
-    model_name: str = Query(..., description="Model name (e.g., resnet50, yolo11n, google/vit-base-patch16-224)")
+    framework: str = Query(..., description="Framework name (ultralytics, timm, huggingface)"),
+    model_name: str = Query(..., description="Model name (e.g., yolo11n, resnet50)")
 ):
     """
     Get detailed information for a specific model using query parameters.
 
-    This endpoint is preferred for HuggingFace models which contain '/' in their names.
-
     Examples:
+    - /models/get?framework=ultralytics&model_name=yolo11n
     - /models/get?framework=timm&model_name=resnet50
-    - /models/get?framework=huggingface&model_name=google/vit-base-patch16-224
 
     Args:
         framework: Framework name
         model_name: Model name
 
     Returns:
-        Complete model information including all metadata
+        Complete model information
+
+    Raises:
+        HTTPException: If model not found or capabilities not available
     """
-    model_info = get_registry_model_info(framework, model_name)
+    model_info = get_model_info_by_name(framework, model_name)
 
     if not model_info:
         raise HTTPException(
             status_code=404,
-            detail=f"Model '{model_name}' not found in framework '{framework}'"
+            detail=f"Model '{model_name}' not found in framework '{framework}'. "
+                   f"Check /models/list?framework={framework} for available models."
         )
 
-    # Add framework and model_name to response
+    # Add framework to response
     response = {
         "framework": framework,
-        "model_name": model_name,
         **model_info
     }
 
@@ -367,187 +267,58 @@ async def get_model(framework: str, model_name: str):
     """
     Get detailed information for a specific model using path parameters.
 
-    NOTE: For HuggingFace models with '/' in names, use /models/get endpoint instead.
-
     Args:
-        framework: Framework name (timm, ultralytics, huggingface)
-        model_name: Model name (e.g., resnet50, yolo11n, google/vit-base-patch16-224)
+        framework: Framework name (ultralytics, timm, huggingface)
+        model_name: Model name (e.g., yolo11n, resnet50)
 
     Returns:
-        Complete model information including all metadata
+        Complete model information
+
+    Raises:
+        HTTPException: If model not found or capabilities not available
     """
-    model_info = get_registry_model_info(framework, model_name)
+    model_info = get_model_info_by_name(framework, model_name)
 
     if not model_info:
         raise HTTPException(
             status_code=404,
-            detail=f"Model '{model_name}' not found in framework '{framework}'"
+            detail=f"Model '{model_name}' not found in framework '{framework}'. "
+                   f"Check /models/list?framework={framework} for available models."
         )
 
-    # Add framework and model_name to response
+    # Add framework to response
     response = {
         "framework": framework,
-        "model_name": model_name,
         **model_info
     }
 
     return response
 
 
-@router.get("/guide", response_model=Dict[str, Any])
-async def get_model_guide_by_query(
-    framework: str = Query(..., description="Framework name"),
-    model_name: str = Query(..., description="Model name")
-):
+@router.get("/capabilities/{framework}")
+async def get_framework_capabilities(framework: str):
     """
-    Get complete guide information for a model using query parameters.
+    Get complete capabilities for a specific framework.
 
-    This endpoint is preferred for HuggingFace models which contain '/' in their names.
-
-    Examples:
-    - /models/guide?framework=timm&model_name=resnet50
-    - /models/guide?framework=huggingface&model_name=google/vit-base-patch16-224
-
-    Returns:
-        Complete guide information including benchmarks, use cases, pros/cons, etc.
-    """
-    model_info = get_registry_model_info(framework, model_name)
-
-    if not model_info:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Model '{model_name}' not found in framework '{framework}'"
-        )
-
-    # Build guide response
-    guide = {
-        "model": {
-            "framework": framework,
-            "model_name": model_name,
-            "display_name": model_info["display_name"],
-            "description": model_info["description"],
-            "params": model_info["params"],
-            "input_size": model_info["input_size"],
-            "task_types": model_info["task_types"],
-            "tags": model_info["tags"],
-        },
-        "benchmark": model_info.get("benchmark", {}),
-        "use_cases": model_info.get("use_cases", []),
-        "pros": model_info.get("pros", []),
-        "cons": model_info.get("cons", []),
-        "when_to_use": model_info.get("when_to_use", ""),
-        "when_not_to_use": model_info.get("when_not_to_use"),
-        "alternatives": model_info.get("alternatives", []),
-        "recommended_settings": model_info.get("recommended_settings", {}),
-        "real_world_examples": model_info.get("real_world_examples", []),
-        "special_features": model_info.get("special_features"),  # For YOLO-World
-    }
-
-    return guide
-
-
-@router.get("/{framework}/{model_name:path}/guide", response_model=Dict[str, Any])
-async def get_model_guide(framework: str, model_name: str):
-    """
-    Get complete guide information for a model (for ModelGuideDrawer UI).
-
-    NOTE: For HuggingFace models with '/' in names, use /models/guide endpoint instead.
-
-    This includes all fields needed for the guide panel:
-    - Quick stats (benchmark)
-    - Usage guidance (pros, cons, when to use)
-    - Similar models (alternatives)
-    - Recommended settings
-    - Real-world examples
-    - Special features (for YOLO-World, etc.)
+    Returns all information including models, task types, and dataset formats.
 
     Args:
-        framework: Framework name
-        model_name: Model name
+        framework: Framework name (ultralytics, timm, huggingface)
 
     Returns:
-        Complete guide information
-    """
-    model_info = get_registry_model_info(framework, model_name)
+        Complete framework capabilities
 
-    if not model_info:
+    Raises:
+        HTTPException: If capabilities not found
+    """
+    capabilities = load_framework_capabilities(framework)
+
+    if not capabilities:
         raise HTTPException(
             status_code=404,
-            detail=f"Model '{model_name}' not found in framework '{framework}'"
+            detail=f"Capabilities for framework '{framework}' not found. "
+                   f"Available frameworks: ultralytics, timm, huggingface. "
+                   f"Capabilities are uploaded via GitHub Actions from platform/trainers/*/capabilities.json"
         )
 
-    # Build guide response
-    guide = {
-        "model": {
-            "framework": framework,
-            "model_name": model_name,
-            "display_name": model_info["display_name"],
-            "description": model_info["description"],
-            "params": model_info["params"],
-            "input_size": model_info["input_size"],
-            "task_types": model_info["task_types"],
-            "tags": model_info["tags"],
-        },
-        "benchmark": model_info.get("benchmark", {}),
-        "use_cases": model_info.get("use_cases", []),
-        "pros": model_info.get("pros", []),
-        "cons": model_info.get("cons", []),
-        "when_to_use": model_info.get("when_to_use", ""),
-        "when_not_to_use": model_info.get("when_not_to_use"),
-        "alternatives": model_info.get("alternatives", []),
-        "recommended_settings": model_info.get("recommended_settings", {}),
-        "real_world_examples": model_info.get("real_world_examples", []),
-        "special_features": model_info.get("special_features"),  # For YOLO-World
-    }
-
-    return guide
-
-
-@router.get("/compare")
-async def compare_models(
-    models: str = Query(..., description="Comma-separated model specifications (framework:model_name)")
-):
-    """
-    Compare multiple models side-by-side.
-
-    Examples:
-    - /models/compare?models=timm:resnet50,ultralytics:yolo11n,timm:efficientnetv2_s
-    - /models/compare?models=timm:resnet50,huggingface:google/vit-base-patch16-224
-
-    Returns:
-        Comparison data for specified models
-    """
-    model_specs = models.split(",")
-    comparison_data = []
-
-    for spec in model_specs:
-        try:
-            framework, model_name = spec.strip().split(":")
-            model_info = get_registry_model_info(framework, model_name)
-
-            if model_info:
-                comparison_data.append({
-                    "framework": framework,
-                    "model_name": model_name,
-                    "display_name": model_info["display_name"],
-                    "params": model_info["params"],
-                    "task_types": model_info["task_types"],
-                    "benchmark": model_info.get("benchmark", {}),
-                    "tags": model_info["tags"],
-                })
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid model specification: '{spec}'. Expected format: 'framework:model_name'"
-            )
-
-    if not comparison_data:
-        raise HTTPException(
-            status_code=404,
-            detail="No valid models found for comparison"
-        )
-
-    return {
-        "models": comparison_data,
-        "count": len(comparison_data)
-    }
+    return capabilities

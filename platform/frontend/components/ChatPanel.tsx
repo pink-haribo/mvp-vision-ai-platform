@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Send, Download } from 'lucide-react'
+import { Send, Download, ChevronLeft } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
 interface Message {
@@ -58,6 +58,7 @@ interface ChatPanelProps {
   onSessionCreated: (sessionId: number) => void
   onTrainingRequested: (jobId: number) => void
   onProjectSelected: (projectId: number) => void
+  onCollapse?: () => void
 }
 
 export default function ChatPanel({
@@ -65,6 +66,7 @@ export default function ChatPanel({
   onSessionCreated,
   onTrainingRequested,
   onProjectSelected,
+  onCollapse,
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -297,16 +299,27 @@ export default function ChatPanel({
               자연어로 학습 설정을 입력하세요
             </p>
           </div>
-          {sessionId && messages.length > 0 && (
-            <button
-              onClick={handleExportChat}
-              className="px-3 py-2 text-sm text-gray-700 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors flex items-center gap-2"
-              title="채팅 로그 다운로드"
-            >
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">다운로드</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {sessionId && messages.length > 0 && (
+              <button
+                onClick={handleExportChat}
+                className="px-3 py-2 text-sm text-gray-700 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors flex items-center gap-2"
+                title="채팅 로그 다운로드"
+              >
+                <Download className="w-4 h-4" />
+                <span className="hidden sm:inline">다운로드</span>
+              </button>
+            )}
+            {onCollapse && (
+              <button
+                onClick={onCollapse}
+                className="p-2 text-gray-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+                title="채팅 패널 접기"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

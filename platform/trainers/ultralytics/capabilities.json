@@ -1,0 +1,296 @@
+{
+  "framework": "ultralytics",
+  "display_name": "Ultralytics YOLO",
+  "description": "YOLO series models for detection, segmentation, pose estimation, and classification",
+  "version": "1.0.0",
+  "models": [
+    {
+      "model_name": "yolo11n",
+      "display_name": "YOLO11 Nano",
+      "task_types": ["detection"],
+      "description": "Fastest YOLO11 model for real-time object detection",
+      "parameters": {
+        "min": 1.8,
+        "macs": 6.5
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11s",
+      "display_name": "YOLO11 Small",
+      "task_types": ["detection"],
+      "description": "Small YOLO11 model balancing speed and accuracy",
+      "parameters": {
+        "min": 9.4,
+        "macs": 21.5
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11m",
+      "display_name": "YOLO11 Medium",
+      "task_types": ["detection"],
+      "description": "Medium YOLO11 model for general-purpose detection",
+      "parameters": {
+        "min": 20.1,
+        "macs": 68.0
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11l",
+      "display_name": "YOLO11 Large",
+      "task_types": ["detection"],
+      "description": "Large YOLO11 model for high accuracy detection",
+      "parameters": {
+        "min": 25.3,
+        "macs": 86.9
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11x",
+      "display_name": "YOLO11 Extra Large",
+      "task_types": ["detection"],
+      "description": "Extra large YOLO11 model for maximum accuracy",
+      "parameters": {
+        "min": 56.9,
+        "macs": 194.9
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11n-seg",
+      "display_name": "YOLO11 Nano Segmentation",
+      "task_types": ["segmentation"],
+      "description": "Fastest YOLO11 model for real-time instance segmentation",
+      "parameters": {
+        "min": 2.9,
+        "macs": 10.4
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11s-seg",
+      "display_name": "YOLO11 Small Segmentation",
+      "task_types": ["segmentation"],
+      "description": "Small YOLO11 model for instance segmentation",
+      "parameters": {
+        "min": 10.1,
+        "macs": 35.5
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11m-seg",
+      "display_name": "YOLO11 Medium Segmentation",
+      "task_types": ["segmentation"],
+      "description": "Medium YOLO11 model for instance segmentation",
+      "parameters": {
+        "min": 22.4,
+        "macs": 123.3
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11l-seg",
+      "display_name": "YOLO11 Large Segmentation",
+      "task_types": ["segmentation"],
+      "description": "Large YOLO11 model for high accuracy instance segmentation",
+      "parameters": {
+        "min": 27.6,
+        "macs": 142.2
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11x-seg",
+      "display_name": "YOLO11 Extra Large Segmentation",
+      "task_types": ["segmentation"],
+      "description": "Extra large YOLO11 model for maximum accuracy instance segmentation",
+      "parameters": {
+        "min": 62.1,
+        "macs": 319.0
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11n-pose",
+      "display_name": "YOLO11 Nano Pose",
+      "task_types": ["pose"],
+      "description": "Fastest YOLO11 model for real-time pose estimation (17 keypoints)",
+      "parameters": {
+        "min": 2.9,
+        "macs": 7.6
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11s-pose",
+      "display_name": "YOLO11 Small Pose",
+      "task_types": ["pose"],
+      "description": "Small YOLO11 model for pose estimation",
+      "parameters": {
+        "min": 9.9,
+        "macs": 23.2
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11m-pose",
+      "display_name": "YOLO11 Medium Pose",
+      "task_types": ["pose"],
+      "description": "Medium YOLO11 model for pose estimation",
+      "parameters": {
+        "min": 20.9,
+        "macs": 71.7
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11l-pose",
+      "display_name": "YOLO11 Large Pose",
+      "task_types": ["pose"],
+      "description": "Large YOLO11 model for high accuracy pose estimation",
+      "parameters": {
+        "min": 26.2,
+        "macs": 90.7
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo11x-pose",
+      "display_name": "YOLO11 Extra Large Pose",
+      "task_types": ["pose"],
+      "description": "Extra large YOLO11 model for maximum accuracy pose estimation",
+      "parameters": {
+        "min": 58.8,
+        "macs": 203.3
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo_world_v2_s",
+      "display_name": "YOLO-World v2 Small",
+      "task_types": ["open_vocabulary_detection"],
+      "description": "Small open-vocabulary detection model (detect any object with text prompt)",
+      "parameters": {
+        "min": 31.6,
+        "macs": 60.0
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo_world_v2_m",
+      "display_name": "YOLO-World v2 Medium",
+      "task_types": ["open_vocabulary_detection"],
+      "description": "Medium open-vocabulary detection model",
+      "parameters": {
+        "min": 42.0,
+        "macs": 120.0
+      },
+      "supported": true
+    },
+    {
+      "model_name": "yolo_world_v2_l",
+      "display_name": "YOLO-World v2 Large",
+      "task_types": ["open_vocabulary_detection"],
+      "description": "Large open-vocabulary detection model for high accuracy",
+      "parameters": {
+        "min": 59.5,
+        "macs": 196.0
+      },
+      "supported": true
+    },
+    {
+      "model_name": "sam2_t",
+      "display_name": "SAM 2 Tiny",
+      "task_types": ["segmentation"],
+      "description": "Tiny Segment Anything Model 2 for interactive segmentation",
+      "parameters": {
+        "min": 38.9,
+        "macs": 47.2
+      },
+      "supported": true
+    },
+    {
+      "model_name": "sam2_s",
+      "display_name": "SAM 2 Small",
+      "task_types": ["segmentation"],
+      "description": "Small Segment Anything Model 2",
+      "parameters": {
+        "min": 46.0,
+        "macs": 74.0
+      },
+      "supported": true
+    },
+    {
+      "model_name": "sam2_b",
+      "display_name": "SAM 2 Base",
+      "task_types": ["segmentation"],
+      "description": "Base Segment Anything Model 2",
+      "parameters": {
+        "min": 80.8,
+        "macs": 143.0
+      },
+      "supported": true
+    },
+    {
+      "model_name": "sam2_l",
+      "display_name": "SAM 2 Large",
+      "task_types": ["segmentation"],
+      "description": "Large Segment Anything Model 2 for maximum accuracy",
+      "parameters": {
+        "min": 224.4,
+        "macs": 305.0
+      },
+      "supported": true
+    }
+  ],
+  "task_types": [
+    {
+      "name": "detection",
+      "display_name": "Object Detection",
+      "description": "Detect and localize objects in images with bounding boxes",
+      "supported": true
+    },
+    {
+      "name": "segmentation",
+      "display_name": "Instance Segmentation",
+      "description": "Detect objects and generate pixel-wise segmentation masks",
+      "supported": true
+    },
+    {
+      "name": "pose",
+      "display_name": "Pose Estimation",
+      "description": "Detect humans and estimate 17 keypoint poses",
+      "supported": true
+    },
+    {
+      "name": "open_vocabulary_detection",
+      "display_name": "Open-Vocabulary Detection",
+      "description": "Detect any object described by text prompt without training",
+      "supported": true
+    }
+  ],
+  "dataset_formats": [
+    {
+      "name": "yolo",
+      "display_name": "YOLO Format",
+      "description": "Native YOLO format with images/ and labels/ directories",
+      "supported": true
+    },
+    {
+      "name": "coco",
+      "display_name": "COCO Format",
+      "description": "COCO JSON format (auto-converted to YOLO)",
+      "supported": true
+    },
+    {
+      "name": "dice",
+      "display_name": "DICE Format",
+      "description": "Platform's internal DICE format (auto-converted to YOLO)",
+      "supported": true
+    }
+  ]
+}

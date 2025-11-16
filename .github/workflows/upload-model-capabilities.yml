@@ -1,0 +1,113 @@
+name: Upload Model Capabilities (Platform)
+
+on:
+  push:
+    branches:
+      - main
+      - production
+    paths:
+      - 'platform/trainers/*/capabilities.json'
+      - 'platform/scripts/upload_model_capabilities.py'
+
+  pull_request:
+    paths:
+      - 'platform/trainers/*/capabilities.json'
+      - 'platform/scripts/upload_model_capabilities.py'
+
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  validate-and-upload:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # Allow PR comments
+      issues: write  # Allow issue comments
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --no-cache-dir boto3 botocore
+
+      # PR: Validate capabilities only (dry-run)
+      - name: Validate capabilities (Pull Request)
+        if: github.event_name == 'pull_request'
+        run: |
+          python platform/scripts/upload_model_capabilities.py --all --dry-run
+
+      - name: Add PR comment (Validation Success)
+        if: github.event_name == 'pull_request' && success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '### ✅ Model Capabilities Validation\n\n' +
+                    'All model capabilities validated successfully!\n\n' +
+                    '**Next Steps:**\n' +
+                    '- Capabilities will be automatically uploaded to production storage when this PR is merged to `main` or `production`.\n' +
+                    '- No Backend redeployment needed - capabilities will be available immediately via `/api/v1/models/list` endpoint.'
+            })
+
+      - name: Add PR comment (Validation Failure)
+        if: github.event_name == 'pull_request' && failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '### ❌ Model Capabilities Validation Failed\n\n' +
+                    'One or more capabilities failed validation. Please check the workflow logs for details.\n\n' +
+                    '**Common Issues:**\n' +
+                    '- Missing required keys: `framework`, `display_name`, `description`, `version`, `models`, `task_types`, `dataset_formats`\n' +
+                    '- Invalid model structure (missing `model_name`, `display_name`, `task_types`, `description`, `supported`)\n' +
+                    '- Invalid JSON syntax'
+            })
+
+      # Main/Production: Upload to Cloudflare R2
+      - name: Upload capabilities to Cloudflare R2
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production')
+        env:
+          AWS_S3_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          INTERNAL_BUCKET_SCHEMAS: ${{ secrets.INTERNAL_BUCKET_SCHEMAS || 'config-schemas' }}
+        run: |
+          python platform/scripts/upload_model_capabilities.py --all
+
+      - name: Generate upload summary
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production')
+        run: |
+          echo "### 🚀 Model Capabilities Upload Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Uploaded Capabilities:**" >> $GITHUB_STEP_SUMMARY
+
+          # Dynamically list uploaded capabilities
+          for cap_file in platform/trainers/*/capabilities.json; do
+            if [ -f "$cap_file" ]; then
+              framework=$(basename $(dirname "$cap_file"))
+              echo "- ✅ ${framework}.json" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Storage:** Cloudflare R2 (\`config-schemas/model-capabilities/\`)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**API Endpoint:** \`GET /api/v1/models/list\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Capabilities are now available in production. Frontend will automatically load them without redeployment." >> $GITHUB_STEP_SUMMARY
