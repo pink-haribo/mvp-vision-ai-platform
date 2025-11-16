@@ -20,6 +20,7 @@ export interface TrainingStatus {
 export interface TrainingMetrics {
   job_id: number;
   epoch: number;
+  total_epochs?: number;
   loss: number;
   accuracy?: number;
   val_loss?: number;

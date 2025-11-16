@@ -396,6 +396,144 @@ Data Service can convert between formats using `convert_format()` method.
 
 Each framework has its own adapter implementing the `ModelAdapter` interface.
 
+### Model Export & Deployment
+
+**CRITICAL**: When adding new trainers, follow the **Convention-Based Export** design to maintain dependency isolation.
+
+#### Export Workflow
+
+```
+TrainingJob (checkpoint.pt)
+    ↓
+ExportJob (ONNX, TensorRT, CoreML, etc.)
+    ↓
+Exported Model + Metadata + Runtime Wrappers
+    ↓
+Deployment (Platform Endpoint, Edge Package, Container, Download)
+```
+
+#### Convention-Based Export Design
+
+**Key Principle**: Each trainer is an isolated service with independent dependencies. DO NOT create shared base modules.
+
+**For New Trainers**:
+1. Copy `docs/examples/export_template.py` to your trainer directory
+2. Implement framework-specific functions (~50-100 lines):
+   - `load_model()`: Load your framework's checkpoint
+   - `get_metadata()`: Extract model metadata (input shape, class names, etc.)
+   - `export_{format}()`: Call framework's native export methods
+3. Follow the Export Convention (CLI interface, output files, metadata schema)
+
+**See**:
+- `docs/EXPORT_CONVENTION.md` - **MUST READ** for new trainers
+- `docs/examples/export_template.py` - Reference implementation
+- `platform/trainers/ultralytics/EXPORT_GUIDE.md` - Complete Ultralytics export guide
+
+#### Supported Export Formats
+
+| Format | Use Case | Hardware |
+|--------|----------|----------|
+| ONNX | Cross-platform, cloud inference | CPU, GPU (CUDA) |
+| TensorRT | NVIDIA GPU optimized | NVIDIA GPU |
+| CoreML | iOS/macOS deployment | Apple Silicon |
+| TFLite | Mobile & embedded | CPU, EdgeTPU |
+| TorchScript | PyTorch native deployment | CPU, GPU |
+| OpenVINO | Intel hardware optimized | Intel CPU/iGPU/VPU |
+
+#### Deployment Types
+
+1. **Platform Endpoint** (`platform_endpoint`):
+   - Managed inference API on platform infrastructure
+   - ONNX Runtime with GPU support (CUDA + CPU)
+   - Bearer token authentication
+   - Auto-scaling and usage tracking
+   - API: `POST /v1/infer/{deployment_id}`
+
+2. **Edge Package** (`edge_package`):
+   - Optimized for edge devices
+   - Includes runtime wrappers (Python, C++, Swift, Kotlin)
+   - Size and speed optimized
+
+3. **Container** (`container`):
+   - Docker image with model + inference server
+   - Self-hosted deployment
+   - Registry options: Docker Hub, GitHub Container Registry, GCR
+
+4. **Direct Download** (`download`):
+   - Presigned S3 URL for raw model files
+   - Custom integration
+
+#### API Examples
+
+**Create Export Job**:
+```bash
+curl -X POST $API_URL/api/v1/export/jobs \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "training_job_id": 123,
+    "export_format": "onnx",
+    "export_config": {"opset_version": 17}
+  }'
+```
+
+**Create Platform Endpoint**:
+```bash
+curl -X POST $API_URL/api/v1/deployments \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "export_job_id": 456,
+    "deployment_type": "platform_endpoint",
+    "deployment_config": {"auto_activate": true}
+  }'
+```
+
+**Run Inference**:
+```bash
+curl -X POST $API_URL/v1/infer/789 \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{
+    "image": "base64_encoded_image",
+    "confidence_threshold": 0.25
+  }'
+```
+
+#### Frontend Integration
+
+Export & Deployment UI is integrated in TrainingPanel as "📦 Export & Deploy" tab:
+
+**Components** (`platform/frontend/components/export/`):
+- `ExportJobList` + `ExportJobCard` - List and manage export jobs
+- `CreateExportModal` - 3-step wizard (Format → Options → Review)
+- `DeploymentList` + `DeploymentCard` - List and manage deployments
+- `CreateDeploymentModal` - 3-step wizard (Export → Type → Config)
+- `InferenceTestPanel` - Test deployed models with drag & drop image upload
+
+**User Flow**:
+1. Train model → Completed
+2. Click "📦 Export & Deploy" tab
+3. Create export job → Select format (ONNX, TensorRT, etc.) → Configure options
+4. Wait for export to complete (~30s-2min depending on format)
+5. Create deployment → Select export → Choose deployment type
+6. For Platform Endpoint: Get API key + endpoint URL → Test inference inline
+
+#### Why Convention-Based (Not Shared Base Module)?
+
+**Problem**: Each trainer runs in isolated Docker container with independent dependencies.
+
+**Rejected Approach**: Shared base module (`trainers.common.export.base`)
+- ❌ Breaks dependency isolation
+- ❌ Requires copying `common/` to all Docker images
+- ❌ Version sync issues across trainers
+- ❌ Only ~10% of export code is truly duplicatable
+
+**Adopted Approach**: Convention + Template
+- ✅ Complete dependency isolation preserved
+- ✅ Each trainer is fully independent
+- ✅ Template reduces duplication (50-100 lines vs 600 lines)
+- ✅ Backend only needs to know the convention, not implementation
+
+**Impact**: New trainer implementation = ~50-100 lines (vs 600 lines without template)
+
 ## Design System
 
 The platform uses a custom design system based on:

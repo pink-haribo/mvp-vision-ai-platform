@@ -30,6 +30,11 @@ kubernetes>=34.0.0  # Kubernetes Job management for training
 prometheus-client==0.19.0
 mlflow==2.9.2
 
+# Inference Engine (Platform Inference Endpoint)
+onnxruntime>=1.16.0  # ONNX Runtime for model inference
+pillow>=10.0.0  # Image preprocessing
+numpy>=1.24.0  # Array operations
+
 # Lightweight ML (for config validation only)
 # Full PyTorch is in training module
 

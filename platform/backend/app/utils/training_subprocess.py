@@ -121,22 +121,42 @@ class TrainingSubprocessManager:
             logger.info(f"[TrainingSubprocess]   Python: {python_exe}")
             logger.info(f"[TrainingSubprocess]   Model: {model_name}")
 
-            # Prepare command
+            # Prepare command (K8s Job style - use env vars instead of CLI args)
             cmd = [
                 str(python_exe),
                 "train.py",
-                "--job-id", str(job_id),
-                "--model-name", model_name,
-                "--dataset-s3-uri", dataset_s3_uri,
-                "--callback-url", callback_url,
-                "--config", json.dumps(config),
-                "--log-level", "INFO",
+                "--log-level", "INFO",  # Only keep log-level as CLI arg for quick override
             ]
 
             logger.info(f"[TrainingSubprocess] Command: {' '.join(cmd)}")
 
-            # Prepare environment (inherit current env + Trainer will load its own .env)
+            # Prepare environment (K8s Job style - all config via env vars)
             env = os.environ.copy()
+
+            # Training job configuration (K8s Job compatible)
+            env['JOB_ID'] = str(job_id)
+            env['MODEL_NAME'] = model_name
+            env['DATASET_S3_URI'] = dataset_s3_uri
+            env['CALLBACK_URL'] = callback_url
+            env['CONFIG'] = json.dumps(config)  # Advanced config as JSON string
+
+            # Explicitly inject MinIO/Storage environment variables (for DualStorageClient)
+            # These should already be in os.environ from Backend's .env, but we ensure they're passed
+            storage_env_vars = [
+                'EXTERNAL_STORAGE_ENDPOINT',
+                'EXTERNAL_STORAGE_ACCESS_KEY',
+                'EXTERNAL_STORAGE_SECRET_KEY',
+                'EXTERNAL_BUCKET_DATASETS',
+                'INTERNAL_STORAGE_ENDPOINT',
+                'INTERNAL_STORAGE_ACCESS_KEY',
+                'INTERNAL_STORAGE_SECRET_KEY',
+                'INTERNAL_BUCKET_CHECKPOINTS',
+            ]
+            for var in storage_env_vars:
+                if var in os.environ:
+                    env[var] = os.environ[var]
+
+            logger.info(f"[TrainingSubprocess] Environment variables set: JOB_ID={job_id}, MODEL_NAME={model_name}")
 
             # Start subprocess in background
             process = subprocess.Popen(
@@ -275,6 +295,334 @@ class TrainingSubprocessManager:
             "running": exit_code is None,
             "exit_code": exit_code,
         }
+
+    async def start_evaluation(
+        self,
+        test_run_id: int,
+        training_job_id: Optional[int],
+        framework: str,
+        checkpoint_s3_uri: str,
+        dataset_s3_uri: str,
+        callback_url: str,
+        config: Dict[str, Any],
+    ) -> subprocess.Popen:
+        """
+        Start evaluation subprocess (evaluate.py).
+
+        Args:
+            test_run_id: Test run ID
+            training_job_id: Original training job ID (optional)
+            framework: Framework name (ultralytics, timm, huggingface)
+            checkpoint_s3_uri: S3 URI to checkpoint
+            dataset_s3_uri: S3 URI to test dataset
+            callback_url: Backend API callback URL
+            config: Evaluation configuration dictionary
+
+        Returns:
+            subprocess.Popen instance
+
+        Raises:
+            FileNotFoundError: If Training Service not found
+            subprocess.CalledProcessError: If subprocess fails to start
+        """
+        try:
+            # Get paths
+            python_exe = self.get_python_executable(framework)
+            trainer_dir = self.get_trainer_directory(framework)
+
+            logger.info(f"[EvaluationSubprocess] Starting test run {test_run_id}")
+            logger.info(f"[EvaluationSubprocess]   Framework: {framework}")
+            logger.info(f"[EvaluationSubprocess]   Trainer dir: {trainer_dir}")
+            logger.info(f"[EvaluationSubprocess]   Python: {python_exe}")
+            logger.info(f"[EvaluationSubprocess]   Checkpoint: {checkpoint_s3_uri}")
+
+            # Prepare command (K8s Job style - use env vars instead of CLI args)
+            cmd = [
+                str(python_exe),
+                "evaluate.py",
+                "--log-level", "INFO",  # Only keep log-level as CLI arg for quick override
+            ]
+
+            logger.info(f"[EvaluationSubprocess] Command: {' '.join(cmd)}")
+
+            # Prepare environment (K8s Job style - all config via env vars)
+            env = os.environ.copy()
+
+            # Evaluation job configuration (K8s Job compatible)
+            env['TEST_RUN_ID'] = str(test_run_id)
+            env['CHECKPOINT_S3_URI'] = checkpoint_s3_uri
+            env['DATASET_S3_URI'] = dataset_s3_uri
+            env['CALLBACK_URL'] = callback_url
+            env['CONFIG'] = json.dumps(config)
+
+            # Add training_job_id if provided
+            if training_job_id:
+                env['TRAINING_JOB_ID'] = str(training_job_id)
+
+            # Inject MinIO/Storage environment variables
+            storage_env_vars = [
+                'EXTERNAL_STORAGE_ENDPOINT',
+                'EXTERNAL_STORAGE_ACCESS_KEY',
+                'EXTERNAL_STORAGE_SECRET_KEY',
+                'EXTERNAL_BUCKET_DATASETS',
+                'INTERNAL_STORAGE_ENDPOINT',
+                'INTERNAL_STORAGE_ACCESS_KEY',
+                'INTERNAL_STORAGE_SECRET_KEY',
+                'INTERNAL_BUCKET_CHECKPOINTS',
+            ]
+            for var in storage_env_vars:
+                if var in os.environ:
+                    env[var] = os.environ[var]
+
+            logger.info(f"[EvaluationSubprocess] Environment variables set: TEST_RUN_ID={test_run_id}")
+
+            # Start subprocess in background
+            process = subprocess.Popen(
+                cmd,
+                cwd=str(trainer_dir),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+
+            # Store process (use negative test_run_id to avoid collision with training jobs)
+            process_key = f"test_{test_run_id}"
+            self.processes[process_key] = process
+
+            logger.info(f"[EvaluationSubprocess] Test run {test_run_id} started (PID: {process.pid})")
+
+            # Start async log monitoring
+            asyncio.create_task(self._monitor_process_logs(process_key, process))
+
+            return process
+
+        except FileNotFoundError as e:
+            logger.error(f"[EvaluationSubprocess] Setup error: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"[EvaluationSubprocess] Failed to start test run {test_run_id}: {e}")
+            raise
+
+    async def start_inference(
+        self,
+        inference_job_id: int,
+        training_job_id: Optional[int],
+        framework: str,
+        checkpoint_s3_uri: str,
+        images_s3_uri: str,
+        callback_url: str,
+        config: Dict[str, Any],
+    ) -> subprocess.Popen:
+        """
+        Start inference subprocess (predict.py).
+
+        Args:
+            inference_job_id: Inference job ID
+            training_job_id: Original training job ID (optional)
+            framework: Framework name (ultralytics, timm, huggingface)
+            checkpoint_s3_uri: S3 URI to checkpoint
+            images_s3_uri: S3 URI to input images
+            callback_url: Backend API callback URL
+            config: Inference configuration dictionary
+
+        Returns:
+            subprocess.Popen instance
+
+        Raises:
+            FileNotFoundError: If Training Service not found
+            subprocess.CalledProcessError: If subprocess fails to start
+        """
+        try:
+            # Get paths
+            python_exe = self.get_python_executable(framework)
+            trainer_dir = self.get_trainer_directory(framework)
+
+            logger.info(f"[InferenceSubprocess] Starting inference job {inference_job_id}")
+            logger.info(f"[InferenceSubprocess]   Framework: {framework}")
+            logger.info(f"[InferenceSubprocess]   Trainer dir: {trainer_dir}")
+            logger.info(f"[InferenceSubprocess]   Python: {python_exe}")
+            logger.info(f"[InferenceSubprocess]   Checkpoint: {checkpoint_s3_uri}")
+
+            # Prepare command (K8s Job style - use env vars instead of CLI args)
+            cmd = [
+                str(python_exe),
+                "predict.py",
+                "--log-level", "INFO",  # Only keep log-level as CLI arg for quick override
+            ]
+
+            logger.info(f"[InferenceSubprocess] Command: {' '.join(cmd)}")
+
+            # Prepare environment (K8s Job style - all config via env vars)
+            env = os.environ.copy()
+
+            # Inference job configuration (K8s Job compatible)
+            env['INFERENCE_JOB_ID'] = str(inference_job_id)
+            env['CHECKPOINT_S3_URI'] = checkpoint_s3_uri
+            env['IMAGES_S3_URI'] = images_s3_uri
+            env['CALLBACK_URL'] = callback_url
+            env['CONFIG'] = json.dumps(config)
+
+            # Add training_job_id if provided
+            if training_job_id:
+                env['TRAINING_JOB_ID'] = str(training_job_id)
+
+            # Inject MinIO/Storage environment variables
+            storage_env_vars = [
+                'EXTERNAL_STORAGE_ENDPOINT',
+                'EXTERNAL_STORAGE_ACCESS_KEY',
+                'EXTERNAL_STORAGE_SECRET_KEY',
+                'EXTERNAL_BUCKET_DATASETS',
+                'INTERNAL_STORAGE_ENDPOINT',
+                'INTERNAL_STORAGE_ACCESS_KEY',
+                'INTERNAL_STORAGE_SECRET_KEY',
+                'INTERNAL_BUCKET_CHECKPOINTS',
+            ]
+            for var in storage_env_vars:
+                if var in os.environ:
+                    env[var] = os.environ[var]
+
+            logger.info(f"[InferenceSubprocess] Environment variables set: INFERENCE_JOB_ID={inference_job_id}")
+
+            # Start subprocess in background
+            process = subprocess.Popen(
+                cmd,
+                cwd=str(trainer_dir),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+
+            # Store process (use negative inference_job_id to avoid collision)
+            process_key = f"inference_{inference_job_id}"
+            self.processes[process_key] = process
+
+            logger.info(f"[InferenceSubprocess] Inference job {inference_job_id} started (PID: {process.pid})")
+
+            # Start async log monitoring
+            asyncio.create_task(self._monitor_process_logs(process_key, process))
+
+            return process
+
+        except FileNotFoundError as e:
+            logger.error(f"[InferenceSubprocess] Setup error: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"[InferenceSubprocess] Failed to start inference job {inference_job_id}: {e}")
+            raise
+
+    async def start_export(
+        self,
+        export_job_id: int,
+        training_job_id: int,
+        framework: str,
+        checkpoint_s3_uri: str,
+        export_format: str,
+        callback_url: str,
+        config: Dict[str, Any],
+    ) -> subprocess.Popen:
+        """
+        Start export subprocess (export.py).
+
+        Args:
+            export_job_id: Export job ID
+            training_job_id: Original training job ID
+            framework: Framework name (ultralytics, timm, huggingface)
+            checkpoint_s3_uri: S3 URI to checkpoint
+            export_format: Export format (onnx, tensorrt, coreml, tflite, torchscript, openvino)
+            callback_url: Backend API callback URL
+            config: Export configuration dictionary
+
+        Returns:
+            subprocess.Popen instance
+
+        Raises:
+            FileNotFoundError: If Training Service not found
+            subprocess.CalledProcessError: If subprocess fails to start
+        """
+        try:
+            # Get paths
+            python_exe = self.get_python_executable(framework)
+            trainer_dir = self.get_trainer_directory(framework)
+
+            logger.info(f"[ExportSubprocess] Starting export job {export_job_id}")
+            logger.info(f"[ExportSubprocess]   Framework: {framework}")
+            logger.info(f"[ExportSubprocess]   Trainer dir: {trainer_dir}")
+            logger.info(f"[ExportSubprocess]   Python: {python_exe}")
+            logger.info(f"[ExportSubprocess]   Export format: {export_format}")
+            logger.info(f"[ExportSubprocess]   Checkpoint: {checkpoint_s3_uri}")
+
+            # Prepare command (K8s Job style - use env vars instead of CLI args)
+            cmd = [
+                str(python_exe),
+                "export.py",
+                "--log-level", "INFO",  # Only keep log-level as CLI arg for quick override
+            ]
+
+            logger.info(f"[ExportSubprocess] Command: {' '.join(cmd)}")
+
+            # Prepare environment (K8s Job style - all config via env vars)
+            env = os.environ.copy()
+
+            # Export job configuration (K8s Job compatible)
+            env['EXPORT_JOB_ID'] = str(export_job_id)
+            env['TRAINING_JOB_ID'] = str(training_job_id)
+            env['CHECKPOINT_S3_URI'] = checkpoint_s3_uri
+            env['EXPORT_FORMAT'] = export_format
+            env['CALLBACK_URL'] = callback_url
+            env['CONFIG'] = json.dumps(config)
+
+            # Inject MinIO/Storage environment variables
+            storage_env_vars = [
+                'EXTERNAL_STORAGE_ENDPOINT',
+                'EXTERNAL_STORAGE_ACCESS_KEY',
+                'EXTERNAL_STORAGE_SECRET_KEY',
+                'EXTERNAL_BUCKET_DATASETS',
+                'INTERNAL_STORAGE_ENDPOINT',
+                'INTERNAL_STORAGE_ACCESS_KEY',
+                'INTERNAL_STORAGE_SECRET_KEY',
+                'INTERNAL_BUCKET_CHECKPOINTS',
+            ]
+            for var in storage_env_vars:
+                if var in os.environ:
+                    env[var] = os.environ[var]
+
+            logger.info(f"[ExportSubprocess] Environment variables set: EXPORT_JOB_ID={export_job_id}")
+
+            # Start subprocess in background
+            process = subprocess.Popen(
+                cmd,
+                cwd=str(trainer_dir),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+
+            # Store process in registry (use f"export_{export_job_id}" to avoid collision)
+            process_key = f"export_{export_job_id}"
+            self.processes[process_key] = process
+
+            logger.info(f"[ExportSubprocess] Export job {export_job_id} started (PID: {process.pid})")
+
+            # Start async log monitoring
+            asyncio.create_task(self._monitor_process_logs(process_key, process))
+
+            return process
+
+        except FileNotFoundError as e:
+            logger.error(f"[ExportSubprocess] Setup error: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"[ExportSubprocess] Failed to start export job {export_job_id}: {e}")
+            raise
 
 
 # Global singleton instance

@@ -18,6 +18,7 @@ from pathlib import Path
 from app.db.database import get_db
 from app.db import models
 from app.schemas import export as export_schemas
+from app.utils.training_subprocess import get_training_subprocess_manager
 
 logger = logging.getLogger(__name__)
 
@@ -259,8 +260,68 @@ async def create_export_job(
     db.commit()
     db.refresh(export_job)
 
-    # TODO: Launch background task to run export
-    # background_tasks.add_task(run_export_task, export_job.id)
+    # Launch background task to run export
+    async def run_export_task(job_id: int):
+        """Background task to run export subprocess"""
+        try:
+            # Get fresh export job from DB
+            from app.db.database import SessionLocal
+            db_session = SessionLocal()
+            job = db_session.query(models.ExportJob).filter(models.ExportJob.id == job_id).first()
+
+            if not job:
+                logger.error(f"Export job {job_id} not found")
+                return
+
+            # Update status to running
+            job.status = models.ExportJobStatus.RUNNING
+            job.started_at = datetime.utcnow()
+            db_session.commit()
+
+            # Get training subprocess manager
+            manager = get_training_subprocess_manager()
+
+            # Prepare export config
+            export_config = job.export_config or {}
+            if job.optimization_config:
+                export_config.update(job.optimization_config)
+            if job.validation_config:
+                export_config.update(job.validation_config)
+
+            # Add task_type to config
+            export_config['task_type'] = job.task_type
+
+            # Start export subprocess
+            await manager.start_export(
+                export_job_id=job.id,
+                training_job_id=job.training_job_id,
+                framework=job.framework,
+                checkpoint_s3_uri=job.checkpoint_path,
+                export_format=job.export_format.value,  # Enum to string
+                callback_url=f"{request.callback_url if hasattr(request, 'callback_url') else 'http://localhost:8000/api/v1'}",
+                config=export_config
+            )
+
+            logger.info(f"Export subprocess started for job {job_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to start export subprocess for job {job_id}: {e}")
+            # Update job status to failed
+            try:
+                from app.db.database import SessionLocal
+                db_session = SessionLocal()
+                job = db_session.query(models.ExportJob).filter(models.ExportJob.id == job_id).first()
+                if job:
+                    job.status = models.ExportJobStatus.FAILED
+                    job.error_message = str(e)
+                    db_session.commit()
+            except:
+                pass
+        finally:
+            if 'db_session' in locals():
+                db_session.close()
+
+    background_tasks.add_task(run_export_task, export_job.id)
 
     logger.info(f"Created export job {export_job.id} for training job {request.training_job_id}")
 
@@ -497,3 +558,79 @@ async def get_deployment(
         )
 
     return export_schemas.DeploymentResponse.model_validate(deployment)
+
+
+# ========== Export Callback Endpoint ==========
+
+@router.post("/jobs/{export_job_id}/callback/completion", status_code=200)
+async def export_completion_callback(
+    export_job_id: int,
+    callback_data: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """
+    Receive export completion callback from export subprocess.
+
+    Called by export.py when export job completes (success or failure).
+
+    Args:
+        export_job_id: Export job ID
+        callback_data: Callback payload with status and results
+        db: Database session
+
+    Returns:
+        Success message
+    """
+    logger.info(f"[EXPORT CALLBACK] Received completion callback for job {export_job_id}")
+    logger.info(f"[EXPORT CALLBACK] Status: {callback_data.get('status')}")
+
+    # Get export job
+    export_job = db.query(models.ExportJob).filter(
+        models.ExportJob.id == export_job_id
+    ).first()
+
+    if not export_job:
+        logger.error(f"[EXPORT CALLBACK] Export job {export_job_id} not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Export job {export_job_id} not found"
+        )
+
+    # Update export job status
+    status = callback_data.get('status', 'unknown')
+
+    if status == 'completed':
+        export_job.status = models.ExportJobStatus.COMPLETED
+        export_job.completed_at = datetime.utcnow()
+
+        # Update results
+        export_results = callback_data.get('export_results', {})
+        export_job.export_path = export_results.get('export_path')
+        export_job.file_size_mb = export_results.get('file_size_mb')
+        export_job.validation_passed = export_results.get('validation_passed')
+        export_job.export_results = export_results
+
+        logger.info(f"[EXPORT CALLBACK] Job {export_job_id} completed successfully")
+        logger.info(f"[EXPORT CALLBACK]   Export path: {export_job.export_path}")
+        logger.info(f"[EXPORT CALLBACK]   File size: {export_job.file_size_mb:.2f} MB")
+
+    elif status == 'failed':
+        export_job.status = models.ExportJobStatus.FAILED
+        export_job.error_message = callback_data.get('error_message')
+        export_job.completed_at = datetime.utcnow()
+
+        logger.error(f"[EXPORT CALLBACK] Job {export_job_id} failed: {export_job.error_message}")
+
+    else:
+        logger.warning(f"[EXPORT CALLBACK] Unknown status: {status}")
+        export_job.error_message = f"Unknown status from callback: {status}"
+
+    db.commit()
+
+    logger.info(f"[EXPORT CALLBACK] Export job {export_job_id} updated in database")
+
+    return {
+        "message": "Callback received",
+        "export_job_id": export_job_id,
+        "status": status
+    }
