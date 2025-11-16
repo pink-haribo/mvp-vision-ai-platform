@@ -9,6 +9,11 @@ import DatabaseMetricsTable from './training/DatabaseMetricsTable'
 import ResumeDialog from './training/ResumeDialog'
 import { ValidationDashboard } from './training/validation/ValidationDashboard'
 import TestInferencePanel from './training/TestInferencePanel'
+import ExportJobList from './export/ExportJobList'
+import CreateExportModal from './export/CreateExportModal'
+import DeploymentList from './export/DeploymentList'
+import CreateDeploymentModal from './export/CreateDeploymentModal'
+import InferenceTestPanel from './export/InferenceTestPanel'
 
 interface TrainingJob {
   id: number
@@ -70,8 +75,13 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
   const [resumeDialogMode, setResumeDialogMode] = useState<'start' | 'restart' | null>(null)
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>([])
   const [showMetricTip, setShowMetricTip] = useState(false)
-  const [activeTab, setActiveTab] = useState<'metrics' | 'validation' | 'test_inference' | 'config' | 'logs'>('metrics')
+  const [activeTab, setActiveTab] = useState<'metrics' | 'validation' | 'test_inference' | 'export_deploy' | 'config' | 'logs'>('metrics')
   const logsContainerRef = useRef<HTMLDivElement>(null)
+
+  // Export & Deploy modals
+  const [showCreateExportModal, setShowCreateExportModal] = useState(false)
+  const [showCreateDeploymentModal, setShowCreateDeploymentModal] = useState(false)
+  const [testingDeployment, setTestingDeployment] = useState<{ id: number; apiKey: string; endpointUrl: string } | null>(null)
 
   // Fetch training job details
   useEffect(() => {
@@ -664,6 +674,17 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                   테스트/추론
                 </button>
                 <button
+                  onClick={() => setActiveTab('export_deploy')}
+                  className={cn(
+                    'px-1 py-4 text-sm font-medium border-b-2 transition-colors',
+                    activeTab === 'export_deploy'
+                      ? 'border-violet-600 text-violet-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  )}
+                >
+                  📦 Export & Deploy
+                </button>
+                <button
                   onClick={() => setActiveTab('config')}
                   className={cn(
                     'px-1 py-4 text-sm font-medium border-b-2 transition-colors',
@@ -1085,6 +1106,85 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                   )}
                 </div>
               )}
+
+              {/* Export & Deploy Tab */}
+              {activeTab === 'export_deploy' && (
+                <div className="space-y-6">
+                  {/* Export Jobs Section */}
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900">Export Jobs</h3>
+                      <button
+                        className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors text-sm font-medium"
+                        onClick={() => setShowCreateExportModal(true)}
+                      >
+                        + New Export
+                      </button>
+                    </div>
+
+                    <ExportJobList
+                      trainingJobId={trainingJobId!}
+                      onCreateExport={() => setShowCreateExportModal(true)}
+                      onDeploy={(exportJobId) => setShowCreateDeploymentModal(true)}
+                    />
+                  </div>
+
+                  {/* Deployments Section */}
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900">Deployments</h3>
+                      <button
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                        onClick={() => setShowCreateDeploymentModal(true)}
+                      >
+                        + New Deployment
+                      </button>
+                    </div>
+
+                    <DeploymentList
+                      trainingJobId={trainingJobId!}
+                      onCreateDeployment={() => setShowCreateDeploymentModal(true)}
+                      onTestInference={(deploymentId) => {
+                        // Fetch deployment details to get API key and endpoint
+                        fetch(`${process.env.NEXT_PUBLIC_API_URL}/deployments/${deploymentId}`, {
+                          headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+                        })
+                          .then(res => res.json())
+                          .then(deployment => {
+                            setTestingDeployment({
+                              id: deploymentId,
+                              apiKey: deployment.deployment_config.api_key || '',
+                              endpointUrl: deployment.deployment_config.endpoint_url || ''
+                            })
+                          })
+                          .catch(err => console.error('Failed to fetch deployment:', err))
+                      }}
+                    />
+                  </div>
+
+                  {/* Inference Test Panel */}
+                  {testingDeployment && (
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold text-gray-900">Test Inference</h3>
+                        <button
+                          className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                          onClick={() => setTestingDeployment(null)}
+                        >
+                          Close
+                        </button>
+                      </div>
+
+                      <InferenceTestPanel
+                        deploymentId={testingDeployment.id}
+                        apiKey={testingDeployment.apiKey}
+                        endpointUrl={testingDeployment.endpointUrl}
+                        taskType={job?.task_type}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </>
       </div>
@@ -1110,6 +1210,33 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
             .find((m) => m.checkpoint_path)?.epoch
         }
       />
+
+      {/* Export & Deploy Modals */}
+      {trainingJobId && (
+        <>
+          <CreateExportModal
+            isOpen={showCreateExportModal}
+            onClose={() => setShowCreateExportModal(false)}
+            trainingJobId={trainingJobId}
+            onSuccess={() => {
+              setShowCreateExportModal(false)
+              // Trigger refresh by re-rendering the tab
+              setActiveTab('export_deploy')
+            }}
+          />
+
+          <CreateDeploymentModal
+            isOpen={showCreateDeploymentModal}
+            onClose={() => setShowCreateDeploymentModal(false)}
+            trainingJobId={trainingJobId}
+            onSuccess={() => {
+              setShowCreateDeploymentModal(false)
+              // Trigger refresh by re-rendering the tab
+              setActiveTab('export_deploy')
+            }}
+          />
+        </>
+      )}
     </div>
   )
 }
