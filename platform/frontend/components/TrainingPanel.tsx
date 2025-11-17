@@ -162,18 +162,22 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
     }
   }, [activeTab, trainingJobId])
 
-  // Fetch logs
+  // Fetch logs from Loki
   useEffect(() => {
     if (!trainingJobId) return
 
     const fetchLogs = async () => {
       try {
+        // Use DB API for log retrieval
+        // Note: Loki integration deferred due to Windows query issues
         const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/logs?limit=500`
+          `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/logs?limit=1000`
         )
         if (response.ok) {
           const data = await response.json()
           setLogs(data)
+        } else {
+          console.error('Failed to fetch logs:', response.statusText)
         }
       } catch (error) {
         console.error('Error fetching logs:', error)

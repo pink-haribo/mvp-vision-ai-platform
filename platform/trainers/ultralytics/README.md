@@ -78,6 +78,8 @@ docker run --env-file .env trainer-ultralytics:latest \
 
 ### Training Config Options
 
+#### Basic Configuration
+
 ```json
 {
   "epochs": 50,
@@ -94,6 +96,125 @@ docker run --env-file .env trainer-ultralytics:latest \
   }
 }
 ```
+
+#### Advanced Configuration
+
+The trainer supports 24+ advanced configuration parameters for fine-tuning training behavior. These are organized into 5 groups:
+
+**Optimizer Settings**
+- `optimizer_type`: Algorithm choice (Adam, AdamW, SGD, RMSprop)
+- `weight_decay`: L2 regularization (0.0-0.01, default: 0.0005)
+- `momentum`: SGD momentum (0.0-1.0, default: 0.937)
+
+**Scheduler Settings**
+- `cos_lr`: Use cosine learning rate scheduler (bool, default: true)
+- `lrf`: Final learning rate multiplier (0.0-1.0, default: 0.01)
+- `warmup_epochs`: Number of warmup epochs (0-20, default: 3)
+- `warmup_momentum`: Initial warmup momentum (0.0-1.0, default: 0.8)
+- `warmup_bias_lr`: Warmup initial bias learning rate (0.0-1.0, default: 0.1)
+
+**Augmentation Settings**
+- `mosaic`: Mosaic augmentation probability (0.0-1.0, default: 1.0)
+- `mixup`: Mixup augmentation probability (0.0-1.0, default: 0.0)
+- `copy_paste`: Copy-Paste augmentation probability (0.0-1.0, default: 0.0)
+- `degrees`: Rotation degrees (+/- deg, 0-180, default: 0)
+- `translate`: Translation (+/- fraction, 0.0-1.0, default: 0.1)
+- `scale`: Scaling (+/- gain, 0.0-2.0, default: 0.5)
+- `shear`: Shear degrees (+/- deg, 0-45, default: 0)
+- `perspective`: Perspective distortion (0.0-0.001, default: 0)
+- `flipud`: Vertical flip probability (0.0-1.0, default: 0)
+- `fliplr`: Horizontal flip probability (0.0-1.0, default: 0.5)
+- `hsv_h`: HSV-Hue augmentation fraction (0.0-1.0, default: 0.015)
+- `hsv_s`: HSV-Saturation augmentation fraction (0.0-1.0, default: 0.7)
+- `hsv_v`: HSV-Value augmentation fraction (0.0-1.0, default: 0.4)
+
+**Optimization Settings**
+- `amp`: Automatic Mixed Precision training (bool, default: true)
+- `close_mosaic`: Disable mosaic for final N epochs (0-50, default: 10)
+
+**Validation Settings**
+- `val_interval`: Validate every N epochs (1-10, default: 1)
+
+**Example with Advanced Config:**
+
+```bash
+python train.py \
+    --job-id 123 \
+    --model-name yolov8n \
+    --dataset-s3-uri s3://bucket/datasets/abc-123/ \
+    --callback-url http://localhost:8000/api/v1/training \
+    --config '{
+      "epochs": 100,
+      "batch": 16,
+      "imgsz": 640,
+      "optimizer": "AdamW",
+      "mosaic": 0.8,
+      "mixup": 0.15,
+      "fliplr": 0.7,
+      "hsv_h": 0.02,
+      "hsv_s": 0.8,
+      "hsv_v": 0.5,
+      "amp": true
+    }'
+```
+
+**Configuration Presets:**
+
+Three presets are available for quick setup:
+
+1. **Easy** (minimal augmentation):
+   ```json
+   {
+     "mosaic": 1.0,
+     "fliplr": 0.5,
+     "amp": true
+   }
+   ```
+
+2. **Medium** (balanced augmentation):
+   ```json
+   {
+     "mosaic": 1.0,
+     "mixup": 0.1,
+     "fliplr": 0.5,
+     "hsv_h": 0.015,
+     "hsv_s": 0.7,
+     "hsv_v": 0.4,
+     "degrees": 10,
+     "translate": 0.1,
+     "scale": 0.5,
+     "amp": true
+   }
+   ```
+
+3. **Advanced** (aggressive augmentation):
+   ```json
+   {
+     "mosaic": 1.0,
+     "mixup": 0.15,
+     "copy_paste": 0.1,
+     "fliplr": 0.5,
+     "hsv_h": 0.02,
+     "hsv_s": 0.8,
+     "hsv_v": 0.5,
+     "degrees": 15,
+     "translate": 0.2,
+     "scale": 0.9,
+     "shear": 5.0,
+     "perspective": 0.0005,
+     "amp": true,
+     "close_mosaic": 15
+   }
+   ```
+
+**Schema-Driven Configuration:**
+
+The configuration schema is defined in `config_schema.py` and can be:
+- Uploaded to S3/R2 via GitHub Actions for version control
+- Fetched by Backend via `GET /api/v1/training/config-schema?framework=ultralytics`
+- Rendered dynamically by Frontend for automatic UI generation
+
+This allows zero-downtime schema updates without code changes.
 
 ### Environment Variables
 

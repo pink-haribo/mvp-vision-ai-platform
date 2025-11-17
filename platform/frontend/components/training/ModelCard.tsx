@@ -10,13 +10,19 @@ export interface ModelInfo {
   model_name: string
   display_name: string
   description: string
-  params: string
-  input_size: number
-  task_types: string[]  // Changed from task_type to task_types (array)
-  pretrained_available: boolean
-  recommended_batch_size: number
-  recommended_lr: number
-  tags: string[]
+  task_types: string[]
+  supported: boolean
+  // Parameters from capabilities.json
+  parameters?: {
+    min?: number  // Million parameters
+    macs?: number  // Giga MACs
+    [key: string]: any
+  }
+  // Validation fields (from capabilities.json)
+  validated?: boolean
+  validation_date?: string
+  validation_error?: string
+  // Optional fields (will be added in Phase 7.1)
   status?: 'active' | 'experimental' | 'deprecated'
   benchmark?: Record<string, any>
   special_features?: {
@@ -24,6 +30,11 @@ export interface ModelInfo {
     capabilities?: string[]
     [key: string]: any
   }
+  input_size?: number
+  pretrained_available?: boolean
+  recommended_batch_size?: number
+  recommended_lr?: number
+  tags?: string[]
 }
 
 interface ModelCardProps {
@@ -35,11 +46,11 @@ interface ModelCardProps {
 }
 
 const TASK_TYPE_LABELS: Record<string, string> = {
-  'image_classification': '이미지 분류',
-  'object_detection': '객체 탐지',
-  'instance_segmentation': '인스턴스 분할',
-  'pose_estimation': '포즈 추정',
-  'zero_shot_detection': '제로샷 탐지',
+  'detection': '객체 탐지',
+  'segmentation': '이미지 분할',
+  'pose': '포즈 추정',
+  'open_vocabulary_detection': '오픈 어휘 탐지',
+  'classification': '이미지 분류',
 }
 
 const FRAMEWORK_LABELS: Record<string, string> = {
@@ -58,9 +69,33 @@ export default function ModelCard({
 
   const taskTypeLabel = TASK_TYPE_LABELS[model.task_types[0]] || model.task_types[0]
   const frameworkLabel = FRAMEWORK_LABELS[model.framework] || model.framework
-  const status = model.status || 'active' // Default to 'active' if not specified
 
+  // Determine status from validation results
+  const getValidationStatus = () => {
+    // If validation data is available, use it
+    if (model.validated !== undefined) {
+      if (model.validated && model.supported !== false) {
+        return { variant: 'success' as const, label: 'Validated ✓' }
+      } else {
+        return { variant: 'error' as const, label: 'Unsupported' }
+      }
+    }
+    // Fallback to old status field
+    const status = model.status || 'active'
+    if (status === 'active') return { variant: 'success' as const, label: 'Active' }
+    if (status === 'experimental') return { variant: 'warning' as const, label: 'Experimental' }
+    return { variant: 'error' as const, label: 'Deprecated' }
+  }
+
+  const validationStatus = getValidationStatus()
   const hasSpecialFeatures = !!model.special_features
+
+  // Format parameters for display
+  const getParametersDisplay = () => {
+    if (!model.parameters?.min) return 'N/A'
+    const params = model.parameters.min
+    return params < 1 ? `${params.toFixed(1)}M` : `${params.toFixed(1)}M`
+  }
 
   // Extract key benchmark metric
   const getKeyMetric = () => {
@@ -92,6 +127,28 @@ export default function ModelCard({
     if (onSelect) {
       onSelect(model)
     }
+  }
+
+  // Get documentation link for model
+  const getDocumentationLink = () => {
+    if (model.framework === 'ultralytics') {
+      // YOLO11 detection models
+      if (model.model_name.startsWith('yolo11') && !model.model_name.includes('-')) {
+        return 'https://docs.ultralytics.com/models/yolo11/#supported-tasks-and-modes'
+      }
+      // YOLO11 segmentation
+      if (model.model_name.includes('-seg')) {
+        return 'https://docs.ultralytics.com/tasks/segment/'
+      }
+      // YOLO11 pose
+      if (model.model_name.includes('-pose')) {
+        return 'https://docs.ultralytics.com/tasks/pose/'
+      }
+      // Fallback to main docs
+      return 'https://docs.ultralytics.com/models/'
+    }
+    // Other frameworks - no link yet (Phase 7.1)
+    return null
   }
 
   return (
@@ -127,11 +184,13 @@ export default function ModelCard({
             </p>
           </div>
 
-          {/* Status Badge */}
-          <Badge variant={status} className="ml-3 shrink-0">
-            {status === 'active' && 'Active'}
-            {status === 'experimental' && 'Experimental'}
-            {status === 'deprecated' && 'Deprecated'}
+          {/* Validation Badge */}
+          <Badge
+            variant={validationStatus.variant}
+            className="ml-3 shrink-0"
+            title={model.validation_error || model.validation_date || undefined}
+          >
+            {validationStatus.label}
           </Badge>
         </div>
 
@@ -149,14 +208,13 @@ export default function ModelCard({
       {/* Body */}
       <div className="p-4">
         {/* Key Metrics */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className={cn(
+          'grid gap-3 mb-4',
+          keyMetric ? 'grid-cols-2' : 'grid-cols-1'
+        )}>
           <div className="text-center">
             <div className="text-xs text-gray-500 mb-1">Parameters</div>
-            <div className="text-sm font-bold text-gray-900">{model.params}</div>
-          </div>
-          <div className="text-center">
-            <div className="text-xs text-gray-500 mb-1">Input Size</div>
-            <div className="text-sm font-bold text-gray-900">{model.input_size}px</div>
+            <div className="text-sm font-bold text-gray-900">{getParametersDisplay()}</div>
           </div>
           {keyMetric && (
             <div className="text-center">
@@ -185,24 +243,28 @@ export default function ModelCard({
           </div>
         )}
 
-        {/* View Guide Button */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            if (onViewGuide) {
-              onViewGuide(model.framework, model.model_name)
-            }
-          }}
-          className={cn(
-            'w-full flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors',
-            isHovered || selected
-              ? 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          )}
-        >
-          가이드 보기
-          <ChevronRight className="w-4 h-4" />
-        </button>
+        {/* Documentation Link Button */}
+        {getDocumentationLink() ? (
+          <a
+            href={getDocumentationLink()!}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className={cn(
+              'w-full flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors',
+              isHovered || selected
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            )}
+          >
+            공식 문서 보기
+            <ChevronRight className="w-4 h-4" />
+          </a>
+        ) : (
+          <div className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium bg-gray-100 text-gray-400 cursor-not-allowed">
+            가이드 준비 중
+          </div>
+        )}
       </div>
 
       {/* Selected Indicator */}

@@ -73,6 +73,13 @@ export default function TrainingConfigPanel({
     fetchAvailableDatasets()
   }, [])
 
+  // Load primary fields when framework changes
+  useEffect(() => {
+    if (framework) {
+      fetchPrimaryFields(framework)
+    }
+  }, [framework])
+
   const fetchAvailableDatasets = async () => {
     try {
       setIsLoadingDatasets(true)
@@ -107,10 +114,48 @@ export default function TrainingConfigPanel({
     }
   }
 
+  const fetchPrimaryFields = async (fw: string) => {
+    try {
+      setLoadingPrimaryFields(true)
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+      const response = await fetch(`${baseUrl}/training/config-schema?framework=${fw}`)
+
+      if (response.ok) {
+        const schema = await response.json()
+        const primary = schema.fields.filter((f: any) => f.primary === true)
+        setPrimaryFields(primary)
+
+        // Initialize values with defaults
+        const initialValues: Record<string, any> = {}
+        primary.forEach((field: any) => {
+          initialValues[field.name] = field.default
+        })
+        setPrimaryFieldsValues(initialValues)
+      } else {
+        console.error('Failed to fetch config schema:', response.statusText)
+        setPrimaryFields([])
+      }
+    } catch (error) {
+      console.error('Error fetching primary fields:', error)
+      setPrimaryFields([])
+    } finally {
+      setLoadingPrimaryFields(false)
+    }
+  }
+
   // Step 3: Hyperparameters
-  const [epochs, setEpochs] = useState(initialConfig?.epochs || 50)
-  const [batchSize, setBatchSize] = useState(initialConfig?.batch_size || 32)
-  const [learningRate, setLearningRate] = useState(initialConfig?.learning_rate || 0.001)
+  const [epochs, setEpochs] = useState(Number(initialConfig?.epochs) || 50)
+  const [batchSize, setBatchSize] = useState(Number(initialConfig?.batch_size) || 32)
+
+  // Debug batchSize changes
+  useEffect(() => {
+    console.log('[DEBUG] batchSize changed:', batchSize, typeof batchSize)
+  }, [batchSize])
+
+  // Primary fields from config schema (dynamic)
+  const [primaryFields, setPrimaryFields] = useState<any[]>([])
+  const [primaryFieldsValues, setPrimaryFieldsValues] = useState<Record<string, any>>({})
+  const [loadingPrimaryFields, setLoadingPrimaryFields] = useState(false)
 
   // Primary Metric Selection
   const [primaryMetric, setPrimaryMetric] = useState<string>('')
@@ -293,7 +338,31 @@ export default function TrainingConfigPanel({
     taskType !== 'zero_shot_detection' || customPrompts.length > 0
   )
   const canProceedStep2 = selectedDatasetId !== null  // Dataset selected from R2
-  const canSubmit = canProceedStep1 && canProceedStep2 && epochs > 0 && batchSize > 0 && learningRate > 0
+
+  // Check primary fields are all set (lr0, imgsz, etc.)
+  // If no primary fields exist for this framework, skip validation (backward compatible)
+  const primaryFieldsValid = primaryFields.length === 0 || (
+    !loadingPrimaryFields && primaryFields.every(
+      field => primaryFieldsValues[field.name] !== undefined && primaryFieldsValues[field.name] !== null
+    )
+  )
+
+  const canSubmit = canProceedStep1 && canProceedStep2 && epochs > 0 && batchSize > 0 && primaryFieldsValid
+
+  // Debug validation state
+  useEffect(() => {
+    console.log('[DEBUG] Validation state:', {
+      canProceedStep1,
+      canProceedStep2,
+      epochs,
+      batchSize,
+      loadingPrimaryFields,
+      primaryFields: primaryFields.length,
+      primaryFieldsValues,
+      primaryFieldsValid,
+      canSubmit
+    })
+  }, [canProceedStep1, canProceedStep2, epochs, batchSize, loadingPrimaryFields, primaryFields, primaryFieldsValues, primaryFieldsValid, canSubmit])
 
   const handleNext = () => {
     setError(null)
@@ -324,9 +393,16 @@ export default function TrainingConfigPanel({
     console.log('[DEBUG]   framework:', model.framework)
     console.log('[DEBUG]   modelName:', model.model_name)
 
-    // Apply recommended settings
-    setBatchSize(model.recommended_batch_size)
-    setLearningRate(model.recommended_lr)
+    // Apply recommended settings (only if provided)
+    if (model.recommended_batch_size !== undefined) {
+      setBatchSize(model.recommended_batch_size)
+    }
+    if (model.recommended_lr !== undefined) {
+      setPrimaryFieldsValues(prev => ({
+        ...prev,
+        lr0: model.recommended_lr
+      }))
+    }
 
     // Show prompts modal for YOLO-World
     if (model.task_types.includes('zero_shot_detection')) {
@@ -357,10 +433,12 @@ export default function TrainingConfigPanel({
         num_classes: selectedDataset?.num_items ? undefined : undefined,  // Let backend determine from DB
         epochs,
         batch_size: batchSize,
-        learning_rate: learningRate,
         primary_metric: primaryMetric || undefined,
         primary_metric_mode: primaryMetricMode,
-        advanced_config: advancedConfig || undefined,
+        advanced_config: {
+          ...primaryFieldsValues,  // Include primary fields (lr0, imgsz, etc.)
+          ...(advancedConfig || {})  // Merge with user's advanced settings
+        },
         custom_prompts: customPrompts.length > 0 ? customPrompts : undefined,
       }
 
@@ -748,27 +826,52 @@ export default function TrainingConfigPanel({
                 </p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Learning Rate <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  value={learningRate}
-                  onChange={(e) => setLearningRate(parseFloat(e.target.value) || 0)}
-                  step="0.0001"
-                  min="0.0001"
-                  max="1"
-                  className={cn(
-                    'w-full px-4 py-2.5 border border-gray-300 rounded-lg',
-                    'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
-                    'text-sm'
-                  )}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  학습 속도 (0.0001-1.0, 일반적으로 0.001)
-                </p>
-              </div>
+              {/* Dynamic Primary Fields */}
+              {primaryFields.map((field: any) => (
+                <div key={field.name}>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {field.description} <span className="text-red-500">*</span>
+                  </label>
+                  {field.type === 'int' || field.type === 'float' ? (
+                    <input
+                      type="number"
+                      value={primaryFieldsValues[field.name] ?? field.default}
+                      onChange={(e) => {
+                        const value = field.type === 'int'
+                          ? parseInt(e.target.value) || 0
+                          : parseFloat(e.target.value) || 0
+                        setPrimaryFieldsValues({
+                          ...primaryFieldsValues,
+                          [field.name]: value
+                        })
+                      }}
+                      min={field.min}
+                      max={field.max}
+                      step={field.step}
+                      className={cn(
+                        'w-full px-4 py-2.5 border border-gray-300 rounded-lg',
+                        'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
+                        'text-sm'
+                      )}
+                    />
+                  ) : field.type === 'bool' ? (
+                    <input
+                      type="checkbox"
+                      checked={primaryFieldsValues[field.name] ?? field.default}
+                      onChange={(e) => setPrimaryFieldsValues({
+                        ...primaryFieldsValues,
+                        [field.name]: e.target.checked
+                      })}
+                      className="w-4 h-4 text-violet-600"
+                    />
+                  ) : null}
+                  <p className="text-xs text-gray-500 mt-1">
+                    {field.min !== undefined && field.max !== undefined
+                      ? `${field.min}-${field.max}`
+                      : `기본값: ${field.default}`}
+                  </p>
+                </div>
+              ))}
 
               {/* Primary Metric Selection */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -867,7 +970,7 @@ export default function TrainingConfigPanel({
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Learning Rate:</span>
-                    <span className="font-medium">{learningRate}</span>
+                    <span className="font-medium">{primaryFieldsValues.lr0 || 'N/A'}</span>
                   </div>
                 </div>
               </div>

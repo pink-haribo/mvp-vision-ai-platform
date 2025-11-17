@@ -124,6 +124,10 @@ class ModelInfo(BaseModel):
     description: str
     supported: bool
     parameters: Optional[Dict[str, Any]] = None  # Model-specific parameters (min, macs, etc.)
+    # Validation fields (from validate_capabilities.py)
+    validated: Optional[bool] = None
+    validation_date: Optional[str] = None
+    validation_error: Optional[str] = None
 
 
 class ModelGuide(BaseModel):
@@ -212,7 +216,10 @@ async def list_models(
                 task_types=model_data["task_types"],
                 description=model_data["description"],
                 supported=model_data.get("supported", False),
-                parameters=model_data.get("parameters")
+                parameters=model_data.get("parameters"),
+                validated=model_data.get("validated"),
+                validation_date=model_data.get("validation_date"),
+                validation_error=model_data.get("validation_error")
             )
             models.append(model_info)
         except Exception as e:

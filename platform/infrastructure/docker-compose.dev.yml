@@ -58,10 +58,47 @@ services:
     networks:
       - platform-network
 
+  # Loki - Log aggregation system
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: platform-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - platform-network
+
+  # Grafana - Visualization for logs and metrics
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: platform-grafana
+    ports:
+      - "3200:3000"  # Use 3200 to avoid conflict with Next.js
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - loki
+    networks:
+      - platform-network
+
 volumes:
   minio-data:
   postgres-data:
   redis-data:
+  loki-data:
+  grafana-data:
 
 networks:
   platform-network:

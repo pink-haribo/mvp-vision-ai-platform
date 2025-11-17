@@ -2,12 +2,13 @@
 
 import { cn } from '@/lib/utils/cn'
 
-export type BadgeVariant = 'active' | 'experimental' | 'deprecated' | 'default'
+export type BadgeVariant = 'active' | 'experimental' | 'deprecated' | 'default' | 'success' | 'error' | 'warning'
 
 interface BadgeProps {
   variant?: BadgeVariant
   children: React.ReactNode
   className?: string
+  title?: string
 }
 
 const BADGE_STYLES: Record<BadgeVariant, string> = {
@@ -15,6 +16,9 @@ const BADGE_STYLES: Record<BadgeVariant, string> = {
   experimental: 'bg-yellow-500 text-white',
   deprecated: 'bg-gray-400 text-white',
   default: 'bg-gray-200 text-gray-700',
+  success: 'bg-green-500 text-white',  // Same as active
+  error: 'bg-red-500 text-white',      // Red for errors/unsupported
+  warning: 'bg-yellow-500 text-white', // Same as experimental
 }
 
 /**
@@ -35,7 +39,7 @@ const BADGE_STYLES: Record<BadgeVariant, string> = {
  * <Badge variant="deprecated">Deprecated</Badge>
  * ```
  */
-export default function Badge({ variant = 'default', children, className }: BadgeProps) {
+export default function Badge({ variant = 'default', children, className, title }: BadgeProps) {
   return (
     <span
       className={cn(
@@ -43,6 +47,7 @@ export default function Badge({ variant = 'default', children, className }: Badg
         BADGE_STYLES[variant],
         className
       )}
+      title={title}
     >
       {children}
     </span>

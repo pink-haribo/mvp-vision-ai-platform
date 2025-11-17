@@ -17,6 +17,7 @@ interface ConfigField {
   step?: number
   group?: string
   advanced?: boolean
+  primary?: boolean  // Fields shown in basic settings (lr0, imgsz, etc.)
 }
 
 interface ConfigSchema {
@@ -109,6 +110,9 @@ export default function DynamicConfigPanel({
   }
 
   const renderField = (field: ConfigField) => {
+    // Skip primary fields (they're shown in basic settings)
+    if (field.primary) return null
+
     // Skip advanced fields if not shown
     if (field.advanced && !showAdvanced) return null
 

@@ -264,6 +264,62 @@ class CallbackClient:
             response.raise_for_status()
             logger.info(f"Validation callback sent: epoch {data.get('epoch')}")
 
+    # ========================================================================
+    # Test and Inference callbacks
+    # ========================================================================
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
+    async def send_test_completion(self, test_run_id: str, data: Dict[str, Any]) -> None:
+        """Send test completion callback"""
+        url = f"{self.base_url}/test/{test_run_id}/results"
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=data)
+            response.raise_for_status()
+            logger.info(f"Test completion callback sent: {data.get('status')}")
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
+    async def send_inference_completion(self, inference_job_id: str, data: Dict[str, Any]) -> None:
+        """Send inference completion callback"""
+        url = f"{self.base_url}/inference/{inference_job_id}/results"
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=data)
+            response.raise_for_status()
+            logger.info(f"Inference completion callback sent: {data.get('status')}")
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
+    def send_test_completion_sync(self, test_run_id: str, data: Dict[str, Any]) -> None:
+        """Send test completion callback (synchronous version)"""
+        url = f"{self.base_url}/test/{test_run_id}/results"
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(url, json=data)
+            response.raise_for_status()
+            logger.info(f"Test completion callback sent: {data.get('status')}")
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+    )
+    def send_inference_completion_sync(self, inference_job_id: str, data: Dict[str, Any]) -> None:
+        """Send inference completion callback (synchronous version)"""
+        url = f"{self.base_url}/inference/{inference_job_id}/results"
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(url, json=data)
+            response.raise_for_status()
+            logger.info(f"Inference completion callback sent: {data.get('status')}")
+
 
 # ============================================================================
 # Dataset Utilities

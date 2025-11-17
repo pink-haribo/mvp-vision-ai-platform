@@ -345,14 +345,87 @@ curl https://api.yourplatform.com/api/v1/models/list?framework=new_framework
 aws s3 ls s3://config-schemas/model-capabilities/ --endpoint-url=$R2_ENDPOINT
 ```
 
+## Model Validation
+
+### Overview
+
+Model capabilities can be validated to ensure models listed in `capabilities.json` are actually loadable by the framework.
+
+**Validation Script**: `platform/trainers/{framework}/validate_capabilities.py`
+
+**Usage**:
+```bash
+cd platform/trainers/ultralytics
+python validate_capabilities.py                    # Validate only
+python validate_capabilities.py --update           # Update capabilities.json with results
+python validate_capabilities.py --model yolo11n    # Validate single model
+```
+
+### Validation Fields
+
+Each model in capabilities.json can have the following validation fields:
+
+```json
+{
+  "model_name": "yolo11n",
+  "validated": true,                           // Whether validation passed
+  "validation_date": "2025-11-17T09:53:30...", // ISO timestamp
+  "validation_error": null,                    // Error message if failed
+  "supported": true                            // Overall support status
+}
+```
+
+**For failed models**:
+```json
+{
+  "model_name": "yolo_world_v2_s",
+  "validated": false,
+  "validation_date": "2025-11-17T09:53:30...",
+  "validation_error": "[Errno 2] No such file or directory: 'yolo_world_v2_s.pt'",
+  "supported": false  // Set to false if validation fails
+}
+```
+
+### Frontend Integration
+
+**ModelCard Component** displays validation status as badges:
+- **"Validated ✓"** (green) - Model passed validation
+- **"Unsupported"** (red) - Model failed validation
+
+**Tooltip**: Hover over badge to see validation error or date.
+
+**API Parameter**: Frontend calls `/models/list?supported_only=false` to show all models including unsupported.
+
+**Backend Schema**: `ModelInfo` includes optional fields: `validated`, `validation_date`, `validation_error`
+
+### Validation Results (Ultralytics)
+
+**Total**: 22 models
+**Validated**: 15 models (68.2%)
+**Failed**: 7 models (31.8%)
+
+**Passed Models** (15):
+- All YOLO11 Detection models (5): yolo11n, yolo11s, yolo11m, yolo11l, yolo11x
+- All YOLO11 Segmentation models (5): yolo11n-seg, yolo11s-seg, yolo11m-seg, yolo11l-seg, yolo11x-seg
+- All YOLO11 Pose models (5): yolo11n-pose, yolo11s-pose, yolo11m-pose, yolo11l-pose, yolo11x-pose
+
+**Failed Models** (7):
+- YOLO-World v2 (3): yolo_world_v2_s, yolo_world_v2_m, yolo_world_v2_l
+  - Error: `[Errno 2] No such file or directory: 'yolo_world_v2_*.pt'`
+- SAM2 (4): sam2_t, sam2_s, sam2_b, sam2_l
+  - Error: `'collections.OrderedDict' object has no attribute 'float'`
+
+**Note**: Failed models are kept in capabilities.json for documentation purposes but marked as `supported: false`.
+
 ## Current Capabilities
 
 ### Ultralytics (22 models)
 
-**Detection** (5 models): yolo11n, yolo11s, yolo11m, yolo11l, yolo11x
-**Segmentation** (9 models): yolo11n-seg, yolo11s-seg, ..., sam2_t, sam2_s, sam2_b, sam2_l
-**Pose** (5 models): yolo11n-pose, yolo11s-pose, yolo11m-pose, yolo11l-pose, yolo11x-pose
-**Open-Vocabulary Detection** (3 models): yolo_world_v2_s, yolo_world_v2_m, yolo_world_v2_l
+**Detection** (5 models, all validated ✓): yolo11n, yolo11s, yolo11m, yolo11l, yolo11x
+**Segmentation** (5 models, all validated ✓): yolo11n-seg, yolo11s-seg, yolo11m-seg, yolo11l-seg, yolo11x-seg
+**Pose** (5 models, all validated ✓): yolo11n-pose, yolo11s-pose, yolo11m-pose, yolo11l-pose, yolo11x-pose
+**Open-Vocabulary Detection** (3 models, validation failed ✗): yolo_world_v2_s, yolo_world_v2_m, yolo_world_v2_l
+**Segmentation - SAM** (4 models, validation failed ✗): sam2_t, sam2_s, sam2_b, sam2_l
 
 **Task Types**: detection, segmentation, pose, open_vocabulary_detection
 **Dataset Formats**: yolo, coco, dice

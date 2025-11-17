@@ -16,8 +16,15 @@ import json
 import logging
 import os
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+from sqlalchemy.orm import Session
+from logging_loki import LokiHandler
+
+from app.db.database import SessionLocal
+from app.db import models
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +47,15 @@ class TrainingSubprocessManager:
 
         # Store running processes
         self.processes: Dict[int, subprocess.Popen] = {}
+
+        # Initialize Loki handler (optional - only if LOKI_URL is set)
+        self.loki_url = os.getenv('LOKI_URL', 'http://localhost:3100')
+        self.loki_enabled = os.getenv('LOKI_ENABLED', 'true').lower() == 'true'
+
+        if self.loki_enabled:
+            logger.info(f"[TrainingSubprocess] Loki logging enabled: {self.loki_url}")
+        else:
+            logger.info(f"[TrainingSubprocess] Loki logging disabled (using DB only)")
 
     def get_python_executable(self, framework: str) -> Path:
         """
@@ -209,18 +225,60 @@ class TrainingSubprocessManager:
                 errors='replace'
             )
 
-            # Read stdout
-            for line in stdout_reader:
-                if line.strip():
-                    logger.info(f"[JOB {job_id}] {line.rstrip()}")
+            # IMPORTANT: Use asyncio.to_thread to avoid blocking the event loop
+            # Reading from pipes is blocking I/O and should not be done directly in async functions
 
-            # Read stderr
-            for line in stderr_reader:
-                if line.strip():
-                    logger.error(f"[JOB {job_id}] {line.rstrip()}")
+            async def read_stream_async(reader, prefix):
+                """Read stream line by line and save to DB in real-time"""
+                loop = asyncio.get_event_loop()
+                batch = []
+                batch_size = 10  # Save every 10 lines for efficiency
 
-            # Wait for process to complete
-            exit_code = process.wait()
+                def read_one_line():
+                    """Read one line from stream (blocking)"""
+                    try:
+                        return reader.readline()
+                    except Exception:
+                        return None
+
+                while True:
+                    # Read line in thread pool to avoid blocking event loop
+                    line = await loop.run_in_executor(None, read_one_line)
+
+                    if not line:  # EOF
+                        break
+
+                    line = line.rstrip()
+                    if not line.strip():
+                        continue
+
+                    # Log to console
+                    if prefix == "stdout":
+                        logger.info(f"[JOB {job_id}] {line}")
+                    else:
+                        logger.error(f"[JOB {job_id}] {line}")
+
+                    # Add to batch
+                    batch.append(line)
+
+                    # Save batch to DB when full
+                    if len(batch) >= batch_size:
+                        await self._save_logs_to_db(job_id, batch, prefix)
+                        batch = []
+
+                # Save remaining logs
+                if batch:
+                    await self._save_logs_to_db(job_id, batch, prefix)
+
+            # Read both streams concurrently (but in threads to avoid blocking)
+            await asyncio.gather(
+                read_stream_async(stdout_reader, "stdout"),
+                read_stream_async(stderr_reader, "stderr")
+            )
+
+            # Wait for process to complete (also blocking, so run in thread)
+            loop = asyncio.get_event_loop()
+            exit_code = await loop.run_in_executor(None, process.wait)
 
             logger.info(f"[TrainingSubprocess] Job {job_id} finished (exit code: {exit_code})")
 
@@ -230,6 +288,105 @@ class TrainingSubprocessManager:
 
         except Exception as e:
             logger.error(f"[TrainingSubprocess] Error monitoring job {job_id}: {e}")
+
+    async def _save_logs_to_db(self, job_id: int, lines: list[str], log_type: str):
+        """
+        Save log lines to database AND Loki (dual storage).
+
+        Args:
+            job_id: Training job ID
+            lines: List of log lines
+            log_type: "stdout" or "stderr"
+        """
+        try:
+            # Run DB operations in thread pool to avoid blocking event loop
+            loop = asyncio.get_event_loop()
+
+            def save_to_db():
+                db = SessionLocal()
+                try:
+                    # Create log entries
+                    log_entries = [
+                        models.TrainingLog(
+                            job_id=job_id,
+                            log_type=log_type,
+                            content=line,
+                            created_at=datetime.utcnow()
+                        )
+                        for line in lines
+                    ]
+
+                    # Bulk insert for efficiency
+                    db.bulk_save_objects(log_entries)
+                    db.commit()
+
+                except Exception as e:
+                    logger.error(f"[TrainingSubprocess] Failed to save logs to DB: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+
+            # Save to DB
+            await loop.run_in_executor(None, save_to_db)
+
+            # Also send to Loki if enabled
+            if self.loki_enabled:
+                await self._send_logs_to_loki(job_id, lines, log_type)
+
+        except Exception as e:
+            logger.error(f"[TrainingSubprocess] Error in _save_logs_to_db: {e}")
+
+    async def _send_logs_to_loki(self, job_id: int, lines: list[str], log_type: str):
+        """
+        Send log lines to Loki for real-time log aggregation.
+
+        Args:
+            job_id: Training job ID
+            lines: List of log lines
+            log_type: "stdout" or "stderr"
+        """
+        try:
+            import requests
+
+            # Loki Push API endpoint
+            url = f"{self.loki_url}/loki/api/v1/push"
+
+            # Build Loki streams payload
+            # Loki uses nanosecond timestamps
+            # Use single stream with multiple values for efficiency
+            base_timestamp_ns = int(datetime.utcnow().timestamp() * 1_000_000_000)
+
+            # Create values array with incrementing timestamps
+            # This ensures each log line has a unique timestamp
+            values = []
+            for i, line in enumerate(lines):
+                # Add microseconds to ensure uniqueness
+                timestamp_ns = str(base_timestamp_ns + i * 1000)  # Add 1μs per line
+                values.append([timestamp_ns, line])
+
+            # Single stream for efficiency (Loki batches by stream)
+            stream = {
+                "stream": {
+                    "job": "training",
+                    "job_id": str(job_id),
+                    "log_type": log_type,
+                    "source": "backend"
+                },
+                "values": values
+            }
+
+            payload = {"streams": [stream]}
+
+            # Send to Loki (async)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: requests.post(url, json=payload, timeout=5)
+            )
+
+        except Exception as e:
+            # Don't fail if Loki is down - logs are still saved in DB
+            logger.warning(f"[TrainingSubprocess] Failed to send logs to Loki: {e}")
 
     def stop_training(self, job_id: int) -> bool:
         """

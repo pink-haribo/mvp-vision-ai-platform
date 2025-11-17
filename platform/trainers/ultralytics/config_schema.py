@@ -52,6 +52,34 @@ def get_config_schema() -> Dict[str, Any]:
             "advanced": True
         },
 
+        # ========== Basic Settings (Primary Fields) ==========
+        {
+            "name": "imgsz",
+            "type": "int",
+            "default": 640,
+            "min": 32,
+            "max": 1280,
+            "step": 32,
+            "description": "Input image size (pixels)",
+            "group": "basic",
+            "required": False,
+            "advanced": False,
+            "primary": True  # Show in basic settings UI
+        },
+        {
+            "name": "lr0",
+            "type": "float",
+            "default": 0.01,
+            "min": 0.00001,
+            "max": 1.0,
+            "step": 0.00001,
+            "description": "Initial learning rate",
+            "group": "scheduler",
+            "required": False,
+            "advanced": False,
+            "primary": True  # Show in basic settings UI
+        },
+
         # ========== Scheduler Settings ==========
         {
             "name": "cos_lr",
