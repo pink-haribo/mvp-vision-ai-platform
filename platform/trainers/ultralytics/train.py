@@ -267,8 +267,8 @@ async def train_model(
             model = YOLO(f"{model_name}.pt")
 
             # Epoch callback for progress updates
-            def on_train_epoch_end(trainer):
-                """Called at end of each training epoch"""
+            def on_fit_epoch_end(trainer):
+                """Called at end of each fit epoch (after validation)"""
                 try:
                     nonlocal training_state
 
@@ -278,8 +278,27 @@ async def train_model(
                     # Extract metrics
                     metrics = {}
                     if hasattr(trainer, 'metrics') and trainer.metrics:
+                        # DEBUG: Log raw trainer.metrics before processing
+                        logger.info(f"[DEBUG] Epoch {epoch} - Raw trainer.metrics: {trainer.metrics}")
+                        logger.info(f"[DEBUG] Epoch {epoch} - trainer.metrics type: {type(trainer.metrics)}")
+
                         metrics = {k: float(v) if isinstance(v, (int, float)) else v
                                    for k, v in trainer.metrics.items()}
+
+                        # DEBUG: Log processed metrics
+                        logger.info(f"[DEBUG] Epoch {epoch} - Processed metrics: {metrics}")
+
+                    # Log metrics to MLflow (with sanitized names and epoch step)
+                    if metrics:
+                        sanitized_metrics = {sanitize_metric_name(k): v for k, v in metrics.items()}
+
+                        # DEBUG: Log sanitized metrics before MLflow
+                        logger.info(f"[DEBUG] Epoch {epoch} - Sanitized metrics: {sanitized_metrics}")
+
+                        mlflow.log_metrics(sanitized_metrics, step=epoch)
+                        logger.debug(f"Logged {len(sanitized_metrics)} metrics to MLflow for epoch {epoch}")
+                    else:
+                        logger.warning(f"[DEBUG] Epoch {epoch} - No metrics to log!")
 
                     # Send progress callback every N epochs
                     callback_interval = int(os.getenv('CALLBACK_INTERVAL', '1'))
@@ -304,11 +323,18 @@ async def train_model(
                 except Exception as e:
                     logger.error(f"Error in epoch callback: {e}")
 
-            # Add callback
-            model.add_callback("on_train_epoch_end", on_train_epoch_end)
+            # Add callback (after validation, so metrics include validation results)
+            model.add_callback("on_fit_epoch_end", on_fit_epoch_end)
 
             # Run training
             logger.info(f"Training {model_name} for {epochs} epochs")
+
+            # Allow local dataset override for testing (DEBUG)
+            local_dataset_override = os.getenv('LOCAL_DATASET_PATH')
+            if local_dataset_override:
+                dataset_dir = Path(local_dataset_override)
+                logger.warning(f"[DEBUG] Using LOCAL_DATASET_PATH override: {dataset_dir}")
+
             data_yaml = dataset_dir / "data.yaml"
             project_dir = Path(f"/tmp/training/{job_id}/runs")
 

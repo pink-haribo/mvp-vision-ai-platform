@@ -387,5 +387,87 @@
       "description": "Platform's internal DICE format (auto-converted to YOLO)",
       "supported": true
     }
-  ]
+  ],
+  "metric_candidates_by_task": {
+    "detection": [
+      {
+        "value": "mAP50",
+        "label": "mAP@0.5 (평균 정밀도)",
+        "mode": "max",
+        "description": "IoU 0.5 기준 평균 정밀도"
+      },
+      {
+        "value": "mAP50-95",
+        "label": "mAP@0.5:0.95",
+        "mode": "max",
+        "description": "COCO 표준 mAP (권장)"
+      },
+      {
+        "value": "precision",
+        "label": "Precision (정밀도)",
+        "mode": "max",
+        "description": "탐지 정밀도"
+      },
+      {
+        "value": "recall",
+        "label": "Recall (재현율)",
+        "mode": "max",
+        "description": "탐지 재현율"
+      }
+    ],
+    "segmentation": [
+      {
+        "value": "mAP50",
+        "label": "mAP@0.5 (평균 정밀도)",
+        "mode": "max",
+        "description": "IoU 0.5 기준 평균 정밀도"
+      },
+      {
+        "value": "mAP50-95",
+        "label": "mAP@0.5:0.95",
+        "mode": "max",
+        "description": "COCO 표준 mAP (권장)"
+      },
+      {
+        "value": "mask_mAP50",
+        "label": "Mask mAP@0.5",
+        "mode": "max",
+        "description": "마스크 mAP"
+      }
+    ],
+    "pose": [
+      {
+        "value": "mAP50",
+        "label": "mAP@0.5 (평균 정밀도)",
+        "mode": "max",
+        "description": "IoU 0.5 기준 평균 정밀도"
+      },
+      {
+        "value": "mAP50-95",
+        "label": "mAP@0.5:0.95",
+        "mode": "max",
+        "description": "COCO 표준 mAP (권장)"
+      },
+      {
+        "value": "pose_mAP50",
+        "label": "Pose mAP@0.5",
+        "mode": "max",
+        "description": "키포인트 mAP"
+      }
+    ],
+    "classification": [
+      {
+        "value": "accuracy",
+        "label": "Accuracy (정확도)",
+        "mode": "max",
+        "description": "전체 예측의 정확도"
+      },
+      {
+        "value": "top5_accuracy",
+        "label": "Top-5 Accuracy",
+        "mode": "max",
+        "description": "상위 5개 예측 중 정답 포함 비율"
+      }
+    ]
+  }
 }

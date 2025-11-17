@@ -245,6 +245,14 @@ export default function TrainingConfigPanel({
         { value: 'val_accuracy', label: 'Validation Accuracy', mode: 'max', description: '검증 데이터 정확도' },
         { value: 'val_loss', label: 'Validation Loss', mode: 'min', description: '검증 손실 값' },
       ],
+      // Support both 'detection' (from DB) and 'object_detection' (full name)
+      'detection': [
+        { value: 'mAP50', label: 'mAP@0.5 (평균 정밀도)', mode: 'max', description: 'IoU 0.5 기준 평균 정밀도' },
+        { value: 'mAP50-95', label: 'mAP@0.5:0.95', mode: 'max', description: 'COCO 표준 mAP' },
+        { value: 'precision', label: 'Precision (정밀도)', mode: 'max', description: '탐지 정밀도' },
+        { value: 'recall', label: 'Recall (재현율)', mode: 'max', description: '탐지 재현율' },
+        { value: 'loss', label: 'Loss (손실)', mode: 'min', description: '학습 손실 값' },
+      ],
       'object_detection': [
         { value: 'mAP50', label: 'mAP@0.5 (평균 정밀도)', mode: 'max', description: 'IoU 0.5 기준 평균 정밀도' },
         { value: 'mAP50-95', label: 'mAP@0.5:0.95', mode: 'max', description: 'COCO 표준 mAP' },

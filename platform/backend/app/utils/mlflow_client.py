@@ -73,24 +73,31 @@ class MLflowClientWrapper:
             return None
 
         try:
-            # Experiment name matches the one created in TrainingCallbacks
-            experiment_name = f"job_{job_id}"
+            # Experiment name from train.py (ultralytics/train.py:244)
+            experiment_name = "vision-training"
 
             # Get experiment
             experiment = self.client.get_experiment_by_name(experiment_name)
             if not experiment:
+                logger.debug(f"[MLflow] Experiment '{experiment_name}' not found")
                 return None
 
-            # Search for runs in this experiment (most recent first)
+            # Search for runs by run_name (train.py uses run_name=f"job-{job_id}")
+            run_name = f"job-{job_id}"
+            filter_string = f"tags.mlflow.runName = '{run_name}'"
+
             runs = self.client.search_runs(
                 experiment_ids=[experiment.experiment_id],
+                filter_string=filter_string,
                 order_by=["start_time DESC"],
                 max_results=1,
             )
 
             if not runs:
+                logger.debug(f"[MLflow] No runs found with name '{run_name}' in experiment '{experiment_name}'")
                 return None
 
+            logger.debug(f"[MLflow] Found run {runs[0].info.run_id} for job {job_id}")
             return runs[0]
         except Exception as e:
             logger.debug(f"[MLflow] Error getting run for job {job_id}: {e}")

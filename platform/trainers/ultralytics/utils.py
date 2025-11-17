@@ -448,3 +448,14 @@ def convert_diceformat_to_yolo(dataset_dir: Path, split_config: Optional[Dict[st
         yaml.dump(data_yaml, f, default_flow_style=False)
 
     logger.info(f"Created data.yaml with {len(class_names)} classes")
+
+    # CRITICAL: Delete old YOLO cache files to prevent stale metadata
+    # Old cache can cause training failures (cls_loss ≈ 5, mAP=0)
+    import glob
+    cache_files = glob.glob(str(labels_dir / "*.cache"))
+    for cache_file in cache_files:
+        try:
+            Path(cache_file).unlink()
+            logger.info(f"Deleted old cache file: {cache_file}")
+        except Exception as e:
+            logger.warning(f"Failed to delete cache {cache_file}: {e}")

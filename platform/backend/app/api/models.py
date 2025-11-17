@@ -40,8 +40,21 @@ def load_framework_capabilities(framework: str) -> Optional[Dict[str, Any]]:
         capabilities_bytes = dual_storage.get_capabilities(framework)
 
         if not capabilities_bytes:
-            logger.warning(f"[models] Capabilities not found: {framework}")
-            return None
+            logger.warning(f"[models] Capabilities not found in S3, trying local file: {framework}")
+
+            # Fallback to local file for development
+            import os
+            from pathlib import Path
+
+            # Try to read from platform/trainers/{framework}/capabilities.json
+            local_path = Path(__file__).parent.parent.parent.parent / "trainers" / framework / "capabilities.json"
+            if local_path.exists():
+                logger.info(f"[models] Loading capabilities from local file: {local_path}")
+                capabilities_dict = json.loads(local_path.read_text())
+                return capabilities_dict
+            else:
+                logger.error(f"[models] Local capabilities file not found: {local_path}")
+                return None
 
         # Parse JSON
         capabilities_dict = json.loads(capabilities_bytes.decode('utf-8'))
@@ -269,6 +282,35 @@ async def get_model_by_query(
     return response
 
 
+@router.get("/capabilities/{framework}")
+async def get_framework_capabilities(framework: str):
+    """
+    Get complete capabilities for a specific framework.
+
+    Returns all information including models, task types, and dataset formats.
+
+    Args:
+        framework: Framework name (ultralytics, timm, huggingface)
+
+    Returns:
+        Complete framework capabilities
+
+    Raises:
+        HTTPException: If capabilities not found
+    """
+    capabilities = load_framework_capabilities(framework)
+
+    if not capabilities:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Capabilities for framework '{framework}' not found. "
+                   f"Available frameworks: ultralytics, timm, huggingface. "
+                   f"Capabilities are uploaded via GitHub Actions from platform/trainers/*/capabilities.json"
+        )
+
+    return capabilities
+
+
 @router.get("/{framework}/{model_name:path}", response_model=Dict[str, Any])
 async def get_model(framework: str, model_name: str):
     """
@@ -300,32 +342,3 @@ async def get_model(framework: str, model_name: str):
     }
 
     return response
-
-
-@router.get("/capabilities/{framework}")
-async def get_framework_capabilities(framework: str):
-    """
-    Get complete capabilities for a specific framework.
-
-    Returns all information including models, task types, and dataset formats.
-
-    Args:
-        framework: Framework name (ultralytics, timm, huggingface)
-
-    Returns:
-        Complete framework capabilities
-
-    Raises:
-        HTTPException: If capabilities not found
-    """
-    capabilities = load_framework_capabilities(framework)
-
-    if not capabilities:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Capabilities for framework '{framework}' not found. "
-                   f"Available frameworks: ultralytics, timm, huggingface. "
-                   f"Capabilities are uploaded via GitHub Actions from platform/trainers/*/capabilities.json"
-        )
-
-    return capabilities

@@ -21,7 +21,13 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from sqlalchemy.orm import Session
-from logging_loki import LokiHandler
+
+# Optional Loki integration (disabled on Windows due to query issues)
+try:
+    from logging_loki import LokiHandler
+    LOKI_AVAILABLE = True
+except ImportError:
+    LOKI_AVAILABLE = False
 
 from app.db.database import SessionLocal
 from app.db import models
