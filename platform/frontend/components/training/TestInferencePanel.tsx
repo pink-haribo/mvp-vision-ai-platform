@@ -373,10 +373,10 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
       }
 
       const jobData = await createJobResponse.json()
-      const jobId = jobData.id
-      setInferenceJobId(jobId)
+      const createdInferenceJobId = jobData.id
+      setInferenceJobId(createdInferenceJobId)
 
-      addLog('success', `✓ 추론 작업 생성 완료 (Job ID: ${jobId})`)
+      addLog('success', `✓ 추론 작업 생성 완료 (Job ID: ${createdInferenceJobId})`)
       addLog('info', '추론을 실행 중입니다...')
       setInferenceStatus('running')
 
@@ -389,7 +389,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
 
         try {
           const statusResponse = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/jobs/${jobId}`
+            `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/jobs/${createdInferenceJobId}`
           )
 
           if (!statusResponse.ok) {
@@ -408,7 +408,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             addLog('info', '추론 결과를 불러오는 중...')
 
             const resultsResponse = await fetch(
-              `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/jobs/${jobId}/results`
+              `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/jobs/${createdInferenceJobId}/results`
             )
 
             if (!resultsResponse.ok) {
@@ -425,10 +425,21 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             setImages(prev => prev.map(img => {
               const result = resultsByImageName.get(img.file.name)
               if (result) {
+                // Map task_type: "detection" → "object_detection", etc.
+                const taskTypeMap: Record<string, string> = {
+                  'detection': 'object_detection',
+                  'classification': 'image_classification',
+                  'segmentation': 'instance_segmentation',
+                  'pose': 'pose_estimation'
+                }
+                const mappedTaskType = job?.task_type
+                  ? (taskTypeMap[job.task_type] || job.task_type)
+                  : 'object_detection'
+
                 // Transform result to match expected format
                 const transformedResult = {
                   success: true,
-                  task_type: job?.task_type || 'object_detection',
+                  task_type: mappedTaskType,
                   inference_time_ms: result.inference_time_ms,
                   predicted_boxes: result.predicted_boxes || [],
                   predictions: result.predictions || [],
