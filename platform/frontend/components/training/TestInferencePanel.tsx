@@ -296,8 +296,206 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     addLog('info', `${newImages.length}개의 이미지를 추가했습니다: ${files.map(f => f.name).join(', ')}`)
   }
 
+  // Add state for InferenceJob tracking
+  const [inferenceJobId, setInferenceJobId] = useState<number | null>(null)
+  const [inferenceStatus, setInferenceStatus] = useState<string>('idle')
+
   const runInference = async () => {
     // Allow inference if either pretrained (selectedEpoch is null) or checkpoint exists
+    if (images.length === 0) return
+    if (selectedEpoch && !selectedEpoch.checkpoint_path) return
+
+    setIsRunning(true)
+    setInferenceStatus('uploading')
+
+    const weightType = selectedEpoch ? `Epoch ${selectedEpoch.epoch}` : 'Pretrained Weight'
+    addLog('info', `추론을 시작합니다 (가중치: ${weightType}, 이미지: ${images.length}개)`)
+
+    try {
+      // Step 1: Upload all images to S3 Internal Storage
+      addLog('info', `${images.length}개의 이미지를 S3에 업로드 중...`)
+
+      const formData = new FormData()
+      images.forEach(image => {
+        formData.append('files', image.file)
+      })
+
+      const uploadResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/upload-images?training_job_id=${jobId}`,
+        {
+          method: 'POST',
+          body: formData
+        }
+      )
+
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload images to S3')
+      }
+
+      const uploadData = await uploadResponse.json()
+      const s3Prefix = uploadData.s3_prefix
+
+      addLog('success', `✓ ${uploadData.total_files}개의 이미지를 S3에 업로드 완료`)
+      addLog('info', `S3 경로: ${s3Prefix}`)
+
+      // Step 2: Create InferenceJob
+      addLog('info', '추론 작업을 생성 중...')
+      setInferenceStatus('creating')
+
+      const checkpointPath = selectedEpoch?.checkpoint_path || 'pretrained'
+
+      const createJobResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/jobs`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            training_job_id: jobId,
+            checkpoint_path: checkpointPath,
+            inference_type: 'batch',
+            input_data: {
+              image_paths_s3: s3Prefix,
+              confidence_threshold: confidenceThreshold,
+              iou_threshold: iouThreshold,
+              max_detections: maxDetections,
+              image_size: 640,
+              device: 'cpu',
+              save_txt: true,
+              save_conf: true,
+              save_crop: false
+            }
+          })
+        }
+      )
+
+      if (!createJobResponse.ok) {
+        throw new Error('Failed to create inference job')
+      }
+
+      const jobData = await createJobResponse.json()
+      const jobId = jobData.id
+      setInferenceJobId(jobId)
+
+      addLog('success', `✓ 추론 작업 생성 완료 (Job ID: ${jobId})`)
+      addLog('info', '추론을 실행 중입니다...')
+      setInferenceStatus('running')
+
+      // Step 3: Poll for job completion
+      let pollCount = 0
+      const maxPolls = 60 // 60 * 2s = 2 minutes max
+
+      const pollInterval = setInterval(async () => {
+        pollCount++
+
+        try {
+          const statusResponse = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/jobs/${jobId}`
+          )
+
+          if (!statusResponse.ok) {
+            clearInterval(pollInterval)
+            throw new Error('Failed to fetch job status')
+          }
+
+          const statusData = await statusResponse.json()
+
+          if (statusData.status === 'completed') {
+            clearInterval(pollInterval)
+
+            addLog('success', `✓ 추론 완료 (총 ${statusData.total_images}개, 평균 ${statusData.avg_inference_time_ms?.toFixed(1)}ms)`)
+
+            // Step 4: Fetch results
+            addLog('info', '추론 결과를 불러오는 중...')
+
+            const resultsResponse = await fetch(
+              `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/jobs/${jobId}/results`
+            )
+
+            if (!resultsResponse.ok) {
+              throw new Error('Failed to fetch inference results')
+            }
+
+            const resultsData = await resultsResponse.json()
+
+            // Update images with results
+            const resultsByImageName = new Map(
+              resultsData.results.map((r: any) => [r.image_name, r])
+            )
+
+            setImages(prev => prev.map(img => {
+              const result = resultsByImageName.get(img.file.name)
+              if (result) {
+                // Transform result to match expected format
+                const transformedResult = {
+                  success: true,
+                  task_type: job?.task_type || 'object_detection',
+                  inference_time_ms: result.inference_time_ms,
+                  predicted_boxes: result.predicted_boxes || [],
+                  predictions: result.predictions || [],
+                  top5_predictions: result.top5_predictions || []
+                }
+
+                return {
+                  ...img,
+                  status: 'completed' as const,
+                  result: transformedResult
+                }
+              }
+              return img
+            }))
+
+            addLog('success', `✓ 모든 결과를 불러왔습니다`)
+
+            setInferenceStatus('completed')
+            setIsRunning(false)
+
+          } else if (statusData.status === 'failed') {
+            clearInterval(pollInterval)
+            addLog('error', `추론 실패: ${statusData.error_message || 'Unknown error'}`)
+            setInferenceStatus('failed')
+            setIsRunning(false)
+
+          } else if (statusData.status === 'running') {
+            if (pollCount % 5 === 0) { // Log every 10 seconds
+              addLog('info', '추론이 진행 중입니다...')
+            }
+          }
+
+          if (pollCount >= maxPolls) {
+            clearInterval(pollInterval)
+            addLog('error', '추론 타임아웃 (2분 경과)')
+            setInferenceStatus('failed')
+            setIsRunning(false)
+          }
+
+        } catch (error) {
+          clearInterval(pollInterval)
+          addLog('error', `상태 조회 실패: ${error}`)
+          setInferenceStatus('failed')
+          setIsRunning(false)
+        }
+      }, 2000) // Poll every 2 seconds
+
+    } catch (error: any) {
+      addLog('error', `추론 실패: ${error.message || 'Unknown error'}`)
+      setInferenceStatus('failed')
+      setIsRunning(false)
+
+      // Mark all images as failed
+      setImages(prev => prev.map(img => ({
+        ...img,
+        status: 'failed' as const,
+        error: error.message
+      })))
+    }
+  }
+
+  // Legacy code for reference (to be removed after migration is complete)
+  const runInferenceLegacy_DEPRECATED = async () => {
+    // OLD IMPLEMENTATION - DO NOT USE
+    // This code is kept for reference only and will be removed
+    // See docs/INFERENCE_JOB_PATTERN.md for the new implementation
+
     if (images.length === 0) return
     if (selectedEpoch && !selectedEpoch.checkpoint_path) return
 
@@ -307,15 +505,12 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
     addLog('info', `추론을 시작합니다 (가중치: ${weightType}, 이미지: ${images.length}개)`)
 
     try {
-      // Run inference on each image
       for (const image of images) {
-        // Update status to processing
         setImages(prev => prev.map(img =>
           img.id === image.id ? { ...img, status: 'processing' } : img
         ))
 
         try {
-          // Step 1: Upload image to server if not already uploaded
           let serverPath = image.serverPath
           if (!serverPath) {
             addLog('info', `이미지 업로드 중: ${image.file.name}`)
@@ -337,21 +532,19 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             const uploadData = await uploadResponse.json()
             serverPath = uploadData.server_path
 
-            // Store server path
             setImages(prev => prev.map(img =>
               img.id === image.id ? { ...img, serverPath } : img
             ))
             addLog('success', `이미지 업로드 완료: ${image.file.name}`)
           }
 
-          // Step 2: Run inference with server path and checkpoint from validation results
           if (!serverPath) {
             addLog('error', `이미지 경로를 찾을 수 없습니다: ${image.file.name}`)
             continue
           }
 
           addLog('info', `추론 실행 중: ${image.file.name}`)
-          // Build query parameters
+
           const params = new URLSearchParams({
             training_job_id: jobId.toString(),
             image_path: serverPath,
@@ -361,11 +554,9 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             top_k: topK.toString()
           })
 
-          // Add checkpoint_path only if selected epoch exists (not pretrained)
           if (selectedEpoch && selectedEpoch.checkpoint_path) {
             params.append('checkpoint_path', selectedEpoch.checkpoint_path)
           }
-          // If selectedEpoch is null, backend will use pretrained weights
 
           const response = await fetch(
             `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/quick?` + params.toString(),
@@ -374,19 +565,11 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
 
           if (response.ok) {
             const result = await response.json()
-            console.log('[DEBUG] Inference result received:', result)
-            console.log('[DEBUG] Full result JSON:', JSON.stringify(result, null, 2))
-            console.log('[DEBUG] task_type:', result.task_type)
-            console.log('[DEBUG] top5_predictions:', result.top5_predictions)
-            console.log('[DEBUG] Has upscaled_image_url:', !!result.upscaled_image_url)
-            console.log('[DEBUG] upscaled_image_url value:', result.upscaled_image_url)
 
-            // Update image with result
             setImages(prev => prev.map(img =>
               img.id === image.id ? { ...img, status: 'completed', result } : img
             ))
 
-            // Log result summary
             let resultSummary = `추론 완료: ${image.file.name} (${result.inference_time_ms?.toFixed(1)}ms)`
             if (result.task_type === 'image_classification') {
               const topPred = result.top5_predictions?.[0]
@@ -601,7 +784,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
                       >
                         Epoch {metric.epoch}
                         {metric.epoch === bestEpoch ? ' ⭐' : ''}
-                        {bestMetricName && metric.primary_metric !== undefined ? ` - ${bestMetricName}: ${metric.primary_metric.toFixed(4)}` : ''}
+                        {bestMetricName && typeof metric.primary_metric === 'number' ? ` - ${bestMetricName}: ${metric.primary_metric.toFixed(4)}` : ''}
                         {!metric.checkpoint_path ? ' (체크포인트 없음)' : ''}
                       </option>
                     ))}
