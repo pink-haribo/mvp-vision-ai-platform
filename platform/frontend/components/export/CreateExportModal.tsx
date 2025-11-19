@@ -141,7 +141,7 @@ export default function CreateExportModal({ isOpen, onClose, trainingJobId, onSu
       }
 
       const data = await response.json()
-      setCapabilities(data.formats || [])
+      setCapabilities(data.supported_formats || [])
     } catch (err) {
       console.error('Error fetching capabilities:', err)
       setError('Failed to load export capabilities. Please try again.')
@@ -162,7 +162,11 @@ export default function CreateExportModal({ isOpen, onClose, trainingJobId, onSu
 
       if (formData.format === 'onnx') {
         config.opset_version = formData.opset_version
-        config.dynamic_axes = formData.dynamic_axes
+        // dynamic_axes should be a dict like {"input": [0, 2, 3]} or null
+        // For now, we send null when disabled, let backend use defaults when enabled
+        if (formData.dynamic_axes) {
+          config.dynamic_axes = {"images": [0]}  // Default: batch dimension is dynamic
+        }
       } else if (formData.format === 'tensorrt') {
         config.fp16 = formData.fp16
         config.int8 = formData.int8
@@ -176,11 +180,19 @@ export default function CreateExportModal({ isOpen, onClose, trainingJobId, onSu
         config.embed_preprocessing = true
       }
 
-      const requestBody = {
+      const requestBody: Record<string, any> = {
         training_job_id: trainingJobId,
         export_format: formData.format,
-        include_validation: formData.include_validation,
         export_config: config
+      }
+
+      // Add validation config if enabled
+      if (formData.include_validation) {
+        requestBody.validation_config = {
+          validate_outputs: true,
+          tolerance: 0.001,
+          num_samples: 10
+        }
       }
 
       const response = await fetch(
@@ -284,7 +296,9 @@ export default function CreateExportModal({ isOpen, onClose, trainingJobId, onSu
                   {Object.keys(formatInfo).map((format) => {
                     const info = formatInfo[format]
                     const capability = capabilities.find((c) => c.format === format)
-                    const isSupported = capability?.supported !== false
+                    // Only show as supported if capability exists and is supported
+                    // If capabilities array is empty (API failed), show all as unsupported
+                    const isSupported = capabilities.length > 0 && capability?.supported !== false
                     const isRecommended = capability?.recommended || false
                     const colors = colorClasses[info.color]
 

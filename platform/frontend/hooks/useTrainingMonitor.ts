@@ -43,6 +43,9 @@ export type TrainingMessage =
   | { type: 'training_log'; job_id: number; log: TrainingLog }
   | { type: 'training_complete'; job_id: number; timestamp: string }
   | { type: 'training_error'; job_id: number; error: string; timestamp: string }
+  | { type: 'export_status_change'; job_id: number; export_job_id: number; old_status: string; new_status: string; timestamp: string }
+  | { type: 'export_complete'; job_id: number; export_job_id: number; timestamp: string }
+  | { type: 'export_error'; job_id: number; export_job_id: number; error: string; timestamp: string }
   | { type: 'pong' };
 
 export interface UseTrainingMonitorOptions {
@@ -55,6 +58,7 @@ export interface UseTrainingMonitorOptions {
   onStatusChange?: (jobId: number, oldStatus: string, newStatus: string) => void;
   onMetrics?: (jobId: number, metrics: TrainingMetrics) => void;
   onLog?: (jobId: number, log: TrainingLog) => void;
+  onExportStatusChange?: (jobId: number, exportJobId: number, oldStatus: string, newStatus: string) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
   onError?: (error: Event) => void;
@@ -71,6 +75,7 @@ export function useTrainingMonitor(options: UseTrainingMonitorOptions = {}) {
     onStatusChange,
     onMetrics,
     onLog,
+    onExportStatusChange,
     onConnect,
     onDisconnect,
     onError,
@@ -92,7 +97,9 @@ export function useTrainingMonitor(options: UseTrainingMonitorOptions = {}) {
 
     // Build WebSocket URL
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = process.env.NEXT_PUBLIC_API_URL?.replace(/^https?:\/\//, '') || 'localhost:8000';
+    // Extract just the host:port from API URL (remove protocol and /api/v1 path)
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+    const wsHost = apiUrl.replace(/^https?:\/\//, '').replace(/\/api\/v1$/, '') || 'localhost:8000';
     let wsUrl = `${wsProtocol}//${wsHost}/api/v1/ws/training`;
 
     // Add query parameters
@@ -135,6 +142,11 @@ export function useTrainingMonitor(options: UseTrainingMonitorOptions = {}) {
             onMetrics?.(message.job_id, message.metrics);
           } else if (message.type === 'training_log') {
             onLog?.(message.job_id, message.log);
+          } else if (message.type === 'export_status_change' || message.type === 'export_complete' || message.type === 'export_error') {
+            const oldStatus = message.type === 'export_status_change' ? message.old_status : '';
+            const newStatus = message.type === 'export_status_change' ? message.new_status :
+                             message.type === 'export_complete' ? 'completed' : 'failed';
+            onExportStatusChange?.(message.job_id, message.export_job_id, oldStatus, newStatus);
           }
         } catch (error) {
           console.error('[TrainingMonitor] Error parsing message:', error);
@@ -173,7 +185,7 @@ export function useTrainingMonitor(options: UseTrainingMonitorOptions = {}) {
     } catch (error) {
       console.error('[TrainingMonitor] Failed to create WebSocket:', error);
     }
-  }, [jobId, sessionId, reconnectAttempts, reconnectInterval, maxReconnectAttempts, onConnect, onDisconnect, onError, onMessage, onStatusChange, onMetrics, onLog]);
+  }, [jobId, sessionId, reconnectAttempts, reconnectInterval, maxReconnectAttempts, onConnect, onDisconnect, onError, onMessage, onStatusChange, onMetrics, onLog, onExportStatusChange]);
 
   const disconnect = useCallback(() => {
     if (pingIntervalRef.current) {

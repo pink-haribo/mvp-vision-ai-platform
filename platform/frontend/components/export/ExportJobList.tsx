@@ -8,9 +8,10 @@ interface ExportJobListProps {
   trainingJobId: number
   onCreateExport?: () => void
   onDeploy?: (exportJobId: number) => void
+  refreshKey?: number // Incremented by parent when WebSocket receives export updates
 }
 
-export default function ExportJobList({ trainingJobId, onCreateExport, onDeploy }: ExportJobListProps) {
+export default function ExportJobList({ trainingJobId, onCreateExport, onDeploy, refreshKey }: ExportJobListProps) {
   const [exportJobs, setExportJobs] = useState<ExportJob[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -44,25 +45,10 @@ export default function ExportJobList({ trainingJobId, onCreateExport, onDeploy 
     }
   }
 
+  // Initial fetch and WebSocket-triggered refresh (no polling)
   useEffect(() => {
     fetchExportJobs()
-
-    // Poll for updates every 3 seconds if there are running exports
-    const hasRunningExports = exportJobs.some(job => job.status === 'running' || job.status === 'pending')
-    if (hasRunningExports) {
-      const interval = setInterval(fetchExportJobs, 3000)
-      return () => clearInterval(interval)
-    }
-  }, [trainingJobId])
-
-  // Refresh when export jobs change (to continue polling if needed)
-  useEffect(() => {
-    const hasRunningExports = exportJobs.some(job => job.status === 'running' || job.status === 'pending')
-    if (hasRunningExports) {
-      const interval = setInterval(fetchExportJobs, 3000)
-      return () => clearInterval(interval)
-    }
-  }, [exportJobs])
+  }, [trainingJobId, refreshKey])
 
   const handleDownload = async (exportJobId: number) => {
     try {

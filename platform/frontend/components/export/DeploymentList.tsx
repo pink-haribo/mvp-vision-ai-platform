@@ -28,7 +28,7 @@ export default function DeploymentList({ trainingJobId, onCreateDeployment, onTe
 
       const token = localStorage.getItem('access_token')
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/deployments/training/${trainingJobId}`,
+        `${process.env.NEXT_PUBLIC_API_URL}/export/deployments?training_job_id=${trainingJobId}`,
         {
           headers: {
             'Authorization': `Bearer ${token}`
@@ -41,7 +41,7 @@ export default function DeploymentList({ trainingJobId, onCreateDeployment, onTe
       }
 
       const data = await response.json()
-      setDeployments(data)
+      setDeployments(data.deployments || [])
     } catch (err) {
       console.error('Error fetching deployments:', err)
       setError(err instanceof Error ? err.message : 'Failed to load deployments')
@@ -58,7 +58,7 @@ export default function DeploymentList({ trainingJobId, onCreateDeployment, onTe
     try {
       const token = localStorage.getItem('access_token')
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/deployments/${deploymentId}/activate`,
+        `${process.env.NEXT_PUBLIC_API_URL}/export/deployments/${deploymentId}/activate`,
         {
           method: 'PATCH',
           headers: {
@@ -87,7 +87,7 @@ export default function DeploymentList({ trainingJobId, onCreateDeployment, onTe
     try {
       const token = localStorage.getItem('access_token')
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/deployments/${deploymentId}/deactivate`,
+        `${process.env.NEXT_PUBLIC_API_URL}/export/deployments/${deploymentId}/deactivate`,
         {
           method: 'PATCH',
           headers: {
@@ -116,7 +116,7 @@ export default function DeploymentList({ trainingJobId, onCreateDeployment, onTe
     try {
       const token = localStorage.getItem('access_token')
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/deployments/${deploymentId}`,
+        `${process.env.NEXT_PUBLIC_API_URL}/export/deployments/${deploymentId}`,
         {
           method: 'DELETE',
           headers: {

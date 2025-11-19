@@ -9,6 +9,7 @@ interface CreateDeploymentModalProps {
   onClose: () => void
   trainingJobId: number
   onSuccess: () => void
+  selectedExportJobId?: number  // If provided, skip step 1 and go directly to step 2
 }
 
 interface ExportJob {
@@ -82,8 +83,8 @@ const colorClasses: Record<string, { bg: string; border: string; text: string; h
   gray: { bg: 'bg-gray-50', border: 'border-gray-200', text: 'text-gray-800', hover: 'hover:border-gray-400' }
 }
 
-export default function CreateDeploymentModal({ isOpen, onClose, trainingJobId, onSuccess }: CreateDeploymentModalProps) {
-  const [step, setStep] = useState(1)
+export default function CreateDeploymentModal({ isOpen, onClose, trainingJobId, onSuccess, selectedExportJobId }: CreateDeploymentModalProps) {
+  const [step, setStep] = useState(selectedExportJobId ? 2 : 1)
   const [exportJobs, setExportJobs] = useState<ExportJob[]>([])
   const [loadingExports, setLoadingExports] = useState(false)
   const [formData, setFormData] = useState<DeploymentFormData>({
@@ -102,11 +103,19 @@ export default function CreateDeploymentModal({ isOpen, onClose, trainingJobId, 
   useEffect(() => {
     if (isOpen) {
       fetchExportJobs()
+      // If selectedExportJobId is provided, skip to step 2
+      if (selectedExportJobId) {
+        setStep(2)
+        setFormData(prev => ({
+          ...prev,
+          export_job_id: selectedExportJobId
+        }))
+      }
     } else {
       // Reset on close
-      setStep(1)
+      setStep(selectedExportJobId ? 2 : 1)
       setFormData({
-        export_job_id: 0,
+        export_job_id: selectedExportJobId || 0,
         deployment_type: 'platform_endpoint',
         auto_activate: true,
         package_name: '',
@@ -117,7 +126,7 @@ export default function CreateDeploymentModal({ isOpen, onClose, trainingJobId, 
       })
       setError(null)
     }
-  }, [isOpen, trainingJobId])
+  }, [isOpen, trainingJobId, selectedExportJobId])
 
   const fetchExportJobs = async () => {
     try {
@@ -138,7 +147,8 @@ export default function CreateDeploymentModal({ isOpen, onClose, trainingJobId, 
 
       const data = await response.json()
       // Filter only completed exports
-      const completed = data.filter((job: ExportJob) => job.status === 'completed')
+      const exports = data.export_jobs || []
+      const completed = exports.filter((job: ExportJob) => job.status === 'completed')
       setExportJobs(completed)
 
       // Auto-select default export if exists
@@ -182,7 +192,7 @@ export default function CreateDeploymentModal({ isOpen, onClose, trainingJobId, 
       }
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/deployments`,
+        `${process.env.NEXT_PUBLIC_API_URL}/export/deployments`,
         {
           method: 'POST',
           headers: {

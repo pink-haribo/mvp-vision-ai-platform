@@ -25,12 +25,14 @@ interface MLflowMetricsChartsProps {
   jobId: number | string;
   selectedMetrics?: string[];
   jobStatus?: string;
+  refreshKey?: number; // Incremented by parent when WebSocket receives metrics updates
 }
 
 export default function MLflowMetricsCharts({
   jobId,
   selectedMetrics = [],
   jobStatus,
+  refreshKey,
 }: MLflowMetricsChartsProps) {
   const [metricsData, setMetricsData] = useState<MLflowMetricsData | null>(
     null
@@ -61,11 +63,7 @@ export default function MLflowMetricsCharts({
     };
 
     fetchMetrics();
-
-    // Poll every 5 seconds for updates (only if not pending)
-    const interval = setInterval(fetchMetrics, 5000);
-    return () => clearInterval(interval);
-  }, [jobId, jobStatus]);
+  }, [jobId, jobStatus, refreshKey]); // WebSocket-triggered refresh instead of polling
 
   if (isLoading) {
     return (

@@ -19,6 +19,8 @@ from app.db.database import get_db
 from app.db import models
 from app.schemas import export as export_schemas
 from app.utils.training_subprocess import get_training_subprocess_manager
+from app.utils.dual_storage import dual_storage
+from app.services.websocket_manager import get_websocket_manager
 
 logger = logging.getLogger(__name__)
 
@@ -126,11 +128,26 @@ EXPORT_CAPABILITIES = {
     }
 }
 
+# Task type aliases for backward compatibility
+# Maps short names used in TrainingJob to canonical names in EXPORT_CAPABILITIES
+TASK_TYPE_ALIASES = {
+    "detection": "object_detection",
+    "segmentation": "instance_segmentation",
+    "pose": "pose_estimation",
+    "classification": "image_classification",
+}
+
+
+def normalize_task_type(task_type: str) -> str:
+    """Normalize task_type to canonical form used in EXPORT_CAPABILITIES."""
+    return TASK_TYPE_ALIASES.get(task_type, task_type)
+
 
 @router.get("/capabilities", response_model=export_schemas.ExportCapabilitiesResponse)
 async def get_export_capabilities(
-    framework: str = Query(..., description="Framework name (ultralytics, timm, etc.)"),
-    task_type: str = Query(..., description="Task type (object_detection, image_classification, etc.)"),
+    training_job_id: Optional[int] = Query(None, description="Training job ID (preferred, will look up framework/task_type)"),
+    framework: Optional[str] = Query(None, description="Framework name (ultralytics, timm, etc.)"),
+    task_type: Optional[str] = Query(None, description="Task type (object_detection, image_classification, etc.)"),
     db: Session = Depends(get_db)
 ):
     """
@@ -138,14 +155,39 @@ async def get_export_capabilities(
 
     Returns supported export formats, optimization options, and recommended defaults.
 
+    You can provide either:
+    - training_job_id: Will look up framework and task_type from the training job
+    - framework + task_type: Direct specification
+
     Args:
-        framework: Framework name
-        task_type: Task type
+        training_job_id: Training job ID (will look up framework/task_type)
+        framework: Framework name (if not using training_job_id)
+        task_type: Task type (if not using training_job_id)
         db: Database session
 
     Returns:
         ExportCapabilitiesResponse with supported formats and options
     """
+    # If training_job_id is provided, look up framework and task_type
+    if training_job_id is not None:
+        training_job = db.query(models.TrainingJob).filter(
+            models.TrainingJob.id == training_job_id
+        ).first()
+
+        if not training_job:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Training job {training_job_id} not found"
+            )
+
+        framework = training_job.framework
+        task_type = training_job.task_type
+    elif framework is None or task_type is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Either training_job_id or both framework and task_type must be provided"
+        )
+
     # Check if framework is supported
     if framework not in EXPORT_CAPABILITIES:
         raise HTTPException(
@@ -153,19 +195,22 @@ async def get_export_capabilities(
             detail=f"Framework '{framework}' not supported. Supported: {list(EXPORT_CAPABILITIES.keys())}"
         )
 
+    # Normalize task_type (e.g., "detection" -> "object_detection")
+    normalized_task_type = normalize_task_type(task_type)
+
     # Check if task type is supported for this framework
-    if task_type not in EXPORT_CAPABILITIES[framework]:
+    if normalized_task_type not in EXPORT_CAPABILITIES[framework]:
         raise HTTPException(
             status_code=404,
             detail=f"Task type '{task_type}' not supported for framework '{framework}'. "
                    f"Supported: {list(EXPORT_CAPABILITIES[framework].keys())}"
         )
 
-    capabilities = EXPORT_CAPABILITIES[framework][task_type]
+    capabilities = EXPORT_CAPABILITIES[framework][normalized_task_type]
 
     return export_schemas.ExportCapabilitiesResponse(
         framework=framework,
-        task_type=task_type,
+        task_type=task_type,  # Return original task_type for backward compatibility
         supported_formats=[
             export_schemas.ExportFormatCapability(**fmt)
             for fmt in capabilities["supported_formats"]
@@ -259,6 +304,23 @@ async def create_export_job(
     db.add(export_job)
     db.commit()
     db.refresh(export_job)
+
+    # Broadcast WebSocket event for new export job
+    try:
+        ws_manager = get_websocket_manager()
+        ws_message = {
+            "type": "export_status_change",
+            "job_id": request.training_job_id,
+            "export_job_id": export_job.id,
+            "old_status": "",
+            "new_status": "pending",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        import asyncio
+        asyncio.create_task(ws_manager.broadcast_to_job(request.training_job_id, ws_message))
+        logger.info(f"[EXPORT] WebSocket broadcast sent for new export job {export_job.id}")
+    except Exception as e:
+        logger.warning(f"[EXPORT] Failed to send WebSocket broadcast: {e}")
 
     # Launch background task to run export
     async def run_export_task(job_id: int):
@@ -409,6 +471,81 @@ async def get_export_job(
 
     return export_schemas.ExportJobResponse.model_validate(export_job)
 
+
+
+
+@router.get("/{export_job_id}/download")
+async def get_export_download_url(
+    export_job_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get presigned download URL for exported model.
+
+    Returns a temporary URL (1 hour expiration) to download the exported model file.
+
+    Args:
+        export_job_id: Export job ID
+        db: Database session
+
+    Returns:
+        JSON with download_url field
+    """
+    export_job = db.query(models.ExportJob).filter(
+        models.ExportJob.id == export_job_id
+    ).first()
+
+    if not export_job:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Export job {export_job_id} not found"
+        )
+
+    if export_job.status != models.ExportJobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Export job {export_job_id} is not completed (status: {export_job.status})"
+        )
+
+    if not export_job.export_path:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Export job {export_job_id} has no export path"
+        )
+
+    # Extract object_key from S3 URI (s3://bucket/key -> key)
+    export_path = export_job.export_path
+    if export_path.startswith("s3://"):
+        # Remove s3://bucket/ prefix
+        parts = export_path.replace("s3://", "").split("/", 1)
+        object_key = parts[1] if len(parts) > 1 else ""
+    else:
+        object_key = export_path
+
+    # Generate presigned URL from internal storage (checkpoints)
+    try:
+        download_url = dual_storage.internal_client.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": dual_storage.internal_bucket_checkpoints,
+                "Key": object_key
+            },
+            ExpiresIn=3600  # 1 hour
+        )
+    except Exception as e:
+        logger.error(f"Failed to generate presigned URL: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate download URL: {str(e)}"
+        )
+
+    if not download_url:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate download URL"
+        )
+
+    return {"download_url": download_url}
 
 # ========== Deployment Endpoints (Placeholder) ==========
 
@@ -628,6 +765,23 @@ async def export_completion_callback(
     db.commit()
 
     logger.info(f"[EXPORT CALLBACK] Export job {export_job_id} updated in database")
+
+    # Broadcast WebSocket event for real-time updates
+    try:
+        ws_manager = get_websocket_manager()
+        ws_message = {
+            "type": "export_status_change",
+            "job_id": export_job.training_job_id,
+            "export_job_id": export_job_id,
+            "old_status": "running",
+            "new_status": status,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        import asyncio
+        asyncio.create_task(ws_manager.broadcast_to_job(export_job.training_job_id, ws_message))
+        logger.info(f"[EXPORT CALLBACK] WebSocket broadcast sent for training job {export_job.training_job_id}")
+    except Exception as e:
+        logger.warning(f"[EXPORT CALLBACK] Failed to send WebSocket broadcast: {e}")
 
     return {
         "message": "Callback received",

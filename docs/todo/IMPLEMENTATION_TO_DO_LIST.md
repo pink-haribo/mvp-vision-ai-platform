@@ -17,8 +17,9 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 3. Training Services | ✅ 88% | Phase 3.1-3.6 완료 | [Phase 3 References](#phase-3-references) |
 | 4. Experiment & MLflow | 🔄 86% | 기본 통합 완료, UI 대기 | - |
 | 5. Analytics | ⬜ 0% | 미시작 | - |
-| 6. Deployment | ⬜ 0% | 미시작 | - |
+| 6. Model Deployment & Serving | ⬜ 0% | Triton 기반 고도화 배포 계획 완료 | [Phase 6 Details](#phase-6-model-deployment--serving-0) |
 | 7. Trainer Marketplace | ⬜ 0% | 계획 완료 | [TRAINER_MARKETPLACE_VISION.md](../planning/TRAINER_MARKETPLACE_VISION.md) |
+| 8. E2E Testing | ⬜ 5% | 기본 테스트 완료, 전체 커버리지 필요 | [E2E_TEST_GUIDE.md](../E2E_TEST_GUIDE.md) |
 
 ---
 
@@ -64,6 +65,40 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 ### 0.8 Migration to Tier 2 ⬜
 - [ ] Trainer Docker 이미지 빌드
 - [ ] K8s Job training 테스트
+
+### 0.9 Real-time Updates (WebSocket) 🔄 (80%)
+현재 polling 방식을 WebSocket으로 전환하여 실시간 업데이트 구현.
+
+**문제점**: 현재 프론트엔드가 3초 간격으로 polling하여 서버 부하 및 지연 발생
+
+**목표**: CLAUDE.md 원칙 준수 - "Real-time updates MUST go through WebSocket, not polling"
+
+**Backend**:
+- [x] WebSocket 엔드포인트 구현 (`/api/v1/ws/training`)
+- [x] WebSocket Manager 구현 (broadcast, job/session subscription)
+- [x] Job 상태 변경 시 WebSocket broadcast
+- [x] Export job 상태 변경 시 WebSocket broadcast
+- [ ] Redis Pub/Sub 연동 (다중 인스턴스 지원) - 단일 인스턴스에서는 불필요
+
+**Frontend**:
+- [x] WebSocket 연결 관리 훅 (`useTrainingMonitor`)
+- [x] Training job 상태 실시간 업데이트
+- [x] Training metrics 실시간 스트리밍
+- [x] Export job 상태 실시간 업데이트
+- [~] Inference job 상태 - 단기 작업이므로 polling 유지 (2초 간격, 최대 2분)
+
+**Polling 제거 완료**:
+- [x] `ExportJobList.tsx` - 3초 폴링 제거, refreshKey 패턴 적용
+- [x] `TrainingPanel` - metrics 폴링 제거, WebSocket onMetrics 콜백 적용
+- [x] `MLflowMetricsCharts.tsx` - 5초 폴링 제거, refreshKey 패턴 적용
+- [~] `TestInferencePanel` - 단기 작업 polling 유지 (적절한 패턴)
+
+**구현 파일**:
+- `platform/backend/app/api/websocket.py` - WebSocket router
+- `platform/backend/app/services/websocket_manager.py` - Connection manager
+- `platform/frontend/hooks/useTrainingMonitor.ts` - WebSocket hook
+
+**Reference**: [ARCHITECTURE.md](../architecture/ARCHITECTURE.md) - WebSocket Message Types 섹션
 
 **Reference**: [TIER0_SETUP.md](../development/TIER0_SETUP.md)
 
@@ -204,11 +239,124 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 
 ---
 
-## Phase 6: Deployment & Infrastructure (0%)
+## Phase 6: Model Deployment & Serving (0%)
 
-- [ ] Production deployment 분석
-- [ ] CI/CD pipeline
-- [ ] Auto-scaling
+Production-grade 모델 서빙 인프라 구현. Export된 모델을 실제 추론 서비스로 배포.
+
+### 6.1 Inference Server Infrastructure ⬜
+**목표**: Triton Inference Server 기반 고성능 모델 서빙
+
+- [ ] Inference Server 선택 및 아키텍처 설계
+  - [ ] Triton vs ONNX Runtime vs TorchServe 비교 분석
+  - [ ] 멀티 모델 서빙 전략
+- [ ] Triton Inference Server 배포
+  - [ ] K8s Deployment manifest
+  - [ ] Model repository 구조 설계 (S3 연동)
+  - [ ] 모델 버전 관리 (model versioning)
+- [ ] 동적 배칭 (Dynamic Batching)
+  - [ ] 배치 크기 최적화
+  - [ ] 최대 지연 시간 설정
+- [ ] GPU 메모리 관리
+  - [ ] 모델별 메모리 할당
+  - [ ] 다중 GPU 분배
+
+### 6.2 Platform Endpoint Service ⬜
+**목표**: 관리형 추론 API 제공
+
+- [ ] Endpoint Manager 서비스
+  - [ ] Deployment → Triton 모델 로딩 자동화
+  - [ ] 모델 활성화/비활성화 API
+  - [ ] 헬스체크 및 readiness probe
+- [ ] API Gateway 연동
+  - [ ] Kong/Envoy 설정
+  - [ ] Rate limiting
+  - [ ] Request routing (deployment_id → model)
+- [ ] 인증/인가
+  - [ ] API Key 생성 및 관리
+  - [ ] Key rotation
+  - [ ] Scope/Permission 설정
+- [ ] 추론 API 구현
+  - [ ] `POST /v1/infer/{deployment_id}`
+  - [ ] 이미지 전처리 (base64, URL, multipart)
+  - [ ] 결과 후처리 (task_type별 포맷)
+
+### 6.3 Auto-scaling & Resource Management ⬜
+**목표**: 트래픽에 따른 자동 스케일링
+
+- [ ] Horizontal Pod Autoscaler (HPA)
+  - [ ] CPU/Memory 기반 스케일링
+  - [ ] Custom metrics (요청 수, 지연시간)
+- [ ] Vertical Pod Autoscaler (VPA)
+  - [ ] GPU 메모리 최적화
+- [ ] Cluster Autoscaler
+  - [ ] 노드 자동 추가/제거
+- [ ] 리소스 쿼터 관리
+  - [ ] Organization별 GPU 할당량
+  - [ ] 동시 요청 수 제한
+
+### 6.4 Monitoring & Observability ⬜
+**목표**: 실시간 성능 모니터링 및 알림
+
+- [ ] Prometheus 메트릭 수집
+  - [ ] 요청 수 (requests/sec)
+  - [ ] 지연 시간 (p50, p95, p99)
+  - [ ] 처리량 (throughput)
+  - [ ] GPU 사용률
+  - [ ] 모델별 메트릭
+- [ ] Grafana 대시보드
+  - [ ] Deployment 상태 대시보드
+  - [ ] 성능 트렌드 시각화
+  - [ ] 에러율 모니터링
+- [ ] 알림 설정
+  - [ ] 지연시간 임계치 초과
+  - [ ] 에러율 증가
+  - [ ] 리소스 부족
+
+### 6.5 Usage Tracking & Billing ⬜
+**목표**: 사용량 추적 및 과금 기반 데이터
+
+- [ ] 요청 로깅
+  - [ ] 요청/응답 메타데이터 저장
+  - [ ] 처리 시간 기록
+- [ ] 사용량 집계
+  - [ ] Organization별 일/월 사용량
+  - [ ] Deployment별 통계
+- [ ] 과금 데이터
+  - [ ] GPU 시간 계산
+  - [ ] 요청 수 기반 과금
+  - [ ] 비용 예측
+
+### 6.6 Edge & Container Deployment ⬜
+**목표**: 자체 호스팅 배포 옵션
+
+- [ ] Edge Package 생성
+  - [ ] 경량 런타임 번들링
+  - [ ] 플랫폼별 최적화 (ARM, x86)
+  - [ ] 오프라인 추론 지원
+- [ ] Container Image 빌드
+  - [ ] Dockerfile 템플릿
+  - [ ] Registry push (Docker Hub, GCR, ECR)
+  - [ ] 이미지 크기 최적화
+- [ ] Runtime Wrappers
+  - [ ] Python SDK
+  - [ ] C++ SDK
+  - [ ] REST API 서버 포함 옵션
+
+### 6.7 CI/CD Pipeline ⬜
+**목표**: 자동화된 배포 파이프라인
+
+- [ ] GitHub Actions 워크플로우
+  - [ ] 테스트 자동화
+  - [ ] 이미지 빌드
+  - [ ] K8s 배포
+- [ ] GitOps (ArgoCD)
+  - [ ] 선언적 배포 관리
+  - [ ] 롤백 자동화
+- [ ] 카나리 배포
+  - [ ] 트래픽 분할
+  - [ ] 자동 롤백
+
+**Reference**: [PHASE_3_6_EXPORT_DEPLOYMENT_PLAN.md](../planning/PHASE_3_6_EXPORT_DEPLOYMENT_PLAN.md)
 
 ---
 
@@ -237,15 +385,126 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 
 ---
 
-## Testing
+## Phase 8: Comprehensive E2E Testing (0%)
 
-### E2E Test Status
-- [x] Inference Test (Pretrained + Checkpoint)
-- [ ] Training Test
-- [ ] Export Test
-- [ ] Dataset Upload Test
+E2E 테스트는 프론트엔드가 보내는 모든 요청 조합을 검증해야 함.
+핵심 원칙: "API가 동작하는가?"가 아니라 "프론트엔드의 모든 UI 조합이 동작하는가?"
 
-**Reference**: [E2E_TEST_GUIDE.md](../E2E_TEST_GUIDE.md)
+### 8.1 Export Feature Tests ⬜
+
+**8.1.1 ONNX Export Options**
+- [ ] Basic export (opset_version only)
+- [ ] With dynamic_axes enabled
+- [ ] With validation_config
+- [ ] Different opset versions (13, 14, 15, 16, 17, 18)
+- [ ] With embed_preprocessing
+
+**8.1.2 TensorRT Export Options**
+- [ ] Basic export
+- [ ] With FP16 precision
+- [ ] With INT8 quantization
+- [ ] Different max_batch_size values
+
+**8.1.3 CoreML Export Options**
+- [ ] Basic export
+- [ ] Different minimum_deployment_target (iOS13-17)
+
+**8.1.4 Other Formats**
+- [ ] TFLite export
+- [ ] TorchScript export
+- [ ] OpenVINO export
+
+**8.1.5 Export Download & Deploy Flow**
+- [ ] Presigned URL generation
+- [ ] Deployment creation (all types)
+- [ ] Deployment activate/deactivate
+
+### 8.2 Training Feature Tests ⬜
+
+**8.2.1 Training Job Creation**
+- [ ] Basic training config
+- [ ] Custom hyperparameters (lr, epochs, batch_size)
+- [ ] Different model selections
+- [ ] Different task types (detection, segmentation, pose)
+
+**8.2.2 Training Monitoring**
+- [ ] Real-time metrics polling/WebSocket
+- [ ] Progress tracking
+- [ ] Checkpoint saving verification
+
+**8.2.3 Training Completion**
+- [ ] Best checkpoint saved
+- [ ] Last checkpoint saved
+- [ ] MLflow metrics logged
+
+### 8.3 Inference Feature Tests ⬜
+
+**8.3.1 Pretrained Model Inference**
+- [x] YOLO pretrained weights
+- [ ] Different image formats (jpg, png, webp)
+- [ ] Batch inference
+
+**8.3.2 Checkpoint Inference**
+- [x] Custom trained checkpoint
+- [ ] Best vs Last checkpoint selection
+
+**8.3.3 Inference Results**
+- [ ] Result visualization
+- [ ] S3 result storage
+- [ ] Result download
+
+### 8.4 Dataset Management Tests ⬜
+
+**8.4.1 Dataset Upload**
+- [ ] Zip file upload
+- [ ] Auto-format detection (YOLO, COCO, ImageFolder)
+- [ ] Split ratio configuration
+
+**8.4.2 Dataset Operations**
+- [ ] Snapshot creation
+- [ ] Dataset listing
+- [ ] Dataset deletion
+
+### 8.5 Deployment Feature Tests ⬜
+
+**8.5.1 Platform Endpoint**
+- [ ] Endpoint creation
+- [ ] API key generation
+- [ ] Inference via endpoint
+
+**8.5.2 Other Deployment Types**
+- [ ] Edge package creation
+- [ ] Container image creation
+- [ ] Direct download
+
+### 8.6 API Schema Consistency Tests ⬜
+
+**핵심: Frontend 요청 ↔ Backend 스키마 일치 검증**
+
+- [ ] Export capabilities response (`supported_formats` vs `formats`)
+- [ ] Export job request (all fields match schema)
+- [ ] Deployment request (all fields match schema)
+- [ ] Training job request (all fields match schema)
+- [ ] Inference request (all fields match schema)
+
+### 8.7 Error Handling Tests ⬜
+
+- [ ] Invalid training_job_id handling
+- [ ] Missing required fields handling
+- [ ] Authentication errors
+- [ ] File not found errors
+- [ ] Network timeout handling
+
+### 8.8 Test Infrastructure ⬜
+
+- [ ] Test fixtures (sample datasets, checkpoints)
+- [ ] CI/CD integration
+- [ ] Test coverage reporting
+- [ ] Automated regression testing
+
+**References**:
+- [E2E_TEST_GUIDE.md](../E2E_TEST_GUIDE.md)
+- [EXPORT_DEPLOY_E2E_TEST_REPORT.md](./reference/EXPORT_DEPLOY_E2E_TEST_REPORT.md)
 
 ---
 

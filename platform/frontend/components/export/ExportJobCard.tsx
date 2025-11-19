@@ -1,6 +1,7 @@
 'use client'
 
-import { Download, Rocket, Trash2, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react'
+import { useState } from 'react'
+import { Download, Rocket, Trash2, Clock, CheckCircle, XCircle, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
 export interface ExportJob {
@@ -45,6 +46,8 @@ const formatColors: Record<string, string> = {
 }
 
 export default function ExportJobCard({ job, onDownload, onDeploy, onDelete }: ExportJobCardProps) {
+  const [showError, setShowError] = useState(false)
+
   const getStatusBadge = () => {
     switch (job.status) {
       case 'pending':
@@ -128,7 +131,7 @@ export default function ExportJobCard({ job, onDownload, onDeploy, onDelete }: E
           <span className="font-mono text-gray-900">#{job.id}</span>
         </div>
 
-        {job.file_size_mb !== undefined && (
+        {job.file_size_mb != null && (
           <div className="flex items-center justify-between text-sm">
             <span className="text-gray-600">Size:</span>
             <span className="font-medium text-gray-900">{job.file_size_mb.toFixed(2)} MB</span>
@@ -160,11 +163,27 @@ export default function ExportJobCard({ job, onDownload, onDeploy, onDelete }: E
         )}
       </div>
 
-      {/* Error Message */}
+      {/* Error Message - Collapsible */}
       {job.status === 'failed' && job.error_message && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-800 font-medium mb-1">Error:</p>
-          <p className="text-sm text-red-600">{job.error_message}</p>
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setShowError(!showError)}
+            className="w-full p-3 flex items-center justify-between text-left hover:bg-red-100 transition-colors"
+          >
+            <span className="text-sm text-red-800 font-medium">Error Details</span>
+            {showError ? (
+              <ChevronUp className="w-4 h-4 text-red-600" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-red-600" />
+            )}
+          </button>
+          {showError && (
+            <div className="px-3 pb-3 border-t border-red-200">
+              <p className="text-sm text-red-600 mt-2 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                {job.error_message}
+              </p>
+            </div>
+          )}
         </div>
       )}
 

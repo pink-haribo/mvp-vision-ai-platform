@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { getModelDisplayNameSync, getTaskDisplayName, formatTrainingJobTitle } from '@/lib/utils/modelUtils'
@@ -14,6 +14,7 @@ import CreateExportModal from './export/CreateExportModal'
 import DeploymentList from './export/DeploymentList'
 import CreateDeploymentModal from './export/CreateDeploymentModal'
 import InferenceTestPanel from './export/InferenceTestPanel'
+import { useTrainingMonitor } from '@/hooks/useTrainingMonitor'
 
 interface TrainingJob {
   id: number
@@ -81,117 +82,110 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
   // Export & Deploy modals
   const [showCreateExportModal, setShowCreateExportModal] = useState(false)
   const [showCreateDeploymentModal, setShowCreateDeploymentModal] = useState(false)
+  const [selectedExportJobId, setSelectedExportJobId] = useState<number | undefined>(undefined)
   const [testingDeployment, setTestingDeployment] = useState<{ id: number; apiKey: string; endpointUrl: string } | null>(null)
+  const [exportRefreshKey, setExportRefreshKey] = useState(0) // Incremented to trigger ExportJobList refresh
+  const [metricsRefreshKey, setMetricsRefreshKey] = useState(0) // Incremented to trigger MLflowMetricsCharts refresh
 
-  // Fetch training job details
-  useEffect(() => {
+  // Fetch functions as callbacks for reuse
+  const fetchJob = useCallback(async () => {
     if (!trainingJobId) return
-
-    const fetchJob = async () => {
-      try {
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}`
-        )
-        if (response.ok) {
-          const data = await response.json()
-          setJob(data)
-        }
-      } catch (error) {
-        console.error('Error fetching training job:', error)
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}`
+      )
+      if (response.ok) {
+        const data = await response.json()
+        setJob(data)
       }
+    } catch (error) {
+      console.error('Error fetching training job:', error)
     }
-
-    fetchJob()
-
-    // Poll for updates every 2 seconds if training is running
-    const interval = setInterval(fetchJob, 2000)
-    return () => clearInterval(interval)
   }, [trainingJobId])
 
-  // Fetch metrics
+  const fetchMetrics = useCallback(async () => {
+    if (!trainingJobId) return
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/metrics`
+      )
+      if (response.ok) {
+        const data = await response.json()
+        setMetrics(data)
+      }
+    } catch (error) {
+      console.error('Error fetching metrics:', error)
+    }
+  }, [trainingJobId])
+
+  const fetchLogs = useCallback(async () => {
+    if (!trainingJobId) return
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/logs?limit=1000`
+      )
+      if (response.ok) {
+        const data = await response.json()
+        setLogs(data)
+      }
+    } catch (error) {
+      console.error('Error fetching logs:', error)
+    }
+  }, [trainingJobId])
+
+  // WebSocket for real-time updates (replaces polling)
+  useTrainingMonitor({
+    jobId: trainingJobId,
+    autoConnect: !!trainingJobId,
+    onStatusChange: (jobId, oldStatus, newStatus) => {
+      console.log(`[WebSocket] Job ${jobId} status changed: ${oldStatus} -> ${newStatus}`)
+      fetchJob() // Refetch job details on status change
+    },
+    onMetrics: (jobId, metrics) => {
+      console.log(`[WebSocket] Job ${jobId} new metrics received`)
+      fetchMetrics() // Refetch all metrics
+      setMetricsRefreshKey(prev => prev + 1) // Trigger MLflowMetricsCharts refresh
+    },
+    onLog: (jobId, log) => {
+      console.log(`[WebSocket] Job ${jobId} new log received`)
+      fetchLogs() // Refetch all logs
+    },
+    onExportStatusChange: (jobId, exportJobId, oldStatus, newStatus) => {
+      console.log(`[WebSocket] Export job ${exportJobId} status changed: ${oldStatus} -> ${newStatus}`)
+      setExportRefreshKey(prev => prev + 1) // Trigger ExportJobList refresh
+    },
+    onConnect: () => {
+      console.log('[WebSocket] Connected to training updates')
+    },
+    onDisconnect: () => {
+      console.log('[WebSocket] Disconnected from training updates')
+    }
+  })
+
+  // Initial data fetch (no polling - WebSocket handles updates)
   useEffect(() => {
     if (!trainingJobId) return
+    fetchJob()
+  }, [trainingJobId, fetchJob])
 
-    const fetchMetrics = async () => {
-      try {
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/metrics`
-        )
-        if (response.ok) {
-          const data = await response.json()
-          console.log('[DEBUG] Fetched metrics:', data)
-          console.log('[DEBUG] Metrics count:', data.length)
-          if (data.length > 0) {
-            console.log('[DEBUG] First metric:', data[0])
-          }
-          setMetrics(data)
-        } else {
-          console.error('[DEBUG] Failed to fetch metrics, status:', response.status)
-        }
-      } catch (error) {
-        console.error('Error fetching metrics:', error)
-      }
-    }
-
+  // Initial metrics fetch (WebSocket handles updates)
+  useEffect(() => {
+    if (!trainingJobId) return
     fetchMetrics()
-
-    // Poll for metrics every 2 seconds if training is running
-    if (job?.status === 'running') {
-      const interval = setInterval(fetchMetrics, 2000)
-      return () => clearInterval(interval)
-    }
-  }, [trainingJobId, job?.status])
+  }, [trainingJobId, fetchMetrics])
 
   // Refetch metrics when switching to metrics tab
   useEffect(() => {
     if (activeTab === 'metrics' && trainingJobId) {
-      const refetchMetrics = async () => {
-        try {
-          const response = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/metrics`
-          )
-          if (response.ok) {
-            const data = await response.json()
-            setMetrics(data)
-          }
-        } catch (error) {
-          console.error('Error refetching metrics:', error)
-        }
-      }
-      refetchMetrics()
+      fetchMetrics()
     }
-  }, [activeTab, trainingJobId])
+  }, [activeTab, trainingJobId, fetchMetrics])
 
-  // Fetch logs from Loki
+  // Initial logs fetch (WebSocket handles updates)
   useEffect(() => {
     if (!trainingJobId) return
-
-    const fetchLogs = async () => {
-      try {
-        // Use DB API for log retrieval
-        // Note: Loki integration deferred due to Windows query issues
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/logs?limit=1000`
-        )
-        if (response.ok) {
-          const data = await response.json()
-          setLogs(data)
-        } else {
-          console.error('Failed to fetch logs:', response.statusText)
-        }
-      } catch (error) {
-        console.error('Error fetching logs:', error)
-      }
-    }
-
     fetchLogs()
-
-    // Poll for logs every 2 seconds if training is running
-    if (job?.status === 'running') {
-      const interval = setInterval(fetchLogs, 2000)
-      return () => clearInterval(interval)
-    }
-  }, [trainingJobId, job?.status])
+  }, [trainingJobId, fetchLogs])
 
   // Auto-scroll logs to bottom when updated
   useEffect(() => {
@@ -791,6 +785,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                 jobId={job.id}
                 selectedMetrics={selectedMetrics}
                 jobStatus={job.status}
+                refreshKey={metricsRefreshKey}
               />
             </div>
 
@@ -1129,7 +1124,11 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                     <ExportJobList
                       trainingJobId={trainingJobId!}
                       onCreateExport={() => setShowCreateExportModal(true)}
-                      onDeploy={(exportJobId) => setShowCreateDeploymentModal(true)}
+                      onDeploy={(exportJobId) => {
+                        setSelectedExportJobId(exportJobId)
+                        setShowCreateDeploymentModal(true)
+                      }}
+                      refreshKey={exportRefreshKey}
                     />
                   </div>
 
@@ -1139,7 +1138,10 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                       <h3 className="text-lg font-semibold text-gray-900">Deployments</h3>
                       <button
                         className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
-                        onClick={() => setShowCreateDeploymentModal(true)}
+                        onClick={() => {
+                          setSelectedExportJobId(undefined)
+                          setShowCreateDeploymentModal(true)
+                        }}
                       >
                         + New Deployment
                       </button>
@@ -1147,7 +1149,10 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
 
                     <DeploymentList
                       trainingJobId={trainingJobId!}
-                      onCreateDeployment={() => setShowCreateDeploymentModal(true)}
+                      onCreateDeployment={() => {
+                        setSelectedExportJobId(undefined)
+                        setShowCreateDeploymentModal(true)
+                      }}
                       onTestInference={(deploymentId) => {
                         // Fetch deployment details to get API key and endpoint
                         fetch(`${process.env.NEXT_PUBLIC_API_URL}/deployments/${deploymentId}`, {
@@ -1231,13 +1236,18 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
 
           <CreateDeploymentModal
             isOpen={showCreateDeploymentModal}
-            onClose={() => setShowCreateDeploymentModal(false)}
+            onClose={() => {
+              setShowCreateDeploymentModal(false)
+              setSelectedExportJobId(undefined)
+            }}
             trainingJobId={trainingJobId}
             onSuccess={() => {
               setShowCreateDeploymentModal(false)
+              setSelectedExportJobId(undefined)
               // Trigger refresh by re-rendering the tab
               setActiveTab('export_deploy')
             }}
+            selectedExportJobId={selectedExportJobId}
           />
         </>
       )}

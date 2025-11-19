@@ -148,11 +148,12 @@ def export_model(
         export_kwargs['format'] = 'onnx'
         export_kwargs['opset'] = export_config.get('opset_version', 13)
         export_kwargs['simplify'] = export_config.get('simplify', True)
-        export_kwargs['dynamic'] = export_config.get('dynamic', True)
-
-        # Dynamic axes configuration
+        # Ultralytics uses 'dynamic' (bool), not 'dynamic_axes' (dict)
+        # If dynamic_axes is specified, enable dynamic mode
         if export_config.get('dynamic_axes'):
-            export_kwargs['dynamic_axes'] = export_config['dynamic_axes']
+            export_kwargs['dynamic'] = True
+        else:
+            export_kwargs['dynamic'] = export_config.get('dynamic', True)
 
     elif export_format == 'tensorrt':
         # TensorRT export parameters
@@ -394,6 +395,7 @@ def create_export_package(
     runtimes_dir.mkdir(exist_ok=True)
 
     # Copy runtime wrappers based on export format
+    export_format = metadata.get('model_info', {}).get('export_format', 'unknown')
     copy_runtime_wrappers(runtimes_dir, export_format, metadata)
     logger.info(f"[EXPORT] Runtime wrappers copied to: {runtimes_dir}")
 
@@ -458,8 +460,8 @@ async def send_completion_callback(
 
     try:
         # Send callback (assuming callback endpoint exists)
-        # POST /api/v1/export/{export_job_id}/callback/completion
-        url = f"{callback_client.base_url}/export/{export_job_id}/callback/completion"
+        # POST /api/v1/export/jobs/{export_job_id}/callback/completion
+        url = f"{callback_client.base_url}/export/jobs/{export_job_id}/callback/completion"
 
         import httpx
         async with httpx.AsyncClient(timeout=30.0) as client:
