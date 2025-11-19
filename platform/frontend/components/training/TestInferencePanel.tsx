@@ -389,7 +389,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
 
         try {
           const statusResponse = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/jobs/${createdInferenceJobId}`
+            `${process.env.NEXT_PUBLIC_API_URL}/test_inference/inference/jobs/detail/${createdInferenceJobId}`
           )
 
           if (!statusResponse.ok) {
