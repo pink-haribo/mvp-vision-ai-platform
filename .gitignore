@@ -139,6 +139,9 @@ runs/
 # ===== Test Files =====
 test_*.json
 test_*.py
+# Exceptions: actual API endpoints (not test files)
+!platform/backend/app/api/test_inference.py
+!platform/backend/test_inference_e2e.py
 **/test_output/
 
 # ===== Temporary Files =====
