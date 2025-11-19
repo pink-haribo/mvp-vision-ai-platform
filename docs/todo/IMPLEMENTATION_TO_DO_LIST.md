@@ -20,7 +20,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 6. Model Deployment & Serving | ⬜ 0% | Triton 기반 고도화 배포 계획 완료 | [Phase 6 Details](#phase-6-model-deployment--serving-0) |
 | 7. Trainer Marketplace | ⬜ 0% | 계획 완료 | [TRAINER_MARKETPLACE_VISION.md](../planning/TRAINER_MARKETPLACE_VISION.md) |
 | 8. E2E Testing | ⬜ 5% | 기본 테스트 완료, 전체 커버리지 필요 | [E2E_TEST_GUIDE.md](../E2E_TEST_GUIDE.md) |
-| 9. Thin SDK | ⬜ 0% | 설계 완료, 구현 대기 | [THIN_SDK_DESIGN.md](../references/THIN_SDK_DESIGN.md) |
+| 9. Thin SDK | ⬜ 0% | 설계 완료, 구현 대기 | [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md) |
 
 ---
 
