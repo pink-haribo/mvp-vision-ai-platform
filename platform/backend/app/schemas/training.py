@@ -115,6 +115,7 @@ class TrainingJobResponse(BaseModel):
 
     final_accuracy: Optional[float] = None
     best_checkpoint_path: Optional[str] = None
+    last_checkpoint_path: Optional[str] = None
 
     # Primary metric configuration
     primary_metric: Optional[str] = None
@@ -240,6 +241,7 @@ class TrainingCompletionCallback(BaseModel):
     # Artifacts
     final_checkpoint_path: Optional[str] = Field(None, description="Path to final checkpoint")
     best_checkpoint_path: Optional[str] = Field(None, description="Path to best checkpoint")
+    last_checkpoint_path: Optional[str] = Field(None, description="Path to last checkpoint")
     model_artifacts_path: Optional[str] = Field(None, description="Path to exported model artifacts")
 
     # MLflow integration

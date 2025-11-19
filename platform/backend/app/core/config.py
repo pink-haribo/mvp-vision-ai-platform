@@ -12,6 +12,7 @@ class Settings(BaseSettings):
 
     # API Settings
     API_V1_PREFIX: str = "/api/v1"
+    API_BASE_URL: str = "http://localhost:8000"  # Base URL for callbacks (override in production)
     PROJECT_NAME: str = "Vision AI Training Platform - MVP"
     BACKEND_PORT: int = 8000
 
@@ -79,10 +80,11 @@ class Settings(BaseSettings):
             # Unknown database URL format
             print(f"[CONFIG] Using database URL: {self.DATABASE_URL}")
 
-    # Training Service URLs
-    TIMM_SERVICE_URL: str = "http://localhost:8001"
-    ULTRALYTICS_SERVICE_URL: str = "http://localhost:8002"
-    HUGGINGFACE_SERVICE_URL: str = "http://localhost:8003"
+    # Training Service URLs (DEPRECATED - now using subprocess execution)
+    # These URLs are kept for backward compatibility but are not actively used
+    TIMM_SERVICE_URL: str = "http://localhost:8001"  # UNUSED
+    # ULTRALYTICS_SERVICE_URL removed - using subprocess CLI execution
+    HUGGINGFACE_SERVICE_URL: str = "http://localhost:8003"  # UNUSED
 
     # Training Defaults
     DEFAULT_BATCH_SIZE: int = 32

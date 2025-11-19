@@ -109,6 +109,9 @@ nul
 # Utility scripts (one-off conversions, migrations)
 **/convert_*.py
 **/migrate_*.py
+# Exception: organized scripts in platform/backend
+!platform/backend/migrations/
+!platform/backend/scripts/
 
 # MLflow tracking data
 runs/
@@ -139,9 +142,9 @@ runs/
 # ===== Test Files =====
 test_*.json
 test_*.py
-# Exceptions: actual API endpoints (not test files)
+# Exceptions: actual API endpoints and organized test folders
 !platform/backend/app/api/test_inference.py
-!platform/backend/test_inference_e2e.py
+!platform/backend/tests/
 **/test_output/
 
 # ===== Temporary Files =====

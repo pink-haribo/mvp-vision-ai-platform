@@ -360,8 +360,14 @@ def convert_diceformat_to_yolo(dataset_dir: Path, split_config: Optional[Dict[st
             image_annotations[img_id] = []
         image_annotations[img_id].append(ann)
 
-    # Create category_id -> index mapping
+    # IMPORTANT: YOLO requires class IDs to be 0-indexed and continuous (0, 1, 2, ...)
+    # Always remap category_id to 0-based indices using enumerate
+    # This ensures:
+    #   1. All datasets are treated consistently (COCO subset, custom datasets, etc.)
+    #   2. Class IDs in labels match the index in data.yaml names list
+    #   3. No gaps in class ID sequence (required by YOLO)
     category_map = {cat['id']: idx for idx, cat in enumerate(categories)}
+    logger.info(f"Dataset: {len(categories)} classes, remapping category_id to 0-{len(categories)-1}")
 
     # Create labels directory
     labels_dir = dataset_dir / "labels"
@@ -433,26 +439,30 @@ def convert_diceformat_to_yolo(dataset_dir: Path, split_config: Optional[Dict[st
     logger.info(f"Created train.txt ({len(train_images)} images) and val.txt ({len(val_images)} images)")
 
     # Create data.yaml
-    class_names = [cat['name'] for cat in categories]
+    # Use actual category names from the dataset (in enumerate order)
+    # This matches the category_map remapping done above
+    names = [cat['name'] for cat in categories]
+    nc = len(categories)
 
+    # Note: Do NOT use 'path' field - YOLO resolves paths relative to data.yaml location
     data_yaml = {
-        'path': str(dataset_dir.absolute()),
-        'train': 'train.txt',
-        'val': 'val.txt',
-        'nc': len(class_names),
-        'names': class_names
+        'train': 'train.txt',  # File list relative to data.yaml
+        'val': 'val.txt',      # File list relative to data.yaml
+        'nc': nc,
+        'names': names
     }
 
     import yaml
     with open(dataset_dir / "data.yaml", 'w') as f:
         yaml.dump(data_yaml, f, default_flow_style=False)
 
-    logger.info(f"Created data.yaml with {len(class_names)} classes")
+    logger.info(f"Created data.yaml with nc={nc} classes")
 
     # CRITICAL: Delete old YOLO cache files to prevent stale metadata
     # Old cache can cause training failures (cls_loss ≈ 5, mAP=0)
+    # Cache files are created in dataset root (e.g., dataset/labels.cache)
     import glob
-    cache_files = glob.glob(str(labels_dir / "*.cache"))
+    cache_files = glob.glob(str(dataset_dir / "*.cache"))
     for cache_file in cache_files:
         try:
             Path(cache_file).unlink()

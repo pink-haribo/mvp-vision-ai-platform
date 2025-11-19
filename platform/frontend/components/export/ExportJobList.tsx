@@ -35,7 +35,7 @@ export default function ExportJobList({ trainingJobId, onCreateExport, onDeploy 
       }
 
       const data = await response.json()
-      setExportJobs(data)
+      setExportJobs(data.export_jobs || [])
     } catch (err) {
       console.error('Error fetching export jobs:', err)
       setError(err instanceof Error ? err.message : 'Failed to load export jobs')

@@ -484,6 +484,7 @@ class TrainingJob(Base):
 
     final_accuracy = Column(Float, nullable=True)
     best_checkpoint_path = Column(String(500), nullable=True)
+    last_checkpoint_path = Column(String(500), nullable=True)
 
     # Primary metric configuration
     primary_metric = Column(String(100), nullable=True, default="loss")  # Metric name to optimize (e.g., 'accuracy', 'mAP50', 'f1_score')
@@ -811,7 +812,10 @@ class InferenceResult(Base):
     confidence = Column(Float, nullable=True)
     top5_predictions = Column(JSON, nullable=True)
 
-    # Detection predictions
+    # Raw predictions (task-agnostic)
+    predictions = Column(JSON, nullable=True)  # Store all predictions from predict.py
+
+    # Detection predictions (structured)
     predicted_boxes = Column(JSON, nullable=True)
 
     # Segmentation predictions

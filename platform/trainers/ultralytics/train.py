@@ -121,6 +121,50 @@ def sanitize_metric_name(name: str) -> str:
     return name
 
 
+def calculate_fitness(metrics: dict, primary_metric: str, primary_metric_mode: str = "max") -> float:
+    """
+    Calculate fitness score based on primary_metric configuration.
+
+    This replaces YOLO's default fitness calculation (0.1*mAP50 + 0.9*mAP50-95)
+    with user-configured metric.
+
+    Args:
+        metrics: Trainer metrics dictionary
+        primary_metric: Metric name to optimize (e.g., 'mAP50', 'mAP50-95', 'precision')
+        primary_metric_mode: 'max' (higher is better) or 'min' (lower is better)
+
+    Returns:
+        Fitness score (higher is always better, normalized for 'min' metrics)
+    """
+    # Map user-friendly metric names to YOLO metric keys
+    metric_key_map = {
+        'mAP50': 'metrics/mAP50(B)',
+        'mAP50-95': 'metrics/mAP50-95(B)',
+        'precision': 'metrics/precision(B)',
+        'recall': 'metrics/recall(B)',
+        'loss': 'val/box_loss',  # Use validation box loss
+        'box_loss': 'val/box_loss',
+        'cls_loss': 'val/cls_loss',
+        'dfl_loss': 'val/dfl_loss',
+    }
+
+    # Get the actual metric key
+    metric_key = metric_key_map.get(primary_metric, primary_metric)
+
+    # Extract metric value
+    fitness_value = metrics.get(metric_key, 0.0)
+
+    # For 'min' metrics (like loss), invert so higher is better
+    if primary_metric_mode == "min":
+        # Use negative value so lower loss = higher fitness
+        # Add small epsilon to avoid division by zero
+        fitness_value = -float(fitness_value) if fitness_value else 0.0
+    else:
+        fitness_value = float(fitness_value)
+
+    return fitness_value
+
+
 async def train_model(
     job_id: str,
     model_name: str,
@@ -174,6 +218,7 @@ async def train_model(
         image_size = config.get('imgsz', 640)
         device = config.get('device', 'cpu')
         primary_metric = config.get('primary_metric', 'mAP50-95')
+        primary_metric_mode = config.get('primary_metric_mode', 'max')
 
         # Extract advanced config parameters (from config_schema.py)
         # These will be passed directly to model.train() if present
@@ -256,45 +301,78 @@ async def train_model(
                 'batch_size': batch_size,
                 'image_size': image_size,
                 'device': device,
+                'primary_metric': primary_metric,
+                'primary_metric_mode': primary_metric_mode,
             }
             # Add advanced params to MLflow logging
             mlflow_params.update(advanced_params)
             mlflow.log_params(mlflow_params)
-            logger.info("Logged parameters to MLflow")
+            logger.info(f"Logged parameters to MLflow (primary_metric={primary_metric}, mode={primary_metric_mode})")
 
             # Load model
             logger.info(f"Loading model: {model_name}")
             model = YOLO(f"{model_name}.pt")
 
+            # Track logged epochs to prevent duplicates (final_eval triggers on_fit_epoch_end again)
+            logged_epochs = set()
+
             # Epoch callback for progress updates
             def on_fit_epoch_end(trainer):
                 """Called at end of each fit epoch (after validation)"""
                 try:
-                    nonlocal training_state
+                    nonlocal training_state, logged_epochs
 
                     epoch = trainer.epoch + 1
+
+                    # Prevent duplicate logging (final_eval re-triggers this callback)
+                    if epoch in logged_epochs:
+                        logger.debug(f"Epoch {epoch} already logged, skipping duplicate callback")
+                        return
+
+                    logged_epochs.add(epoch)
                     training_state['current_epoch'] = epoch
 
-                    # Extract metrics
+                    # Extract metrics (validation + detection)
                     metrics = {}
                     if hasattr(trainer, 'metrics') and trainer.metrics:
-                        # DEBUG: Log raw trainer.metrics before processing
-                        logger.info(f"[DEBUG] Epoch {epoch} - Raw trainer.metrics: {trainer.metrics}")
-                        logger.info(f"[DEBUG] Epoch {epoch} - trainer.metrics type: {type(trainer.metrics)}")
-
                         metrics = {k: float(v) if isinstance(v, (int, float)) else v
                                    for k, v in trainer.metrics.items()}
 
-                        # DEBUG: Log processed metrics
-                        logger.info(f"[DEBUG] Epoch {epoch} - Processed metrics: {metrics}")
+                    # Add train losses (box_loss, cls_loss, dfl_loss)
+                    if hasattr(trainer, 'tloss') and trainer.tloss is not None:
+                        train_loss_dict = trainer.label_loss_items(trainer.tloss, prefix="train")
+                        if train_loss_dict:
+                            metrics.update(train_loss_dict)
+                            logger.debug(f"Added train losses: {train_loss_dict}")
+
+                    # DEBUG: Log all metrics (train + val)
+                    logger.info(f"[DEBUG] Epoch {epoch} - All metrics: {metrics}")
+
+                    # Calculate custom fitness based on primary_metric
+                    custom_fitness = calculate_fitness(metrics, primary_metric, primary_metric_mode)
+                    metrics['fitness'] = custom_fitness  # Add to metrics for logging
+
+                    # Override YOLO's fitness with our custom calculation
+                    if hasattr(trainer, 'best_fitness'):
+                        # YOLO's default fitness uses (0.1*mAP50 + 0.9*mAP50-95)
+                        # We replace it with user-configured primary_metric
+                        current_best = trainer.best_fitness
+
+                        if custom_fitness > current_best:
+                            trainer.best_fitness = custom_fitness
+                            logger.info(
+                                f"[FITNESS] New best {primary_metric}! "
+                                f"fitness: {custom_fitness:.4f} (prev: {current_best:.4f})"
+                            )
+                        else:
+                            logger.debug(
+                                f"[FITNESS] Current {primary_metric}: {custom_fitness:.4f} "
+                                f"(best: {current_best:.4f})"
+                            )
 
                     # Log metrics to MLflow (with sanitized names and epoch step)
                     if metrics:
                         sanitized_metrics = {sanitize_metric_name(k): v for k, v in metrics.items()}
-
-                        # DEBUG: Log sanitized metrics before MLflow
-                        logger.info(f"[DEBUG] Epoch {epoch} - Sanitized metrics: {sanitized_metrics}")
-
                         mlflow.log_metrics(sanitized_metrics, step=epoch)
                         logger.debug(f"Logged {len(sanitized_metrics)} metrics to MLflow for epoch {epoch}")
                     else:
@@ -359,14 +437,28 @@ async def train_model(
 
             logger.info("Training completed")
 
-            # Upload checkpoint (automatically uses Internal Storage - MinIO-Results)
+            # Upload checkpoints (automatically uses Internal Storage - MinIO-Results)
             best_pt = project_dir / "train" / "weights" / "best.pt"
+            last_pt = project_dir / "train" / "weights" / "last.pt"
+
+            # Upload best.pt
             if best_pt.exists():
-                logger.info("Uploading checkpoint to S3...")
-                checkpoint_uri = storage.upload_checkpoint(best_pt, job_id, "best.pt")
+                logger.info("Uploading best checkpoint to S3...")
+                best_checkpoint_uri = storage.upload_checkpoint(best_pt, job_id, "best.pt")
             else:
-                logger.warning("best.pt not found, skipping checkpoint upload")
-                checkpoint_uri = None
+                logger.warning("best.pt not found, skipping best checkpoint upload")
+                best_checkpoint_uri = None
+
+            # Upload last.pt
+            if last_pt.exists():
+                logger.info("Uploading last checkpoint to S3...")
+                last_checkpoint_uri = storage.upload_checkpoint(last_pt, job_id, "last.pt")
+            else:
+                logger.warning("last.pt not found, skipping last checkpoint upload")
+                last_checkpoint_uri = None
+
+            # For backward compatibility, keep checkpoint_uri pointing to best
+            checkpoint_uri = best_checkpoint_uri
 
             # Extract final metrics
             final_metrics = {}
@@ -480,7 +572,8 @@ async def train_model(
                 'final_metrics': {
                     'extra_metrics': final_metrics
                 } if final_metrics else None,
-                'best_checkpoint_path': checkpoint_uri,  # Changed from checkpoint_path
+                'best_checkpoint_path': best_checkpoint_uri,
+                'last_checkpoint_path': last_checkpoint_uri,
                 'mlflow_run_id': run.info.run_id,
                 'exit_code': 0,  # K8s Job compatibility
             }

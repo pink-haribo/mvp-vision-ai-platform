@@ -1690,31 +1690,16 @@ async def training_completion_callback(
         # Update completion time
         job.completed_at = datetime.utcnow()
 
-        # Store final metrics
+        # Update job final accuracy if available (from final_metrics)
         if callback.final_metrics:
             # Extract metrics dynamically to support any trainer's metric structure
             metrics_dict = callback.final_metrics.dict() if hasattr(callback.final_metrics, 'dict') else {}
             extra_metrics = metrics_dict.get('extra_metrics', {})
-
-            # Update job final accuracy if available
             job.final_accuracy = metrics_dict.get('accuracy') or extra_metrics.get('accuracy')
 
-            # Store as metric record
-            metric = models.TrainingMetric(
-                job_id=job_id,
-                epoch=callback.total_epochs_completed,
-                step=None,
-                # Standard fields with fallback to extra_metrics
-                loss=metrics_dict.get('loss') or extra_metrics.get('loss'),
-                accuracy=metrics_dict.get('accuracy') or extra_metrics.get('accuracy'),
-                learning_rate=metrics_dict.get('learning_rate') or extra_metrics.get('learning_rate') or extra_metrics.get('lr'),
-                # Store all metrics in extra_metrics for dynamic access
-                extra_metrics=extra_metrics if extra_metrics else metrics_dict,
-                checkpoint_path=callback.final_checkpoint_path or callback.best_checkpoint_path,
-            )
-            db.add(metric)
-
-            logger.info(f"[CALLBACK] Created final TrainingMetric record for epoch {callback.total_epochs_completed}")
+        # NOTE: Do NOT create duplicate TrainingMetric record here
+        # Metrics are already saved by epoch callbacks during training
+        # Completion callback only updates checkpoint paths and final status
 
         # Store best metrics if provided
         if callback.best_metrics and callback.best_epoch:
@@ -1732,6 +1717,8 @@ async def training_completion_callback(
         # Update checkpoint paths
         if callback.best_checkpoint_path:
             job.best_checkpoint_path = callback.best_checkpoint_path
+        if callback.last_checkpoint_path:
+            job.last_checkpoint_path = callback.last_checkpoint_path
 
         # Store MLflow run ID
         if callback.mlflow_run_id:
