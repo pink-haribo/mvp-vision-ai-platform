@@ -48,9 +48,10 @@
 ### 1. Minimal Dependencies
 
 ```python
-# Required dependencies only
+# Required dependencies
 import httpx  # HTTP client with retry support
 import boto3  # S3-compatible storage
+import yaml   # Dataset configuration (PyYAML)
 ```
 
 ### 2. Single File Distribution
@@ -897,21 +898,51 @@ def validate_sdk_usage(trainer_dir: Path) -> ValidationResult:
 
 ## Migration Strategy
 
-### Backward Compatibility
+### Aggressive Migration (No Fallbacks)
 
-마이그레이션 기간 동안 기존 CallbackClient도 계속 동작해야 합니다.
+**원칙: Fallback 없이 확실하게 마이그레이션**
 
-1. **Phase 1-2**: SDK와 기존 utils.py 공존
-2. **Phase 3**: Backend가 두 형식 모두 지원
-3. **Phase 4**: 모든 trainer가 SDK로 마이그레이션 완료
-4. **Phase 5**: 기존 utils.py 제거 (선택적)
+기존 코드와의 호환성을 유지하려고 하면 어디서 문제가 발생하는지 파악하기 어렵습니다.
+에러가 발생하면 그것을 수용하고 명확하게 수정합니다.
 
-### Rollback Plan
+#### Migration Steps
 
-문제 발생 시:
-1. trainer_sdk.py 제거
-2. 기존 utils.py import 복원
-3. git revert로 이전 상태 복원
+1. **Phase 1**: SDK 구현 완료
+2. **Phase 2**: Ultralytics trainer를 SDK로 완전 마이그레이션
+   - `utils.py`의 `CallbackClient`, `DualStorageClient` → SDK로 대체
+   - 기존 코드 제거 (fallback 없음)
+   - 에러 발생 시 즉시 수정
+3. **Phase 3**: Backend callback handler 단순화
+   - SDK 표준 스키마만 처리
+   - 레거시 형식 지원 제거
+4. **Phase 4**: utils.py 정리
+   - SDK로 이전된 기능 완전 제거
+   - 남은 기능만 유지
+
+#### Why No Fallbacks?
+
+```python
+# ❌ BAD: Fallback으로 문제 숨김
+try:
+    sdk.report_progress(...)
+except:
+    callback_client.send_progress_sync(...)  # 어디가 문제인지 모름
+
+# ✅ GOOD: 에러 노출하여 명확하게 수정
+sdk.report_progress(...)  # 에러 발생하면 바로 확인 가능
+```
+
+**장점:**
+- 문제 발생 지점 명확
+- 기술 부채 없음
+- 깔끔한 코드베이스
+- 테스트 신뢰성 향상
+
+**단점 (수용 가능):**
+- 마이그레이션 중 일시적 기능 중단 가능
+- 즉각적인 에러 수정 필요
+
+**마이그레이션은 개발 환경에서 진행하므로 일시적 중단 허용**
 
 ---
 
@@ -998,9 +1029,9 @@ def convert_diceformat_to_yolo(dataset_dir: Path, split_config: Optional[Dict] =
 
 **PyYAML**만 외부 의존성이며, 이는 대부분의 ML 프레임워크에서 이미 사용 중입니다.
 
-### Decision: Include Data Utilities
+### Decision: Include Data Utilities (Required)
 
-데이터 유틸리티를 SDK에 포함하되, **Optional 모듈**로 분리합니다.
+데이터 유틸리티를 SDK의 **필수 기능**으로 포함합니다.
 
 #### Rationale
 
@@ -1009,9 +1040,10 @@ def convert_diceformat_to_yolo(dataset_dir: Path, split_config: Optional[Dict] =
 - 데이터 포맷 지원 통일 (DICEFormat, COCO, YOLO)
 - 중복 코드 제거
 - Split 로직 표준화
+- 통신 + 데이터 처리를 하나의 SDK로 통합
 
-**단점 및 해결책:**
-- PyYAML 의존성 추가 → 대부분의 trainer에 이미 있음, optional import로 처리
+**의존성:**
+- PyYAML → 모든 ML trainer에 이미 포함되어 있음 (필수)
 - Framework별 다른 포맷 요구 → 공통 변환만 SDK에, framework-specific은 trainer에서
 
 ### Data Utility Functions Specification
@@ -1236,9 +1268,9 @@ dataset/
 }
 ```
 
-### SDK Structure Update
+### SDK Structure (Final)
 
-데이터 유틸리티 포함 시 SDK 구조:
+데이터 유틸리티가 필수로 포함된 SDK 구조:
 
 ```python
 # platform/trainers/common/trainer_sdk.py
@@ -1257,7 +1289,7 @@ class TrainerSDK:
     def download_checkpoint(self): ...
     def download_dataset(self): ...
 
-    # Data utility functions (optional, requires PyYAML)
+    # Data utility functions (required)
     def convert_dataset(self): ...
     def create_data_yaml(self): ...
     def split_dataset(self): ...
@@ -1265,33 +1297,28 @@ class TrainerSDK:
     def clean_dataset_cache(self): ...
 ```
 
-### Optional Import Pattern
+### Required Dependencies
 
 ```python
 # trainer_sdk.py
 
-# Core dependencies (required)
-import httpx
-import boto3
-
-# Optional dependencies for data utilities
-try:
-    import yaml
-    YAML_AVAILABLE = True
-except ImportError:
-    YAML_AVAILABLE = False
+# All dependencies are required
+import httpx     # HTTP client with retry
+import boto3     # S3 storage
+import yaml      # Dataset configuration (PyYAML)
+import json      # Built-in
+import random    # Built-in
+from pathlib import Path  # Built-in
 
 class TrainerSDK:
-    def convert_dataset(self, ...):
-        if not YAML_AVAILABLE:
-            raise ImportError(
-                "PyYAML is required for dataset conversion. "
-                "Install with: pip install pyyaml"
-            )
-        # ... implementation
+    """
+    All functions are available without optional imports.
+    PyYAML is required for all trainers.
+    """
+    pass
 ```
 
-이렇게 하면 데이터 유틸리티가 필요하지 않은 trainer는 PyYAML 없이도 SDK를 사용할 수 있습니다.
+**참고:** 모든 ML trainer는 이미 PyYAML을 사용하므로 추가 의존성 부담이 없습니다.
 
 ---
 
