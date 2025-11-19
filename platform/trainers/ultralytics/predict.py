@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Ultralytics YOLO Inference
+Ultralytics YOLO Inference (SDK Version)
 
-Simple CLI script for running inference with trained YOLO models with S3 integration and Backend callbacks.
+Simple CLI script for running inference with trained YOLO models using the Trainer SDK.
+All observability is handled by Backend.
 
 Usage:
     python predict.py \
@@ -23,18 +24,18 @@ Exit Codes:
 """
 
 import argparse
-import asyncio
 import json
 import logging
 import os
 import sys
+import time
 import traceback
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
 from ultralytics import YOLO
 
-from utils import DualStorageClient, CallbackClient
+from trainer_sdk import ErrorType, TrainerSDK
 
 # Configure logging
 logging.basicConfig(
@@ -49,9 +50,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Ultralytics YOLO Inference')
 
     parser.add_argument('--inference-job-id', type=str, help='Inference job ID')
-    parser.add_argument('--training-job-id', type=str, help='Original training job ID (for checkpoint reference)')
+    parser.add_argument('--training-job-id', type=str, help='Original training job ID')
     parser.add_argument('--checkpoint-s3-uri', type=str, help='S3 URI to trained checkpoint')
-    parser.add_argument('--images-s3-uri', type=str, help='S3 URI to input images (folder or prefix)')
+    parser.add_argument('--images-s3-uri', type=str, help='S3 URI to input images')
     parser.add_argument('--callback-url', type=str, help='Backend API base URL')
     parser.add_argument('--config', type=str, help='Inference config JSON string')
     parser.add_argument('--config-file', type=str, help='Path to inference config JSON file')
@@ -61,15 +62,14 @@ def parse_args():
 
 
 def load_config(args) -> Dict[str, Any]:
-    """Load configuration from environment or args (K8s Job compatible)"""
-    # Priority: env vars > CLI args (K8s Job style)
+    """Load configuration from environment or args"""
+    # Priority: env vars > CLI args
     inference_job_id = os.getenv('INFERENCE_JOB_ID') or args.inference_job_id
     training_job_id = os.getenv('TRAINING_JOB_ID') or args.training_job_id
     checkpoint_s3_uri = os.getenv('CHECKPOINT_S3_URI') or args.checkpoint_s3_uri
     images_s3_uri = os.getenv('IMAGES_S3_URI') or args.images_s3_uri
     callback_url = os.getenv('CALLBACK_URL') or args.callback_url
 
-    # Config priority: env var > config file > CLI arg
     if os.getenv('CONFIG'):
         config = json.loads(os.getenv('CONFIG'))
     elif args.config_file:
@@ -84,9 +84,13 @@ def load_config(args) -> Dict[str, Any]:
     if not all([inference_job_id, checkpoint_s3_uri, images_s3_uri, callback_url]):
         raise ValueError("Missing required arguments: inference_job_id, checkpoint_s3_uri, images_s3_uri, callback_url")
 
+    # Set environment variables for SDK
+    os.environ['JOB_ID'] = str(inference_job_id)
+    os.environ['CALLBACK_URL'] = callback_url
+
     return {
         'inference_job_id': inference_job_id,
-        'training_job_id': training_job_id,  # Optional
+        'training_job_id': training_job_id,
         'checkpoint_s3_uri': checkpoint_s3_uri,
         'images_s3_uri': images_s3_uri,
         'callback_url': callback_url,
@@ -94,92 +98,70 @@ def load_config(args) -> Dict[str, Any]:
     }
 
 
-async def run_inference(
+def run_inference(
     inference_job_id: str,
     training_job_id: Optional[str],
     checkpoint_s3_uri: str,
     images_s3_uri: str,
-    callback_url: str,
     config: Dict[str, Any]
 ) -> int:
     """
     Main inference function
 
     Returns:
-        Exit code (0 = success, 1 = inference failure, 2 = callback failure)
+        Exit code (0 = success, 1 = inference failure)
     """
+    # Initialize SDK
+    sdk = TrainerSDK()
+
     try:
         logger.info("=" * 80)
         logger.info(f"Ultralytics Inference Service - Job {inference_job_id}")
         logger.info("=" * 80)
         logger.info(f"Checkpoint: {checkpoint_s3_uri}")
         logger.info(f"Images: {images_s3_uri}")
-        logger.info(f"Callback URL: {callback_url}")
         logger.info(f"Inference config: {json.dumps(config, indent=2)}")
         logger.info("=" * 80)
 
-        # Initialize clients
-        storage = DualStorageClient()  # Automatically handles External/Internal storage routing
-        callback_client = CallbackClient(callback_url)
+        # Report started
+        sdk.report_started('inference')
 
         # ========================================================================
-        # Step 1: Load checkpoint (pretrained or from S3)
+        # Step 1: Load checkpoint
         # ========================================================================
         if checkpoint_s3_uri == 'pretrained':
-            # Use pretrained model - Ultralytics will auto-download
             model_name = os.getenv('MODEL_NAME', 'yolo11n')
             checkpoint_path = f"{model_name}.pt"
             logger.info(f"Using pretrained model: {checkpoint_path}")
         else:
-            # Download checkpoint from Internal Storage (MinIO-Results)
             logger.info(f"Downloading checkpoint from {checkpoint_s3_uri}")
-
-            # Extract checkpoint path from S3 URI
-            # s3://training-checkpoints/checkpoints/456/best.pt -> checkpoints/456/best.pt
-            checkpoint_key = checkpoint_s3_uri.replace(f"s3://{storage.internal_client.bucket}/", "")
             checkpoint_path = Path(f"/tmp/inference/{inference_job_id}/checkpoint/best.pt")
             checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Download from Internal Storage
-            storage.internal_client.client.download_file(
-                storage.internal_client.bucket,
-                checkpoint_key,
-                str(checkpoint_path)
-            )
+            sdk.download_checkpoint(checkpoint_s3_uri, str(checkpoint_path))
             logger.info(f"Checkpoint downloaded to {checkpoint_path}")
 
         # ========================================================================
         # Step 2: Download input images
         # ========================================================================
         logger.info(f"Downloading images from {images_s3_uri}")
-
-        # Determine source bucket (could be External Storage or a different bucket)
-        # For now, assume External Storage
-        # TODO: Support custom inference buckets
         images_dir = Path(f"/tmp/inference/{inference_job_id}/images")
         images_dir.mkdir(parents=True, exist_ok=True)
 
-        # Parse S3 URI
-        # s3://bucket/prefix/ -> bucket, prefix
+        # Parse S3 URI and download
         s3_parts = images_s3_uri.replace('s3://', '').split('/', 1)
         images_bucket = s3_parts[0]
         images_prefix = s3_parts[1].rstrip('/') if len(s3_parts) > 1 else ''
 
-        # Download all images from prefix
-        # Select storage client based on bucket name
-        # Internal Storage buckets: training-checkpoints, inference-data
-        # External Storage buckets: training-datasets
+        # Determine storage type based on bucket
         if images_bucket in ['training-checkpoints', 'inference-data']:
-            s3_client = storage.internal_client.client
-            logger.info(f"Using Internal Storage for bucket={images_bucket}")
+            storage = sdk.internal_storage
         else:
-            s3_client = storage.external_client.client
-            logger.info(f"Using External Storage for bucket={images_bucket}")
+            storage = sdk.external_storage
 
         logger.info(f"Downloading from bucket={images_bucket}, prefix={images_prefix}")
 
-        # List objects with prefix
-        response = s3_client.list_objects_v2(
+        # List and download images
+        response = storage.client.list_objects_v2(
             Bucket=images_bucket,
             Prefix=images_prefix
         )
@@ -190,21 +172,16 @@ async def run_inference(
         image_count = 0
         for obj in response['Contents']:
             key = obj['Key']
-            # Skip directory markers
             if key.endswith('/'):
                 continue
 
-            # Check if it's an image file
             ext = Path(key).suffix.lower()
             if ext not in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp']:
-                logger.debug(f"Skipping non-image file: {key}")
                 continue
 
-            # Download to local
             local_path = images_dir / Path(key).name
-            s3_client.download_file(images_bucket, key, str(local_path))
+            storage.client.download_file(images_bucket, key, str(local_path))
             image_count += 1
-            logger.debug(f"Downloaded {key} → {local_path}")
 
         logger.info(f"Downloaded {image_count} images to {images_dir}")
 
@@ -220,45 +197,38 @@ async def run_inference(
         save_conf = config.get('save_conf', True)
         max_det = config.get('max_det', 300)
 
-        logger.info(f"Inference parameters: conf={conf_threshold}, iou={iou_threshold}, imgsz={image_size}")
+        logger.info(f"Inference parameters: conf={conf_threshold}, iou={iou_threshold}")
 
         # ========================================================================
-        # Step 4: Load model from checkpoint
+        # Step 4: Load model and run inference
         # ========================================================================
         logger.info(f"Loading model from checkpoint: {checkpoint_path}")
         model = YOLO(str(checkpoint_path))
 
-        # ========================================================================
-        # Step 5: Run inference
-        # ========================================================================
         logger.info(f"Running inference on {image_count} images...")
         results_dir = Path(f"/tmp/inference/{inference_job_id}/results")
 
-        # Run prediction
-        import time
         start_time = time.time()
-
         results = model.predict(
             source=str(images_dir),
             conf=conf_threshold,
             iou=iou_threshold,
             imgsz=image_size,
             device=device,
-            save=True,  # Save annotated images
-            save_txt=save_txt,  # Save labels
-            save_conf=save_conf,  # Save confidence in labels
-            save_crop=save_crop,  # Save cropped predictions
+            save=True,
+            save_txt=save_txt,
+            save_conf=save_conf,
+            save_crop=save_crop,
             project=str(results_dir),
             name='predict',
             exist_ok=True,
             max_det=max_det,
         )
-
         total_inference_time_ms = (time.time() - start_time) * 1000
         logger.info(f"Inference completed in {total_inference_time_ms:.1f}ms")
 
         # ========================================================================
-        # Step 6: Extract per-image results
+        # Step 5: Extract per-image results
         # ========================================================================
         logger.info("Extracting per-image results...")
 
@@ -266,15 +236,10 @@ async def run_inference(
         total_detections = 0
 
         for result in results:
-            # Extract image info
             image_path = Path(result.path)
             image_name = image_path.name
-
-            # Extract per-image inference time (if available)
-            # Note: Ultralytics doesn't provide per-image time, estimate it
             image_inference_time_ms = result.speed.get('inference', 0) if hasattr(result, 'speed') else 0
 
-            # Extract predictions for this image
             image_predictions: List[Dict[str, Any]] = []
             boxes = result.boxes
 
@@ -283,7 +248,7 @@ async def run_inference(
                     cls_id = int(box.cls[0])
                     cls_name = model.names[cls_id]
                     confidence = float(box.conf[0])
-                    bbox = box.xyxy[0].tolist()  # [x1, y1, x2, y2]
+                    bbox = box.xyxy[0].tolist()
 
                     image_predictions.append({
                         'class_id': cls_id,
@@ -293,7 +258,6 @@ async def run_inference(
                     })
                     total_detections += 1
 
-            # Store per-image result
             image_results.append({
                 'image_path': str(image_path),
                 'image_name': image_name,
@@ -304,10 +268,9 @@ async def run_inference(
 
         avg_inference_time_ms = total_inference_time_ms / image_count if image_count > 0 else 0
         logger.info(f"Total detections: {total_detections} across {image_count} images")
-        logger.info(f"Avg inference time: {avg_inference_time_ms:.1f}ms per image")
 
         # ========================================================================
-        # Step 7: Save predictions summary (optional, for debugging)
+        # Step 6: Save and upload results
         # ========================================================================
         predictions_summary = {
             'total_images': image_count,
@@ -316,16 +279,10 @@ async def run_inference(
             'results': image_results,
         }
 
-        # Save predictions.json for debugging
         predictions_json_path = results_dir / "predictions.json"
         with open(predictions_json_path, 'w') as f:
             json.dump(predictions_summary, f, indent=2)
 
-        logger.info(f"Saved predictions summary to {predictions_json_path}")
-
-        # ========================================================================
-        # Step 8: Upload results to Internal Storage
-        # ========================================================================
         logger.info("Uploading results to S3...")
 
         result_urls: Dict[str, str] = {}
@@ -336,104 +293,98 @@ async def run_inference(
             for img_file in predict_dir.iterdir():
                 if img_file.suffix.lower() in ['.jpg', '.jpeg', '.png']:
                     s3_key = f"inference-results/{inference_job_id}/images/{img_file.name}"
-                    storage.internal_client.client.upload_file(
+                    sdk.upload_file(
                         str(img_file),
-                        storage.internal_client.bucket,
                         s3_key,
-                        ExtraArgs={'ContentType': f'image/{img_file.suffix[1:]}'}
+                        content_type=f'image/{img_file.suffix[1:]}',
+                        storage_type='internal'
                     )
-                    logger.debug(f"Uploaded {img_file.name}")
 
-            result_urls['annotated_images_prefix'] = f"s3://{storage.internal_client.bucket}/inference-results/{inference_job_id}/images/"
+            result_urls['annotated_images_prefix'] = f"s3://{sdk.internal_storage.bucket}/inference-results/{inference_job_id}/images/"
 
-        # Upload labels (if save_txt=True)
+        # Upload labels
         labels_dir = predict_dir / "labels"
         if labels_dir.exists() and save_txt:
             for label_file in labels_dir.iterdir():
                 if label_file.suffix == '.txt':
                     s3_key = f"inference-results/{inference_job_id}/labels/{label_file.name}"
-                    storage.internal_client.client.upload_file(
+                    sdk.upload_file(
                         str(label_file),
-                        storage.internal_client.bucket,
                         s3_key,
-                        ExtraArgs={'ContentType': 'text/plain'}
+                        content_type='text/plain',
+                        storage_type='internal'
                     )
-
-            result_urls['labels_prefix'] = f"s3://{storage.internal_client.bucket}/inference-results/{inference_job_id}/labels/"
+            result_urls['labels_prefix'] = f"s3://{sdk.internal_storage.bucket}/inference-results/{inference_job_id}/labels/"
 
         # Upload predictions.json
         predictions_s3_key = f"inference-results/{inference_job_id}/predictions.json"
-        storage.internal_client.client.upload_file(
+        predictions_uri = sdk.upload_file(
             str(predictions_json_path),
-            storage.internal_client.bucket,
             predictions_s3_key,
-            ExtraArgs={'ContentType': 'application/json'}
+            content_type='application/json',
+            storage_type='internal'
         )
-        predictions_uri = f"s3://{storage.internal_client.bucket}/{predictions_s3_key}"
         result_urls['predictions_json'] = predictions_uri
 
-        logger.info(f"All results uploaded to S3")
+        logger.info("All results uploaded to S3")
 
         # ========================================================================
-        # Step 10: Send inference completion callback
+        # Step 7: Send completion callback
         # ========================================================================
-        # Follows the unified pattern: Train/Validate/Infer use same callback structure
-        completion_data = {
-            'status': 'completed',
-            'total_images': image_count,
-            'total_inference_time_ms': total_inference_time_ms,
-            'avg_inference_time_ms': avg_inference_time_ms,
-            'results': image_results,
-        }
+        sdk.report_inference_completed(
+            total_images=image_count,
+            total_time_ms=total_inference_time_ms,
+            results=image_results,
+            result_urls=result_urls
+        )
 
-        try:
-            await callback_client.send_inference_completion(inference_job_id, completion_data)
-            logger.info("✓ Inference completed successfully")
-            return 0  # Success
-
-        except Exception as e:
-            logger.error(f"Failed to send inference completion callback: {e}")
-            logger.error(traceback.format_exc())
-            return 2  # Callback failure
+        logger.info("Inference completed successfully")
+        sdk.close()
+        return 0
 
     except Exception as e:
         logger.error(f"Inference failed for job {inference_job_id}")
         logger.error(traceback.format_exc())
 
-        # Try to send error callback
+        error_type = ErrorType.UNKNOWN_ERROR
+        error_msg = str(e)
+
+        if 'checkpoint' in error_msg.lower():
+            error_type = ErrorType.CHECKPOINT_ERROR
+        elif 'image' in error_msg.lower() or 'not found' in error_msg.lower():
+            error_type = ErrorType.DATASET_ERROR
+        elif 'CUDA' in error_msg or 'memory' in error_msg.lower():
+            error_type = ErrorType.RESOURCE_ERROR
+
         try:
-            error_data = {
-                'status': 'failed',
-                'error_message': str(e),
-                'traceback': traceback.format_exc(),
-            }
-            await callback_client.send_inference_completion(inference_job_id, error_data)
+            sdk.report_failed(
+                error_type=error_type,
+                message=error_msg,
+                traceback=traceback.format_exc()
+            )
         except Exception as cb_error:
             logger.error(f"Failed to send error callback: {cb_error}")
 
-        return 1  # Inference failure
+        sdk.close()
+        return 1
 
 
 def main():
     """Main entry point"""
     args = parse_args()
 
-    # Set log level
     logging.getLogger().setLevel(getattr(logging, args.log_level.upper()))
 
     try:
-        # Load configuration
         cfg = load_config(args)
 
-        # Run inference
-        exit_code = asyncio.run(run_inference(
+        exit_code = run_inference(
             inference_job_id=cfg['inference_job_id'],
             training_job_id=cfg['training_job_id'],
             checkpoint_s3_uri=cfg['checkpoint_s3_uri'],
             images_s3_uri=cfg['images_s3_uri'],
-            callback_url=cfg['callback_url'],
             config=cfg['config']
-        ))
+        )
 
         logger.info(f"Inference job {cfg['inference_job_id']} finished with exit code {exit_code}")
         sys.exit(exit_code)
