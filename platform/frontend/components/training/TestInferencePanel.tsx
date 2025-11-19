@@ -335,6 +335,14 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
       const uploadData = await uploadResponse.json()
       const s3Prefix = uploadData.s3_prefix
 
+      // Build mapping from unique filename (S3) to original filename (local)
+      const uniqueToOriginalMap = new Map<string, string>()
+      if (uploadData.uploaded_files) {
+        uploadData.uploaded_files.forEach((f: { original_filename: string; unique_filename: string }) => {
+          uniqueToOriginalMap.set(f.unique_filename, f.original_filename)
+        })
+      }
+
       addLog('success', `✓ ${uploadData.total_files}개의 이미지를 S3에 업로드 완료`)
       addLog('info', `S3 경로: ${s3Prefix}`)
 
@@ -418,12 +426,16 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             const resultsData = await resultsResponse.json()
 
             // Update images with results
-            const resultsByImageName = new Map(
-              resultsData.results.map((r: any) => [r.image_name, r])
+            // Map unique filenames (from S3) back to original filenames (from upload)
+            const resultsByOriginalName = new Map(
+              resultsData.results.map((r: any) => {
+                const originalName = uniqueToOriginalMap.get(r.image_name) || r.image_name
+                return [originalName, r]
+              })
             )
 
             setImages(prev => prev.map(img => {
-              const result = resultsByImageName.get(img.file.name)
+              const result = resultsByOriginalName.get(img.file.name)
               if (result) {
                 // Map task_type: "detection" → "object_detection", etc.
                 const taskTypeMap: Record<string, string> = {
@@ -683,20 +695,20 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
           <div className="flex items-center gap-3">
             <div className={cn(
               "px-3 py-1 rounded-full text-xs font-semibold",
-              job.task_type === 'instance_segmentation'
+              job.task_type === 'instance_segmentation' || job.task_type === 'segmentation'
                 ? "bg-purple-500 text-white"
-                : job.task_type === 'object_detection'
+                : job.task_type === 'object_detection' || job.task_type === 'detection'
                 ? "bg-blue-500 text-white"
                 : "bg-green-500 text-white"
             )}>
-              {job.task_type === 'instance_segmentation' ? '🎭 Instance Segmentation' :
-               job.task_type === 'object_detection' ? '📦 Object Detection' :
+              {job.task_type === 'instance_segmentation' || job.task_type === 'segmentation' ? '🎭 Instance Segmentation' :
+               job.task_type === 'object_detection' || job.task_type === 'detection' ? '📦 Object Detection' :
                '🖼️ Image Classification'}
             </div>
             <span className="text-sm text-gray-700">
-              {job.task_type === 'instance_segmentation'
+              {job.task_type === 'instance_segmentation' || job.task_type === 'segmentation'
                 ? 'Mask와 Bounding Box를 함께 예측합니다'
-                : job.task_type === 'object_detection'
+                : job.task_type === 'object_detection' || job.task_type === 'detection'
                 ? 'Bounding Box를 예측합니다'
                 : 'Class와 Confidence를 예측합니다'}
             </span>
