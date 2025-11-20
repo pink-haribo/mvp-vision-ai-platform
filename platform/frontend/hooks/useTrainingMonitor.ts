@@ -40,7 +40,7 @@ export type TrainingMessage =
   | { type: 'connected'; message: string; timestamp: string }
   | { type: 'training_status_change'; job_id: number; old_status: string; new_status: string; timestamp: string }
   | { type: 'training_metrics'; job_id: number; metrics: TrainingMetrics }
-  | { type: 'training_log'; job_id: number; log: TrainingLog }
+  | { type: 'training_log'; job_id: number; level: string; event_type: string; message: string; timestamp: string }
   | { type: 'training_complete'; job_id: number; timestamp: string }
   | { type: 'training_error'; job_id: number; error: string; timestamp: string }
   | { type: 'export_status_change'; job_id: number; export_job_id: number; old_status: string; new_status: string; timestamp: string }
@@ -141,7 +141,14 @@ export function useTrainingMonitor(options: UseTrainingMonitorOptions = {}) {
           } else if (message.type === 'training_metrics') {
             onMetrics?.(message.job_id, message.metrics);
           } else if (message.type === 'training_log') {
-            onLog?.(message.job_id, message.log);
+            // Convert backend message format to TrainingLog format
+            const log: TrainingLog = {
+              job_id: message.job_id,
+              message: message.message,
+              level: message.level,
+              timestamp: message.timestamp,
+            };
+            onLog?.(message.job_id, log);
           } else if (message.type === 'export_status_change' || message.type === 'export_complete' || message.type === 'export_error') {
             const oldStatus = message.type === 'export_status_change' ? message.old_status : '';
             const newStatus = message.type === 'export_status_change' ? message.new_status :

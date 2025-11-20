@@ -147,8 +147,17 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
       setMetricsRefreshKey(prev => prev + 1) // Trigger MLflowMetricsCharts refresh
     },
     onLog: (jobId, log) => {
-      console.log(`[WebSocket] Job ${jobId} new log received`)
-      fetchLogs() // Refetch all logs
+      console.log(`[WebSocket] Job ${jobId} new log received:`, log)
+      // Add new log to state in real-time
+      setLogs((prevLogs) => [
+        ...prevLogs,
+        {
+          id: Date.now(), // Temporary ID
+          log_type: 'training',
+          content: `[${log.level}] ${log.message}`,
+          created_at: log.timestamp,
+        }
+      ])
     },
     onExportStatusChange: (jobId, exportJobId, oldStatus, newStatus) => {
       console.log(`[WebSocket] Export job ${exportJobId} status changed: ${oldStatus} -> ${newStatus}`)
@@ -1090,17 +1099,30 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                       className="bg-gray-900 rounded-lg p-4 font-mono text-xs overflow-auto"
                       style={{ maxHeight: '600px' }}
                     >
-                      {logs.map((log) => (
-                        <div
-                          key={log.id}
-                          className={cn(
-                            'mb-1 whitespace-pre-wrap break-words',
-                            log.log_type === 'stderr' ? 'text-red-400' : 'text-green-400'
-                          )}
-                        >
-                          {log.content}
-                        </div>
-                      ))}
+                      {logs.map((log) => {
+                        // Extract log level from content (e.g., "[INFO]", "[ERROR]")
+                        const levelMatch = log.content.match(/^\[(\w+)\]/)
+                        const level = levelMatch ? levelMatch[1] : null
+
+                        return (
+                          <div
+                            key={log.id}
+                            className={cn(
+                              'mb-1 whitespace-pre-wrap break-words',
+                              level === 'ERROR' ? 'text-red-400' :
+                              level === 'WARNING' ? 'text-yellow-400' :
+                              level === 'INFO' ? 'text-blue-400' :
+                              level === 'DEBUG' ? 'text-gray-400' :
+                              log.log_type === 'stderr' ? 'text-red-400' : 'text-green-400'
+                            )}
+                          >
+                            <span className="text-gray-500 mr-2">
+                              {new Date(log.created_at).toLocaleTimeString()}
+                            </span>
+                            {log.content}
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
                 </div>

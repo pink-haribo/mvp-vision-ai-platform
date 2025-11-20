@@ -1602,6 +1602,58 @@ async def training_progress_callback(
         if callback.best_checkpoint_path:
             job.best_checkpoint_path = callback.best_checkpoint_path
 
+        # MLflow integration - Log training metrics
+        try:
+            from app.services.mlflow_service import MLflowService
+            mlflow_service = MLflowService(db)
+
+            if mlflow_service.mlflow_client.available:
+                # Create MLflow run if not exists
+                if not job.mlflow_run_id:
+                    experiment_name = f"project-{job.project_id}"
+                    run_name = f"job-{job_id}-{job.model_name}"
+                    tags = {
+                        "job_id": str(job_id),
+                        "project_id": str(job.project_id),
+                        "model_name": job.model_name,
+                        "task_type": job.task_type,
+                        "framework": job.framework or "unknown"
+                    }
+
+                    job.mlflow_run_id = mlflow_service.create_mlflow_run(
+                        experiment_name=experiment_name,
+                        run_name=run_name,
+                        tags=tags
+                    )
+
+                    # Log training parameters on first run
+                    if job.mlflow_run_id and job.training_config:
+                        mlflow_service.log_training_params(
+                            run_id=job.mlflow_run_id,
+                            params=job.training_config
+                        )
+
+                    logger.info(f"[CALLBACK] Created MLflow run: {job.mlflow_run_id}")
+
+                # Log metrics to MLflow
+                if job.mlflow_run_id and callback.metrics:
+                    metrics_to_log = callback.metrics.dict() if hasattr(callback.metrics, 'dict') else {}
+
+                    success = mlflow_service.log_training_metrics(
+                        run_id=job.mlflow_run_id,
+                        metrics=metrics_to_log,
+                        step=callback.current_epoch
+                    )
+
+                    if success:
+                        logger.info(f"[CALLBACK] Logged metrics to MLflow for epoch {callback.current_epoch}")
+                    else:
+                        logger.warning(f"[CALLBACK] Failed to log metrics to MLflow")
+
+        except Exception as e:
+            # Graceful degradation - don't fail the callback if MLflow fails
+            logger.warning(f"[CALLBACK] MLflow integration error (non-critical): {str(e)}")
+
         db.commit()
 
         logger.info(f"[CALLBACK] Successfully updated job {job_id}")
@@ -1741,6 +1793,40 @@ async def training_completion_callback(
                 )
                 db.add(log_entry)
 
+        # MLflow integration - End the run with final status
+        try:
+            from app.services.mlflow_service import MLflowService
+            mlflow_service = MLflowService(db)
+
+            if job.mlflow_run_id and mlflow_service.mlflow_client.available:
+                # Log final metrics if provided
+                if callback.final_metrics:
+                    final_metrics_dict = callback.final_metrics.dict() if hasattr(callback.final_metrics, 'dict') else {}
+
+                    success = mlflow_service.log_training_metrics(
+                        run_id=job.mlflow_run_id,
+                        metrics=final_metrics_dict,
+                        step=callback.total_epochs_completed or 0
+                    )
+
+                    if success:
+                        logger.info(f"[CALLBACK] Logged final metrics to MLflow")
+
+                # Determine MLflow run status
+                mlflow_status = "FINISHED" if job.status == "completed" else "FAILED"
+
+                # End the MLflow run
+                mlflow_service.end_mlflow_run(
+                    run_id=job.mlflow_run_id,
+                    status=mlflow_status
+                )
+
+                logger.info(f"[CALLBACK] Ended MLflow run {job.mlflow_run_id} with status {mlflow_status}")
+
+        except Exception as e:
+            # Graceful degradation - don't fail the callback if MLflow fails
+            logger.warning(f"[CALLBACK] MLflow end_run error (non-critical): {str(e)}")
+
         db.commit()
 
         logger.info(
@@ -1784,7 +1870,7 @@ async def training_completion_callback(
 
 
 @router.post(
-    "/jobs/{job_id}/callback/log",
+    "/jobs/{job_id}/callback/logs",
     response_model=training.TrainingCallbackResponse
 )
 async def training_log_callback(
@@ -1825,27 +1911,37 @@ async def training_log_callback(
             content=f"[{callback.level}] {callback.message}"
         )
         db.add(log_entry)
+
+        # Log rotation: Keep only latest 2000 logs per job
+        log_count = db.query(models.TrainingLog).filter(
+            models.TrainingLog.job_id == job_id
+        ).count()
+
+        if log_count >= 2000:
+            # Delete oldest logs to maintain 2000 limit
+            # Keep 1900 logs + new one = 1901 total (leaves room for next batch)
+            logs_to_keep = 1900
+            oldest_logs = db.query(models.TrainingLog).filter(
+                models.TrainingLog.job_id == job_id
+            ).order_by(models.TrainingLog.id.asc()).offset(logs_to_keep).all()
+
+            if oldest_logs:
+                for old_log in oldest_logs:
+                    db.delete(old_log)
+                logger.info(f"[LOG] Rotated {len(oldest_logs)} old logs for job {job_id} (kept {logs_to_keep})")
+
         db.commit()
 
-        # TODO: Forward to Loki if configured
-        # loki_url = os.getenv("LOKI_URL")
-        # if loki_url:
-        #     import requests
-        #     loki_payload = {
-        #         "streams": [{
-        #             "stream": {
-        #                 "job": "training",
-        #                 "job_id": str(job_id),
-        #                 "level": callback.level,
-        #                 "event_type": callback.event_type
-        #             },
-        #             "values": [[
-        #                 str(int(datetime.utcnow().timestamp() * 1e9)),
-        #                 callback.message
-        #             ]]
-        #         }]
-        #     }
-        #     requests.post(f"{loki_url}/loki/api/v1/push", json=loki_payload)
+        # Broadcast to WebSocket clients
+        ws_manager = get_websocket_manager()
+        await ws_manager.broadcast_to_job(job_id, {
+            "type": "training_log",
+            "job_id": job_id,
+            "level": callback.level,
+            "event_type": callback.event_type,
+            "message": callback.message,
+            "timestamp": datetime.utcnow().isoformat(),
+        })
 
         return training.TrainingCallbackResponse(
             success=True,
@@ -1862,4 +1958,80 @@ async def training_log_callback(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to process log callback: {str(e)}"
+        )
+
+
+@router.post(
+    "/jobs/{job_id}/checkpoints/upload-url",
+    response_model=training.CheckpointUploadUrlResponse
+)
+async def get_checkpoint_upload_url(
+    job_id: int,
+    request: training.CheckpointUploadUrlRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Generate presigned S3 URL for checkpoint upload.
+
+    This endpoint implements the Backend-Proxied storage pattern:
+    - Training Service requests upload URL from Backend
+    - Backend generates presigned S3 URL
+    - Training Service uploads directly to S3 using presigned URL
+    - No direct S3 credentials needed in Training Service
+
+    Args:
+        job_id: Training job ID
+        request: Upload request with filename and content type
+        db: Database session
+
+    Returns:
+        Presigned upload URL and object key
+    """
+    try:
+        # Verify job exists
+        job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+        if not job:
+            logger.error(f"[CHECKPOINT] Job {job_id} not found")
+            raise HTTPException(status_code=404, detail="Training job not found")
+
+        logger.info(
+            f"[CHECKPOINT] Generating upload URL for job {job_id}: {request.checkpoint_filename}"
+        )
+
+        # Generate S3 object key: checkpoints/{job_id}/{filename}
+        object_key = f"checkpoints/job-{job_id}/{request.checkpoint_filename}"
+
+        # Generate presigned upload URL
+        from app.utils.s3_storage import s3_storage
+
+        upload_url = s3_storage.generate_presigned_upload_url(
+            object_key=object_key,
+            expiration=3600,  # 1 hour
+            content_type=request.content_type
+        )
+
+        if not upload_url:
+            logger.error(f"[CHECKPOINT] Failed to generate presigned URL for job {job_id}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate upload URL. S3 storage may not be configured."
+            )
+
+        logger.info(f"[CHECKPOINT] Generated upload URL for job {job_id}: {object_key}")
+
+        return training.CheckpointUploadUrlResponse(
+            upload_url=upload_url,
+            object_key=object_key,
+            expires_in=3600
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"[CHECKPOINT] Error generating upload URL: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate upload URL: {str(e)}"
         )

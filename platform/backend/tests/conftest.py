@@ -64,8 +64,9 @@ def client(db_session):
 
     app.dependency_overrides[get_db] = override_get_db
 
-    with TestClient(app) as test_client:
-        yield test_client
+    test_client = TestClient(app)
+    yield test_client
+    test_client.close()
 
     # Clear overrides
     app.dependency_overrides.clear()
@@ -115,3 +116,9 @@ def sample_image_batch(tmp_path):
         image_paths.append(str(img_path))
 
     return image_paths
+
+
+@pytest.fixture
+def api_url():
+    """Base API URL for E2E tests."""
+    return os.getenv("API_URL", "http://localhost:8000/api/v1")
