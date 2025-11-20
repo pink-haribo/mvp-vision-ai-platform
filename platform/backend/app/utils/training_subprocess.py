@@ -155,12 +155,37 @@ class TrainingSubprocessManager:
             # Prepare environment (K8s Job style - all config via env vars)
             env = os.environ.copy()
 
-            # Training job configuration (K8s Job compatible)
+            # Extract dataset_id from S3 URI (format: s3://bucket/datasets/{dataset_id}/)
+            import re
+            dataset_id_match = re.search(r'/datasets/([^/]+)/?$', dataset_s3_uri)
+            dataset_id = dataset_id_match.group(1) if dataset_id_match else ""
+
+            # ===== Environment Variables: Simple, Common Values =====
             env['JOB_ID'] = str(job_id)
-            env['MODEL_NAME'] = model_name
-            env['DATASET_S3_URI'] = dataset_s3_uri
             env['CALLBACK_URL'] = callback_url
-            env['CONFIG'] = json.dumps(config)  # Advanced config as JSON string
+            env['MODEL_NAME'] = model_name
+            env['TASK_TYPE'] = config.get('task', 'detection')
+            env['FRAMEWORK'] = framework
+            env['DATASET_ID'] = dataset_id
+            env['DATASET_S3_URI'] = dataset_s3_uri
+
+            # Basic training parameters
+            env['EPOCHS'] = str(config.get('epochs', 100))
+            env['BATCH_SIZE'] = str(config.get('batch', 16))
+            env['LEARNING_RATE'] = str(config.get('learning_rate', 0.01))
+            env['IMGSZ'] = str(config.get('imgsz', 640))
+            env['DEVICE'] = str(config.get('device', '0'))
+
+            # ===== CONFIG JSON: Complex, Trainer-specific Settings =====
+            advanced_config_json = {
+                'advanced_config': config.get('advanced_config', {}),
+                'primary_metric': config.get('primary_metric'),
+                'primary_metric_mode': config.get('primary_metric_mode', 'max'),
+                'split_config': config.get('split_config'),
+            }
+            # Remove None values
+            advanced_config_json = {k: v for k, v in advanced_config_json.items() if v is not None}
+            env['CONFIG'] = json.dumps(advanced_config_json)
 
             # Explicitly inject MinIO/Storage environment variables (for DualStorageClient)
             # These should already be in os.environ from Backend's .env, but we ensure they're passed

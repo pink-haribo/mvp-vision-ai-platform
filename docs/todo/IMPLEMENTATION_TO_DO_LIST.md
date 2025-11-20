@@ -2,8 +2,8 @@
 
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
-**총 진행률**: 95% (209/222 tasks)
-**최종 업데이트**: 2025-11-19
+**총 진행률**: 97% (218/225 tasks)
+**최종 업데이트**: 2025-11-20 (Environment Variables Update)
 
 ---
 
@@ -21,6 +21,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 7. Trainer Marketplace | ⬜ 0% | 계획 완료 | [TRAINER_MARKETPLACE_VISION.md](../planning/TRAINER_MARKETPLACE_VISION.md) |
 | 8. E2E Testing | 🔄 25% | Inference/Export E2E 완료 | [E2E_TEST_REPORT_20251120.md](reference/E2E_TEST_REPORT_20251120.md) |
 | 9. Thin SDK | ✅ 85% | 핵심 기능 완료, 리팩토링 필요 | [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md) |
+| 10. Training SDK | ✅ 90% | 핵심 기능 완료, 환경변수 업데이트 완료 | [E2E Test Report](reference/TRAINING_SDK_E2E_TEST_REPORT.md) |
 
 ---
 
@@ -603,6 +604,211 @@ Trainer-Platform 통신 표준화를 위한 SDK 구현. 의존성 격리와 통�
 - [ ] Ultralytics detection 학습
 - [ ] Ultralytics segmentation 학습
 - [ ] Export 및 inference 테스트
+
+---
+
+## Phase 10: Training SDK Implementation (90%)
+
+Training 파이프라인 전체 구현을 위한 SDK 개발. Dataset 처리, Config 로딩, Lifecycle 콜백, 로깅 시스템을 포함.
+
+**설계 문서**: [TRAINING_PIPELINE_DESIGN.md](reference/TRAINING_PIPELINE_DESIGN.md)
+**E2E 테스트 리포트**: [TRAINING_SDK_E2E_TEST_REPORT.md](reference/TRAINING_SDK_E2E_TEST_REPORT.md)
+
+**핵심 목표**:
+- DICE format 데이터셋 처리 및 변환
+- Basic/Advanced Config 환경변수 로딩
+- 완전한 Training lifecycle 콜백 시스템
+- 실시간 로그 수집 및 표시
+
+### 10.1 Dataset Handling ✅
+
+**10.1.1 DICE Format Support**
+- [x] Task별 annotation 파일 선택 (`annotations_detection.json`, `annotations_classification.json`)
+- [x] SDK `download_dataset(dataset_id, task_type)` 메서드
+- [x] S3에서 DICE format 데이터셋 다운로드
+- [x] task_type에 따른 annotation 파일 자동 선택
+
+**10.1.2 Format Conversion**
+- [x] DICE → YOLO format 변환 (Ultralytics)
+- [ ] DICE → ImageFolder format 변환 (timm)
+- [x] data.yaml 자동 생성
+- [x] 클래스 정보 추출 (classes 배열에서)
+
+**10.1.3 Dataset Query API**
+- [ ] `GET /api/v1/datasets` - task_type 필터 지원
+- [ ] `GET /api/v1/datasets/{id}` - annotation 파일 정보 포함
+- [ ] annotations 섹션에 task별 파일 경로 및 클래스 정보
+
+### 10.2 Config Loading ✅
+
+**10.2.1 Basic Config (공통)**
+- [x] Backend → Trainer 환경변수 주입 (`CONFIG_IMGSZ`, `CONFIG_EPOCHS`, etc.)
+- [x] SDK `get_basic_config()` 메서드
+- [x] 기본값 처리 및 타입 변환
+- [x] 필수 파라미터 검증
+
+**10.2.2 Advanced Config (Framework별)**
+- [x] `ADVANCED_CONFIG` 환경변수 (JSON 문자열)
+- [x] SDK `get_advanced_config()` 메서드
+- [x] JSON 파싱 및 default 값 처리
+- [ ] Framework별 파라미터 문서화 (Ultralytics, timm, HuggingFace)
+
+**10.2.3 Full Config Interface**
+- [x] SDK `get_full_config()` 메서드 (basic + advanced)
+- [x] SDK properties: `model_name`, `dataset_id`, `task_type`, `framework`
+- [ ] Config 파일 방식 지원 (대규모 config용)
+
+### 10.3 Training Lifecycle Callbacks ✅
+
+**10.3.1 Started Callback**
+- [x] `POST /api/v1/training/jobs/{id}/callback/progress` (uses TrainingProgressCallback format)
+- [x] SDK `report_started(operation_type, total_epochs)` 메서드
+- [x] 상태 변경: pending → running
+- [x] WebSocket broadcast
+
+**10.3.2 Progress Callback**
+- [x] `POST /api/v1/training/jobs/{id}/callback/progress`
+- [x] SDK `report_progress(epoch, total_epochs, metrics)` 메서드
+- [x] DB 업데이트 (`current_epoch`)
+- [x] MLflow epoch marker 로깅
+
+**10.3.3 Metrics Callback**
+- [x] SDK `report_progress()` with `TrainingCallbackMetrics`
+- [x] 메트릭 테이블 저장
+- [x] MLflow log_metrics
+- [ ] Early stopping 조건 체크
+
+**10.3.4 Checkpoint Callback**
+- [x] SDK `upload_checkpoint(local_path, checkpoint_type, is_best)` 메서드
+- [x] `checkpoint_best_path`, `checkpoint_last_path` 업데이트
+- [ ] MLflow artifact 로깅
+
+**10.3.5 Completion Callback**
+- [x] `POST /api/v1/training/jobs/{id}/callback/completed`
+- [x] SDK `report_completed(best_epoch, best_metric_value, checkpoints)` 메서드
+- [x] 상태 변경: running → completed
+- [x] MLflow run 종료
+
+**10.3.6 Failed Callback**
+- [x] `POST /api/v1/training/jobs/{id}/callback/failed`
+- [x] SDK `report_failed(error_message, error_type, traceback)` 메서드
+- [x] 상태 변경: running → failed
+- [x] 에러 정보 저장
+
+### 10.4 Logging System ✅
+
+**10.4.1 Log Callback API**
+- [x] `POST /api/v1/training/jobs/{id}/callback/log`
+- [x] 단일 로그 전송 (`LogEventCallback` format)
+- [x] Log levels: DEBUG, INFO, WARNING, ERROR
+
+**10.4.2 SDK Log Methods**
+- [x] `sdk.log(message, level, **metadata)` - 기본 메서드
+- [x] `sdk.log_info()`, `sdk.log_warning()`, `sdk.log_error()`, `sdk.log_debug()`
+- [x] `sdk.flush_logs()` - 버퍼 flush
+
+**10.4.3 Log Storage**
+- [x] `training_logs` 테이블 생성
+- [x] 인덱스 설정 (job_id, timestamp, level)
+- [x] metadata JSONB 필드
+
+**10.4.4 Log Query API**
+- [x] `GET /api/v1/training/jobs/{id}/logs`
+- [x] 필터: level, limit, offset, since, until
+- [x] 페이지네이션 지원
+
+**10.4.5 Log Buffering**
+- [x] SDK 내 로그 버퍼 (50개)
+- [x] ERROR 레벨 즉시 전송
+- [x] 자동 flush 로직
+
+**10.4.6 Real-time Streaming**
+- [ ] WebSocket log 메시지 타입
+- [ ] Frontend 실시간 로그 수신
+- [ ] 로그 레벨별 색상 표시
+
+### 10.5 Backend Updates ✅
+
+**10.5.1 Training Job Creation** ✅ (2025-11-20 완료)
+- [x] `config` + `advanced_config` 분리 저장
+- [x] 환경변수 주입 로직 업데이트 - **COMPLETE**
+  - [x] `training_subprocess.py` 업데이트
+    - [x] `TASK_TYPE`, `FRAMEWORK`, `DATASET_ID` 환경변수 추가
+    - [x] `EPOCHS`, `BATCH_SIZE`, `LEARNING_RATE` 환경변수 추가
+    - [x] `IMGSZ`, `DEVICE` 환경변수 추가
+    - [x] `CONFIG` JSON 직렬화 (advanced_config, primary_metric 등)
+  - [x] SDK 환경변수 이름 통일 (우선순위 기반 지원)
+    - [x] `EPOCHS` (새) 우선, `CONFIG_EPOCHS` (구) 백워드 호환
+    - [x] `BATCH_SIZE` (새) 우선, `CONFIG_BATCH` (구) 백워드 호환
+    - [x] `LEARNING_RATE` (새) 우선, `CONFIG_LR0` (구) 백워드 호환
+  - [x] SDK에 CONFIG JSON 파싱 로직 추가
+    - [x] `get_basic_config()` 우선순위: 개별 env var > CONFIG JSON > CONFIG_ env var > 기본값
+    - [x] `get_advanced_config()` CONFIG JSON 'advanced_config' 필드 파싱
+  - [x] 테스트 호환성 유지 (기존 CONFIG_ 환경변수 백워드 호환)
+
+**10.5.2 Callback Endpoints**
+- [ ] 모든 lifecycle callback API 구현
+- [ ] Log callback API 구현
+- [ ] WebSocket broadcast 통합
+
+**10.5.3 WebSocket Updates**
+- [ ] `log` 메시지 타입 추가
+- [ ] timestamp 필드 추가
+- [ ] 실시간 로그 streaming
+
+**10.5.4 Database Updates**
+- [ ] `training_logs` 테이블 마이그레이션
+- [ ] TrainingJob에 `advanced_config` 컬럼 추가
+
+### 10.6 Ultralytics Trainer Migration ⬜
+
+**10.6.1 train.py 업데이트**
+- [ ] SDK config 로딩 (`get_basic_config`, `get_advanced_config`)
+- [ ] Dataset 다운로드 및 YOLO 변환
+- [ ] Lifecycle callbacks 통합
+- [ ] 로깅 시스템 적용
+
+**10.6.2 Callback Integration**
+- [ ] YOLO 콜백에서 SDK 호출
+- [ ] Epoch 시작/종료 progress 전송
+- [ ] Step별 metrics 전송
+- [ ] Checkpoint 저장 시 콜백
+
+### 10.7 Frontend Updates ⬜
+
+**10.7.1 Log Viewer Panel**
+- [ ] TrainingPanel에 Log 탭 추가
+- [ ] 실시간 로그 스트리밍
+- [ ] 로그 레벨 필터
+- [ ] 로그 검색
+
+**10.7.2 Training Config UI**
+- [ ] Basic/Advanced config 분리 UI
+- [ ] Framework별 advanced config 폼
+- [ ] Config 검증 피드백
+
+### 10.8 Testing ✅
+
+**10.8.1 SDK Unit Tests** (`test_sdk_features.py`)
+- [x] SDK Properties 테스트
+- [x] Config 로딩 테스트 (basic, advanced, full)
+- [x] Log 버퍼링 테스트
+- [x] Task-specific annotation 선택 테스트
+- [x] Fallback annotation 테스트
+
+**10.8.2 Integration Tests** (`test_sdk_integration.py`)
+- [x] Training lifecycle E2E (started → progress → metrics → checkpoint → completed)
+- [x] Log 수집 및 조회 테스트
+- [ ] WebSocket 실시간 업데이트 테스트
+
+**10.8.3 E2E Tests** (`test_training_e2e.py`)
+- [x] Ultralytics detection training E2E - **PASS**
+- [ ] Ultralytics segmentation training E2E
+- [x] Config 적용 검증
+- [x] Dataset download/convert 검증
+- [x] All SDK callbacks 검증
+
+**Test Report**: [TRAINING_SDK_E2E_TEST_REPORT.md](reference/TRAINING_SDK_E2E_TEST_REPORT.md)
 
 ---
 

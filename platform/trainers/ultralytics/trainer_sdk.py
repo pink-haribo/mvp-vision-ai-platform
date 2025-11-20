@@ -182,8 +182,144 @@ class TrainerSDK:
         # Initialize storage clients
         self._init_storage_clients()
 
+        # Initialize log buffer
+        self._log_buffer: List[Dict[str, Any]] = []
+        self._log_buffer_max = 50  # Max logs before flush
+        self._log_flush_interval = 5.0  # Seconds
+
         logger.info(f"TrainerSDK initialized for job {self.job_id}")
         logger.info(f"Callback URL: {self.callback_url}")
+
+    # =========================================================================
+    # SDK Properties (Training Job Context)
+    # =========================================================================
+
+    @property
+    def task_type(self) -> str:
+        """Get task type from environment variable"""
+        return os.getenv('TASK_TYPE', 'detection')
+
+    @property
+    def model_name(self) -> str:
+        """Get model name from environment variable"""
+        return os.getenv('MODEL_NAME', 'yolo11n')
+
+    @property
+    def dataset_id(self) -> str:
+        """Get dataset ID from environment variable"""
+        return os.getenv('DATASET_ID', '')
+
+    @property
+    def framework(self) -> str:
+        """Get framework from environment variable"""
+        return os.getenv('FRAMEWORK', 'ultralytics')
+
+    # =========================================================================
+    # Config Loading Methods
+    # =========================================================================
+
+    def get_basic_config(self) -> Dict[str, Any]:
+        """
+        Load basic config with priority: env vars > CONFIG JSON > CONFIG_ env vars > defaults.
+
+        Basic config is common to all trainers.
+
+        Priority:
+        1. Direct environment variables (EPOCHS, BATCH_SIZE, LEARNING_RATE, etc.)
+        2. CONFIG JSON (for values not found in env vars)
+        3. CONFIG_ prefixed env vars (backward compatibility)
+        4. Default values
+
+        Returns:
+            Dict with basic config parameters
+        """
+        # Load CONFIG JSON once
+        config_json = {}
+        config_str = os.getenv('CONFIG', '{}')
+        try:
+            config_json = json.loads(config_str)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse CONFIG JSON: {e}")
+
+        def get_config_value(direct_env: str, config_key: str, legacy_env: str, default: Any, value_type=str) -> Any:
+            """Get config value with priority: direct env > CONFIG JSON > legacy env > default"""
+            # Priority 1: Direct environment variable
+            if direct_env and os.getenv(direct_env):
+                value = os.getenv(direct_env)
+            # Priority 2: CONFIG JSON
+            elif config_key and config_key in config_json:
+                value = config_json[config_key]
+            # Priority 3: Legacy CONFIG_ prefixed environment variable
+            elif legacy_env and os.getenv(legacy_env):
+                value = os.getenv(legacy_env)
+            # Priority 4: Default value
+            else:
+                value = default
+
+            # Convert to target type
+            if value_type == int:
+                return int(value)
+            elif value_type == float:
+                return float(value)
+            elif value_type == bool:
+                return str(value).lower() == 'true' if isinstance(value, str) else bool(value)
+            else:
+                return str(value)
+
+        return {
+            'imgsz': get_config_value('IMGSZ', 'imgsz', 'CONFIG_IMGSZ', '640', int),
+            'epochs': get_config_value('EPOCHS', 'epochs', 'CONFIG_EPOCHS', '100', int),
+            'batch': get_config_value('BATCH_SIZE', 'batch', 'CONFIG_BATCH', '16', int),
+            'lr0': get_config_value('LEARNING_RATE', 'learning_rate', 'CONFIG_LR0', '0.01', float),
+            'optimizer': get_config_value('OPTIMIZER', 'optimizer', 'CONFIG_OPTIMIZER', 'SGD', str),
+            'augment': get_config_value('AUGMENT', 'augment', 'CONFIG_AUGMENT', 'True', bool),
+            'device': get_config_value('DEVICE', 'device', 'CONFIG_DEVICE', '0', str),
+            'workers': get_config_value('WORKERS', 'workers', 'CONFIG_WORKERS', '8', int),
+            'patience': get_config_value('PATIENCE', 'patience', 'CONFIG_PATIENCE', '50', int),
+        }
+
+    def get_advanced_config(self) -> Dict[str, Any]:
+        """
+        Load advanced config from CONFIG JSON.
+
+        Advanced config is framework-specific (e.g., Ultralytics mosaic, mixup).
+
+        Priority:
+        1. CONFIG JSON 'advanced_config' field
+        2. ADVANCED_CONFIG environment variable (backward compatibility)
+        3. Empty dict
+
+        Returns:
+            Dict with advanced config parameters
+        """
+        # Priority 1: CONFIG JSON
+        config_str = os.getenv('CONFIG', '{}')
+        try:
+            config_json = json.loads(config_str)
+            if 'advanced_config' in config_json:
+                return config_json['advanced_config']
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse CONFIG JSON: {e}")
+
+        # Priority 2: ADVANCED_CONFIG environment variable (backward compatibility)
+        advanced_json = os.getenv('ADVANCED_CONFIG', '{}')
+        try:
+            return json.loads(advanced_json)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse ADVANCED_CONFIG: {e}")
+            return {}
+
+    def get_full_config(self) -> Dict[str, Any]:
+        """
+        Get merged basic and advanced config.
+
+        Returns:
+            Dict with 'basic' and 'advanced' keys
+        """
+        return {
+            'basic': self.get_basic_config(),
+            'advanced': self.get_advanced_config()
+        }
 
     def _init_storage_clients(self):
         """Initialize dual storage clients"""
@@ -227,29 +363,53 @@ class TrainerSDK:
     # Lifecycle Functions (4)
     # =========================================================================
 
-    def report_started(self, operation_type: str = 'training') -> None:
+    def report_started(self, operation_type: str = 'training', total_epochs: Optional[int] = None) -> None:
         """
         Report job started.
 
         Args:
             operation_type: 'training', 'inference', or 'export'
+            total_epochs: Total number of epochs (required for training)
         """
-        data = {
-            'type': 'started',
-            'job_id': int(self.job_id),
-            'operation_type': operation_type,
-            'timestamp': self._get_timestamp()
-        }
-
         # Store operation type for use in report_failed()
         self._operation_type = operation_type
 
-        # Use appropriate endpoint based on operation type
+        # Use appropriate endpoint and data format based on operation type
         if operation_type == 'inference':
+            data = {
+                'type': 'started',
+                'job_id': int(self.job_id),
+                'operation_type': operation_type,
+                'timestamp': self._get_timestamp()
+            }
             endpoint = f'/inference/jobs/{self.job_id}/callback/started'
         elif operation_type == 'export':
+            data = {
+                'type': 'started',
+                'job_id': int(self.job_id),
+                'operation_type': operation_type,
+                'timestamp': self._get_timestamp()
+            }
             endpoint = f'/export/jobs/{self.job_id}/callback/started'
-        else:  # training
+        else:  # training - use TrainingProgressCallback format
+            # Get total_epochs from config if not provided
+            if total_epochs is None:
+                config = self.get_basic_config()
+                total_epochs = config.get('epochs', 100)
+
+            # Store for later use
+            self._total_epochs = total_epochs
+
+            # Use TrainingProgressCallback format
+            data = {
+                'job_id': int(self.job_id),
+                'status': 'running',
+                'current_epoch': 0,
+                'total_epochs': total_epochs,
+                'progress_percent': 0.0,
+                'metrics': None,
+                'checkpoint_path': None
+            }
             endpoint = f'/training/jobs/{self.job_id}/callback/progress'
 
         self._send_callback(endpoint, data)
@@ -652,8 +812,101 @@ class TrainerSDK:
         return storage.upload_file(local_path, s3_key, content_type)
 
     # =========================================================================
-    # Logging Function (1)
+    # Logging Functions (with buffering)
     # =========================================================================
+
+    def log(
+        self,
+        message: str,
+        level: str = 'INFO',
+        source: str = 'trainer',
+        **metadata
+    ) -> None:
+        """
+        Log message with buffering support.
+
+        Logs are buffered and sent in batches for efficiency.
+        ERROR level logs are sent immediately.
+
+        Args:
+            message: Log message
+            level: Log level ('DEBUG', 'INFO', 'WARNING', 'ERROR')
+            source: Log source ('trainer', 'sdk', 'framework')
+            **metadata: Additional metadata (e.g., epoch=5, step=100)
+        """
+        log_entry = {
+            'level': level,
+            'message': message,
+            'timestamp': self._get_timestamp(),
+            'source': source,
+            'metadata': metadata if metadata else {}
+        }
+
+        # ERROR level sends immediately
+        if level == 'ERROR':
+            self._send_log_batch([log_entry])
+            return
+
+        # Add to buffer
+        self._log_buffer.append(log_entry)
+
+        # Flush if buffer is full
+        if len(self._log_buffer) >= self._log_buffer_max:
+            self.flush_logs()
+
+    def log_info(self, message: str, **metadata) -> None:
+        """Log INFO level message"""
+        self.log(message, level='INFO', **metadata)
+
+    def log_warning(self, message: str, **metadata) -> None:
+        """Log WARNING level message"""
+        self.log(message, level='WARNING', **metadata)
+
+    def log_error(self, message: str, **metadata) -> None:
+        """Log ERROR level message (sent immediately)"""
+        self.log(message, level='ERROR', **metadata)
+
+    def log_debug(self, message: str, **metadata) -> None:
+        """Log DEBUG level message"""
+        self.log(message, level='DEBUG', **metadata)
+
+    def flush_logs(self) -> None:
+        """Flush buffered logs to Backend"""
+        if not self._log_buffer:
+            return
+
+        logs_to_send = self._log_buffer.copy()
+        self._log_buffer.clear()
+
+        self._send_log_batch(logs_to_send)
+
+    def _send_log_batch(self, logs: List[Dict[str, Any]]) -> None:
+        """Send batch of logs to Backend (sends each log individually)"""
+        if not logs:
+            return
+
+        sent_count = 0
+        for log_entry in logs:
+            # Convert internal log format to LogEventCallback format
+            callback_data = {
+                'job_id': int(self.job_id),
+                'event_type': log_entry.get('source', 'training'),  # source → event_type
+                'message': log_entry.get('message', ''),
+                'level': log_entry.get('level', 'INFO'),
+                'data': log_entry.get('metadata', {}),
+                'timestamp': log_entry.get('timestamp')
+            }
+
+            try:
+                self._send_callback(f'/training/jobs/{self.job_id}/callback/log', callback_data)
+                sent_count += 1
+            except Exception as e:
+                # Don't fail training if log fails
+                logger.warning(f"Failed to send log: {e}")
+                break  # Stop sending more logs if one fails
+
+        if sent_count > 0:
+            logger.debug(f"Sent {sent_count}/{len(logs)} logs to Backend")
 
     def log_event(
         self,
@@ -663,7 +916,7 @@ class TrainerSDK:
         level: str = 'INFO'
     ) -> None:
         """
-        Log structured event to Backend.
+        Log structured event to Backend (legacy method).
 
         Backend forwards to Loki for centralized logging.
 
@@ -700,7 +953,8 @@ class TrainerSDK:
         dataset_dir: str,
         source_format: str,
         target_format: str,
-        split_config: Optional[Dict[str, Any]] = None
+        split_config: Optional[Dict[str, Any]] = None,
+        task_type: Optional[str] = None
     ) -> str:
         """
         Convert dataset between formats.
@@ -716,22 +970,30 @@ class TrainerSDK:
                     'seed': 42,
                     'splits': {'image_id': 'train'|'val'}
                 }
+            task_type: Optional task type for selecting annotation file
+                      ('detection', 'classification', 'segmentation', 'pose')
+                      If not provided, uses sdk.task_type
 
         Returns:
             Path to converted dataset
         """
         dataset_path = Path(dataset_dir)
 
+        # Use SDK task_type if not provided
+        if task_type is None:
+            task_type = self.task_type
+
         # Currently support dice -> yolo conversion
         if source_format == 'dice' and target_format == 'yolo':
-            return self._convert_dice_to_yolo(dataset_path, split_config)
+            return self._convert_dice_to_yolo(dataset_path, split_config, task_type)
         else:
             raise NotImplementedError(f"Conversion {source_format} -> {target_format} not implemented")
 
     def _convert_dice_to_yolo(
         self,
         dataset_dir: Path,
-        split_config: Optional[Dict[str, Any]] = None
+        split_config: Optional[Dict[str, Any]] = None,
+        task_type: str = 'detection'
     ) -> str:
         """
         Convert DICEFormat (annotations.json) to YOLO format.
@@ -740,12 +1002,40 @@ class TrainerSDK:
         - labels/*.txt (YOLO format labels)
         - train.txt, val.txt (image lists)
         - data.yaml (dataset config)
-        """
-        annotations_file = dataset_dir / "annotations.json"
 
+        Args:
+            dataset_dir: Dataset directory path
+            split_config: Split configuration
+            task_type: Task type for selecting annotation file
+                      ('detection', 'classification', 'segmentation', 'pose')
+        """
+        # Select annotation file based on task_type
+        task_annotation_map = {
+            'detection': 'annotations_detection.json',
+            'object_detection': 'annotations_detection.json',
+            'classification': 'annotations_classification.json',
+            'image_classification': 'annotations_classification.json',
+            'segmentation': 'annotations_segmentation.json',
+            'instance_segmentation': 'annotations_segmentation.json',
+            'pose': 'annotations_pose.json',
+            'pose_estimation': 'annotations_pose.json',
+        }
+
+        # Get task-specific annotation file or fallback to generic
+        annotation_filename = task_annotation_map.get(task_type, f'annotations_{task_type}.json')
+        annotations_file = dataset_dir / annotation_filename
+
+        # Fallback to generic annotations.json if task-specific doesn't exist
         if not annotations_file.exists():
-            logger.info("No annotations.json found, skipping DICE conversion")
-            return str(dataset_dir)
+            fallback_file = dataset_dir / "annotations.json"
+            if fallback_file.exists():
+                logger.info(f"Task-specific {annotation_filename} not found, using annotations.json")
+                annotations_file = fallback_file
+            else:
+                logger.info(f"No annotation files found ({annotation_filename} or annotations.json), skipping DICE conversion")
+                return str(dataset_dir)
+
+        logger.info(f"Using annotation file: {annotations_file.name} for task_type={task_type}")
 
         # Load annotations
         with open(annotations_file, 'r', encoding='utf-8') as f:
@@ -1078,6 +1368,8 @@ class TrainerSDK:
 
     def close(self):
         """Close HTTP client and cleanup resources"""
+        # Flush any remaining logs
+        self.flush_logs()
         self.http_client.close()
         logger.debug("TrainerSDK closed")
 

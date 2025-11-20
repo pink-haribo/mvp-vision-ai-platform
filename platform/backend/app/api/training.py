@@ -504,6 +504,7 @@ async def start_training_job(
         "task": job.task_type,
         "epochs": job.epochs,
         "batch": job.batch_size,
+        "learning_rate": job.learning_rate,
         "imgsz": 640,  # Default image size
         "device": "cpu",  # Will be "cuda" in production
         "primary_metric": job.primary_metric or "loss",  # Metric to optimize
