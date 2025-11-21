@@ -122,3 +122,77 @@ def sample_image_batch(tmp_path):
 def api_url():
     """Base API URL for E2E tests."""
     return os.getenv("API_URL", "http://localhost:8000/api/v1")
+
+
+@pytest.fixture(scope="function", autouse=True)
+def mock_model_capabilities(monkeypatch):
+    """
+    Mock dual_storage.get_capabilities() to return sample model capabilities.
+
+    This is autouse=True so all tests automatically get mocked capabilities
+    without needing to call Training Services.
+    """
+    import json
+
+    # Sample capabilities for ultralytics
+    ultralytics_capabilities = {
+        "framework": "ultralytics",
+        "models": [
+            {
+                "model_name": "yolo11n",
+                "display_name": "YOLOv11 Nano",
+                "task_types": ["object_detection"],
+                "pretrained_available": True,
+                "status": "active"
+            },
+            {
+                "model_name": "yolo11m",
+                "display_name": "YOLOv11 Medium",
+                "task_types": ["object_detection"],
+                "pretrained_available": True,
+                "status": "active"
+            },
+            {
+                "model_name": "yolo11l",
+                "display_name": "YOLOv11 Large",
+                "task_types": ["object_detection"],
+                "pretrained_available": True,
+                "status": "active"
+            }
+        ],
+        "task_types": ["object_detection", "instance_segmentation", "pose_estimation"]
+    }
+
+    # Sample capabilities for timm
+    timm_capabilities = {
+        "framework": "timm",
+        "models": [
+            {
+                "model_name": "resnet50",
+                "display_name": "ResNet-50",
+                "task_types": ["classification"],
+                "pretrained_available": True,
+                "status": "active"
+            }
+        ],
+        "task_types": ["classification"]
+    }
+
+    def mock_get_capabilities(framework: str):
+        """Mock get_capabilities to return sample data."""
+        if framework == "ultralytics":
+            return json.dumps(ultralytics_capabilities).encode('utf-8')
+        elif framework == "timm":
+            return json.dumps(timm_capabilities).encode('utf-8')
+        elif framework == "huggingface":
+            return None  # Not implemented yet
+        else:
+            return None
+
+    # Patch dual_storage.get_capabilities
+    from app.utils import dual_storage as ds_module
+    monkeypatch.setattr(ds_module.dual_storage, "get_capabilities", mock_get_capabilities)
+
+    yield
+
+    # Cleanup happens automatically with monkeypatch
