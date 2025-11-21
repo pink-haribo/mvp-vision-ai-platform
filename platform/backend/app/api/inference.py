@@ -19,16 +19,11 @@ from app.db.database import get_db
 from app.db import models
 from app.schemas import inference as schemas
 from app.utils.inference_engine import get_inference_engine
-from app.utils.dual_storage import DualStorageClient
+from app.utils.dual_storage import dual_storage
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def get_storage_client() -> DualStorageClient:
-    """Get DualStorageClient instance."""
-    return DualStorageClient()
 
 
 async def verify_api_key(
@@ -216,7 +211,7 @@ async def download_and_extract_model(
         model_path: Path to extracted model file
         metadata: Model metadata dictionary
     """
-    storage_client = get_storage_client()
+    storage_client = dual_storage
 
     # Create cache directory
     cache_dir = Path(tempfile.gettempdir()) / "platform_inference_cache" / str(deployment_id)

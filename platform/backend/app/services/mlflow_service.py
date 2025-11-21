@@ -696,3 +696,47 @@ class MLflowService:
                 for job in jobs
             ],
         }
+
+    # ==================== Training Job MLflow Integration ====================
+
+    def get_run_by_job_id(self, job_id: int) -> Optional[Any]:
+        """
+        Get MLflow run for a training job.
+
+        Delegates to underlying mlflow_client.
+
+        Args:
+            job_id: Training job ID
+
+        Returns:
+            MLflow run object or None if not found
+        """
+        return self.mlflow_client.get_run_by_job_id(job_id)
+
+    def get_job_run_metrics(self, job_id: int) -> Dict[str, Any]:
+        """
+        Get metrics for a training job from MLflow.
+
+        Delegates to underlying mlflow_client.
+
+        Args:
+            job_id: Training job ID
+
+        Returns:
+            Dictionary containing metrics data
+        """
+        return self.mlflow_client.get_run_metrics(job_id)
+
+    def get_job_run_summary(self, job_id: int) -> Dict[str, Any]:
+        """
+        Get summary information for a training job.
+
+        Delegates to underlying mlflow_client.
+
+        Args:
+            job_id: Training job ID
+
+        Returns:
+            Dictionary containing summary data
+        """
+        return self.mlflow_client.get_run_summary(job_id)

@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from app.db.database import get_db
 from app.db.models import Dataset, User
-from app.utils.storage_utils import get_storage_client, get_storage_type
+from app.utils.dual_storage import dual_storage
 from app.utils.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -184,7 +184,7 @@ async def list_dataset_images(
     """
     try:
         # Get storage client
-        storage = get_storage_client()
+        storage = dual_storage
 
         # 1. Verify dataset exists
         dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()

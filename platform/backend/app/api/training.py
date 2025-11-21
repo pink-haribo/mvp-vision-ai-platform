@@ -11,7 +11,6 @@ from app.db.database import get_db
 from app.db import models
 from app.schemas import training
 from app.core.config import settings
-from app.utils.mlflow_client import get_mlflow_client
 from app.services.websocket_manager import get_websocket_manager
 
 logger = logging.getLogger(__name__)
@@ -35,7 +34,7 @@ async def auto_create_snapshot_if_needed(dataset_id: str, job_id: int, db: Sessi
         Snapshot dataset ID (either newly created or existing)
     """
     from app.db.models import Dataset
-    from app.utils.storage_utils import get_storage_client
+    from app.utils.dual_storage import dual_storage
     import json
 
     # Get parent dataset
@@ -72,7 +71,7 @@ async def auto_create_snapshot_if_needed(dataset_id: str, job_id: int, db: Sessi
     snapshot_storage_path = f"datasets/snapshots/{snapshot_id}/"
 
     # Copy dataset files in storage
-    storage_client = get_storage_client()
+    storage_client = dual_storage
     parent_storage_path = parent_dataset.storage_path.rstrip('/')
 
     try:
@@ -329,8 +328,9 @@ async def get_training_job(job_id: int, db: Session = Depends(get_db)):
     # Auto-link MLflow run_id if not already linked and job is running/completed
     if not job.mlflow_run_id and job.status in ["running", "completed"]:
         try:
-            mlflow_client = get_mlflow_client()
-            mlflow_run = mlflow_client.get_run_by_job_id(job_id)
+            from app.services.mlflow_service import MLflowService
+            mlflow_service = MLflowService(db)
+            mlflow_run = mlflow_service.get_run_by_job_id(job_id)
             if mlflow_run:
                 job.mlflow_run_id = mlflow_run.info.run_id
                 db.commit()
@@ -831,8 +831,9 @@ async def get_mlflow_metrics(job_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Training job not found")
 
     try:
-        client = get_mlflow_client()
-        metrics_data = client.get_run_metrics(job_id)
+        from app.services.mlflow_service import MLflowService
+        mlflow_service = MLflowService(db)
+        metrics_data = mlflow_service.get_job_run_metrics(job_id)
 
         # Add primary metric information
         metrics_data['primary_metric'] = job.primary_metric or 'loss'
@@ -861,8 +862,9 @@ async def get_mlflow_summary(job_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Training job not found")
 
     try:
-        client = get_mlflow_client()
-        summary = client.get_run_summary(job_id)
+        from app.services.mlflow_service import MLflowService
+        mlflow_service = MLflowService(db)
+        summary = mlflow_service.get_job_run_summary(job_id)
         return summary
     except Exception as e:
         raise HTTPException(
@@ -1548,147 +1550,10 @@ async def training_progress_callback(
     Returns:
         Acknowledgment response
     """
-    try:
-        # Verify job exists
-        job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
-        if not job:
-            logger.error(f"[CALLBACK] Job {job_id} not found")
-            raise HTTPException(status_code=404, detail="Training job not found")
+    from app.services.training_callback_service import TrainingCallbackService
 
-        logger.info(
-            f"[CALLBACK] Progress update for job {job_id}: "
-            f"epoch {callback.current_epoch}/{callback.total_epochs}, "
-            f"status={callback.status}"
-        )
-
-        # Update job status
-        job.status = callback.status
-
-        # Update started_at if this is the first progress update
-        if job.started_at is None and callback.status == "running":
-            job.started_at = datetime.utcnow()
-
-        # Handle completion or failure
-        if callback.status in ["completed", "failed"]:
-            job.completed_at = datetime.utcnow()
-            if callback.error_message:
-                job.error_message = callback.error_message
-
-        # Store metrics in database if provided
-        if callback.metrics:
-            # Extract metrics dynamically to support any trainer's metric structure
-            metrics_dict = callback.metrics.dict() if hasattr(callback.metrics, 'dict') else {}
-
-            # Try to extract standard fields from metrics or extra_metrics
-            extra_metrics = metrics_dict.get('extra_metrics', {})
-
-            metric = models.TrainingMetric(
-                job_id=job_id,
-                epoch=callback.current_epoch,
-                step=None,  # Can be added if needed
-                # Standard fields with fallback to extra_metrics
-                loss=metrics_dict.get('loss') or extra_metrics.get('loss'),
-                accuracy=metrics_dict.get('accuracy') or extra_metrics.get('accuracy'),
-                learning_rate=metrics_dict.get('learning_rate') or extra_metrics.get('learning_rate') or extra_metrics.get('lr'),
-                # Store all metrics in extra_metrics for dynamic access
-                extra_metrics=extra_metrics if extra_metrics else metrics_dict,
-                checkpoint_path=callback.checkpoint_path,
-            )
-            db.add(metric)
-
-            logger.info(f"[CALLBACK] Created TrainingMetric record for epoch {callback.current_epoch}")
-
-        # Update best checkpoint path if provided
-        if callback.best_checkpoint_path:
-            job.best_checkpoint_path = callback.best_checkpoint_path
-
-        # MLflow integration - Log training metrics
-        try:
-            from app.services.mlflow_service import MLflowService
-            mlflow_service = MLflowService(db)
-
-            if mlflow_service.mlflow_client.available:
-                # Create MLflow run if not exists
-                if not job.mlflow_run_id:
-                    experiment_name = f"project-{job.project_id}"
-                    run_name = f"job-{job_id}-{job.model_name}"
-                    tags = {
-                        "job_id": str(job_id),
-                        "project_id": str(job.project_id),
-                        "model_name": job.model_name,
-                        "task_type": job.task_type,
-                        "framework": job.framework or "unknown"
-                    }
-
-                    job.mlflow_run_id = mlflow_service.create_mlflow_run(
-                        experiment_name=experiment_name,
-                        run_name=run_name,
-                        tags=tags
-                    )
-
-                    # Log training parameters on first run
-                    if job.mlflow_run_id and job.training_config:
-                        mlflow_service.log_training_params(
-                            run_id=job.mlflow_run_id,
-                            params=job.training_config
-                        )
-
-                    logger.info(f"[CALLBACK] Created MLflow run: {job.mlflow_run_id}")
-
-                # Log metrics to MLflow
-                if job.mlflow_run_id and callback.metrics:
-                    metrics_to_log = callback.metrics.dict() if hasattr(callback.metrics, 'dict') else {}
-
-                    success = mlflow_service.log_training_metrics(
-                        run_id=job.mlflow_run_id,
-                        metrics=metrics_to_log,
-                        step=callback.current_epoch
-                    )
-
-                    if success:
-                        logger.info(f"[CALLBACK] Logged metrics to MLflow for epoch {callback.current_epoch}")
-                    else:
-                        logger.warning(f"[CALLBACK] Failed to log metrics to MLflow")
-
-        except Exception as e:
-            # Graceful degradation - don't fail the callback if MLflow fails
-            logger.warning(f"[CALLBACK] MLflow integration error (non-critical): {str(e)}")
-
-        db.commit()
-
-        logger.info(f"[CALLBACK] Successfully updated job {job_id}")
-
-        # Broadcast to WebSocket clients
-        ws_manager = get_websocket_manager()
-        await ws_manager.broadcast_to_job(job_id, {
-            "type": "training_progress",
-            "job_id": job_id,
-            "status": callback.status,
-            "current_epoch": callback.current_epoch,
-            "total_epochs": callback.total_epochs,
-            "progress_percent": callback.progress_percent,
-            "metrics": callback.metrics.dict() if callback.metrics else None,
-            "checkpoint_path": callback.checkpoint_path,
-            "best_checkpoint_path": callback.best_checkpoint_path,
-        })
-
-        return training.TrainingCallbackResponse(
-            success=True,
-            message=f"Progress update received for epoch {callback.current_epoch}",
-            job_status=job.status
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        logger.error(f"[CALLBACK] Error processing progress update: {str(e)}")
-        logger.error(traceback.format_exc())
-        db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to process progress callback: {str(e)}"
-        )
+    service = TrainingCallbackService(db)
+    return await service.handle_progress(job_id, callback)
 
 
 @router.post(
@@ -1714,159 +1579,10 @@ async def training_completion_callback(
     Returns:
         Acknowledgment response
     """
-    try:
-        # Verify job exists
-        job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
-        if not job:
-            logger.error(f"[CALLBACK] Job {job_id} not found")
-            raise HTTPException(status_code=404, detail="Training job not found")
+    from app.services.training_callback_service import TrainingCallbackService
 
-        logger.info(
-            f"[CALLBACK] Completion callback for job {job_id}: "
-            f"status={callback.status}, "
-            f"epochs_completed={callback.total_epochs_completed}, "
-            f"exit_code={callback.exit_code}"
-        )
-
-        # Update job status
-        # K8s Job compatibility: Use exit_code if provided
-        if callback.exit_code is not None:
-            if callback.exit_code == 0:
-                job.status = "completed"
-            else:
-                job.status = "failed"
-                if not callback.error_message:
-                    callback.error_message = f"Training failed with exit code {callback.exit_code}"
-        else:
-            job.status = callback.status
-
-        # Update completion time
-        job.completed_at = datetime.utcnow()
-
-        # Update job final accuracy if available (from final_metrics)
-        if callback.final_metrics:
-            # Extract metrics dynamically to support any trainer's metric structure
-            metrics_dict = callback.final_metrics.dict() if hasattr(callback.final_metrics, 'dict') else {}
-            extra_metrics = metrics_dict.get('extra_metrics', {})
-            job.final_accuracy = metrics_dict.get('accuracy') or extra_metrics.get('accuracy')
-
-        # NOTE: Do NOT create duplicate TrainingMetric record here
-        # Metrics are already saved by epoch callbacks during training
-        # Completion callback only updates checkpoint paths and final status
-
-        # Store best metrics if provided
-        if callback.best_metrics and callback.best_epoch:
-            # Update existing metric record for best epoch
-            best_metric = db.query(models.TrainingMetric).filter(
-                models.TrainingMetric.job_id == job_id,
-                models.TrainingMetric.epoch == callback.best_epoch
-            ).first()
-
-            if best_metric:
-                best_metric.extra_metrics = best_metric.extra_metrics or {}
-                best_metric.extra_metrics["is_best"] = True
-                best_metric.checkpoint_path = callback.best_checkpoint_path
-
-        # Update checkpoint paths
-        if callback.best_checkpoint_path:
-            job.best_checkpoint_path = callback.best_checkpoint_path
-        if callback.last_checkpoint_path:
-            job.last_checkpoint_path = callback.last_checkpoint_path
-
-        # Store MLflow run ID
-        if callback.mlflow_run_id:
-            job.mlflow_run_id = callback.mlflow_run_id
-            logger.info(f"[CALLBACK] Stored MLflow run ID: {callback.mlflow_run_id}")
-
-        # Store error information if failed
-        if callback.status == "failed" or (callback.exit_code and callback.exit_code != 0):
-            job.error_message = callback.error_message or "Training failed (no error message provided)"
-
-            # Log traceback if available
-            if callback.traceback:
-                logger.error(f"[CALLBACK] Job {job_id} traceback:\n{callback.traceback}")
-                # Store traceback in logs
-                log_entry = models.TrainingLog(
-                    job_id=job_id,
-                    log_type="stderr",
-                    content=f"TRACEBACK:\n{callback.traceback}"
-                )
-                db.add(log_entry)
-
-        # MLflow integration - End the run with final status
-        try:
-            from app.services.mlflow_service import MLflowService
-            mlflow_service = MLflowService(db)
-
-            if job.mlflow_run_id and mlflow_service.mlflow_client.available:
-                # Log final metrics if provided
-                if callback.final_metrics:
-                    final_metrics_dict = callback.final_metrics.dict() if hasattr(callback.final_metrics, 'dict') else {}
-
-                    success = mlflow_service.log_training_metrics(
-                        run_id=job.mlflow_run_id,
-                        metrics=final_metrics_dict,
-                        step=callback.total_epochs_completed or 0
-                    )
-
-                    if success:
-                        logger.info(f"[CALLBACK] Logged final metrics to MLflow")
-
-                # Determine MLflow run status
-                mlflow_status = "FINISHED" if job.status == "completed" else "FAILED"
-
-                # End the MLflow run
-                mlflow_service.end_mlflow_run(
-                    run_id=job.mlflow_run_id,
-                    status=mlflow_status
-                )
-
-                logger.info(f"[CALLBACK] Ended MLflow run {job.mlflow_run_id} with status {mlflow_status}")
-
-        except Exception as e:
-            # Graceful degradation - don't fail the callback if MLflow fails
-            logger.warning(f"[CALLBACK] MLflow end_run error (non-critical): {str(e)}")
-
-        db.commit()
-
-        logger.info(
-            f"[CALLBACK] Successfully processed completion for job {job_id} "
-            f"(status={job.status}, final_accuracy={job.final_accuracy})"
-        )
-
-        # Broadcast completion to WebSocket clients
-        ws_manager = get_websocket_manager()
-        await ws_manager.broadcast_to_job(job_id, {
-            "type": "training_complete" if callback.status == "completed" else "training_error",
-            "job_id": job_id,
-            "status": callback.status,
-            "total_epochs_completed": callback.total_epochs_completed,
-            "final_metrics": callback.final_metrics.dict() if callback.final_metrics else None,
-            "best_metrics": callback.best_metrics.dict() if callback.best_metrics else None,
-            "best_epoch": callback.best_epoch,
-            "final_checkpoint_path": callback.final_checkpoint_path,
-            "best_checkpoint_path": callback.best_checkpoint_path,
-            "mlflow_run_id": callback.mlflow_run_id,
-            "error_message": callback.error_message,
-        })
-
-        return training.TrainingCallbackResponse(
-            success=True,
-            message=f"Training {callback.status} after {callback.total_epochs_completed} epochs",
-            job_status=job.status
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        logger.error(f"[CALLBACK] Error processing completion callback: {str(e)}")
-        logger.error(traceback.format_exc())
-        db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to process completion callback: {str(e)}"
-        )
+    service = TrainingCallbackService(db)
+    return await service.handle_completion(job_id, callback)
 
 
 @router.post(
@@ -1893,72 +1609,10 @@ async def training_log_callback(
     Returns:
         Acknowledgment response
     """
-    try:
-        # Verify job exists
-        job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
-        if not job:
-            logger.error(f"[LOG] Job {job_id} not found")
-            raise HTTPException(status_code=404, detail="Training job not found")
+    from app.services.training_callback_service import TrainingCallbackService
 
-        logger.info(
-            f"[LOG] Event for job {job_id}: [{callback.level}] {callback.event_type} - {callback.message}"
-        )
-
-        # Store in database
-        log_entry = models.TrainingLog(
-            job_id=job_id,
-            log_type=callback.event_type,
-            content=f"[{callback.level}] {callback.message}"
-        )
-        db.add(log_entry)
-
-        # Log rotation: Keep only latest 2000 logs per job
-        log_count = db.query(models.TrainingLog).filter(
-            models.TrainingLog.job_id == job_id
-        ).count()
-
-        if log_count >= 2000:
-            # Delete oldest logs to maintain 2000 limit
-            # Keep 1900 logs + new one = 1901 total (leaves room for next batch)
-            logs_to_keep = 1900
-            oldest_logs = db.query(models.TrainingLog).filter(
-                models.TrainingLog.job_id == job_id
-            ).order_by(models.TrainingLog.id.asc()).offset(logs_to_keep).all()
-
-            if oldest_logs:
-                for old_log in oldest_logs:
-                    db.delete(old_log)
-                logger.info(f"[LOG] Rotated {len(oldest_logs)} old logs for job {job_id} (kept {logs_to_keep})")
-
-        db.commit()
-
-        # Broadcast to WebSocket clients
-        ws_manager = get_websocket_manager()
-        await ws_manager.broadcast_to_job(job_id, {
-            "type": "training_log",
-            "job_id": job_id,
-            "level": callback.level,
-            "event_type": callback.event_type,
-            "message": callback.message,
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-
-        return training.TrainingCallbackResponse(
-            success=True,
-            message=f"Log event received: {callback.event_type}",
-            job_status=job.status
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        logger.error(f"[LOG] Error processing log callback: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to process log callback: {str(e)}"
-        )
+    service = TrainingCallbackService(db)
+    return await service.handle_log(job_id, callback)
 
 
 @router.post(
@@ -2002,12 +1656,17 @@ async def get_checkpoint_upload_url(
         object_key = f"checkpoints/job-{job_id}/{request.checkpoint_filename}"
 
         # Generate presigned upload URL
-        from app.utils.s3_storage import s3_storage
+        from app.utils.dual_storage import dual_storage
 
-        upload_url = s3_storage.generate_presigned_upload_url(
-            object_key=object_key,
-            expiration=3600,  # 1 hour
-            content_type=request.content_type
+        # Use boto3 client's generate_presigned_url
+        upload_url = dual_storage.internal_client.generate_presigned_url(
+            ClientMethod='put_object',
+            Params={
+                'Bucket': dual_storage.internal_bucket_checkpoints,
+                'Key': object_key,
+                'ContentType': request.content_type
+            },
+            ExpiresIn=3600  # 1 hour
         )
 
         if not upload_url:

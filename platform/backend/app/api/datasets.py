@@ -18,7 +18,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.utils.dataset_analyzer import DatasetAnalyzer
-from app.utils.storage_utils import get_storage_client, get_storage_type
+from app.utils.dual_storage import dual_storage
 from app.db.database import get_db
 from app.db.models import Dataset, User
 from app.utils.dependencies import get_current_user
@@ -455,7 +455,7 @@ async def create_dataset(
             description=request.description or f"Dataset: {request.name}",
             format="dice",  # Default format
             labeled=False,  # No annotations yet
-            storage_type=get_storage_type(),  # Auto-detect from environment (r2, minio, s3)
+            storage_type=dual_storage.external_storage_type,  # Auto-detect from environment (r2, minio, s3)
             storage_path=f"datasets/{dataset_id}/",  # Reserve storage path
             visibility=request.visibility,
             owner_id=current_user.id,  # Set owner to current user
@@ -543,7 +543,7 @@ async def delete_dataset(
 
         # Delete all images from storage
         try:
-            storage = get_storage_client()
+            storage = dual_storage
             prefix = f"datasets/{dataset_id}/"
             deleted_count = storage.delete_all_with_prefix(prefix)
             logger.info(f"Deleted {deleted_count} objects from storage with prefix: {prefix}")
@@ -600,7 +600,7 @@ async def get_dataset_file(
         logger.info(f"Fetching file from storage: {storage_key}")
 
         # Get file content from storage
-        storage = get_storage_client()
+        storage = dual_storage
         file_content = storage.get_file_content(storage_key)
 
         if file_content is None:
@@ -679,7 +679,7 @@ async def create_or_update_dataset_split(
 
     try:
         # Load annotations.json from storage
-        storage_client = get_storage_client()
+        storage_client = dual_storage
         annotations_key = dataset.annotation_path
 
         logger.info(f"Loading annotations from: {annotations_key}")
@@ -883,7 +883,7 @@ async def create_dataset_snapshot(
     snapshot_name += f" - {timestamp})"
 
     # Copy dataset files in storage
-    storage_client = get_storage_client()
+    storage_client = dual_storage
     parent_storage_path = parent_dataset.storage_path.rstrip('/')
     snapshot_storage_path = f"datasets/snapshots/{snapshot_id}/"
 
@@ -1079,7 +1079,7 @@ async def delete_dataset_snapshot(
         raise HTTPException(status_code=403, detail="You don't have permission to delete this snapshot")
 
     # Delete from storage
-    storage_client = get_storage_client()
+    storage_client = dual_storage
     try:
         # Delete all files in snapshot storage path
         files = storage_client.list_files(snapshot.storage_path.rstrip('/'))
