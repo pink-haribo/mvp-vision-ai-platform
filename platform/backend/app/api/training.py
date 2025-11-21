@@ -11,7 +11,6 @@ from app.db.database import get_db
 from app.db import models
 from app.schemas import training
 from app.core.config import settings
-from app.utils.mlflow_client import get_mlflow_client
 from app.services.websocket_manager import get_websocket_manager
 
 logger = logging.getLogger(__name__)
@@ -329,8 +328,9 @@ async def get_training_job(job_id: int, db: Session = Depends(get_db)):
     # Auto-link MLflow run_id if not already linked and job is running/completed
     if not job.mlflow_run_id and job.status in ["running", "completed"]:
         try:
-            mlflow_client = get_mlflow_client()
-            mlflow_run = mlflow_client.get_run_by_job_id(job_id)
+            from app.services.mlflow_service import MLflowService
+            mlflow_service = MLflowService(db)
+            mlflow_run = mlflow_service.get_run_by_job_id(job_id)
             if mlflow_run:
                 job.mlflow_run_id = mlflow_run.info.run_id
                 db.commit()
@@ -831,8 +831,9 @@ async def get_mlflow_metrics(job_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Training job not found")
 
     try:
-        client = get_mlflow_client()
-        metrics_data = client.get_run_metrics(job_id)
+        from app.services.mlflow_service import MLflowService
+        mlflow_service = MLflowService(db)
+        metrics_data = mlflow_service.get_job_run_metrics(job_id)
 
         # Add primary metric information
         metrics_data['primary_metric'] = job.primary_metric or 'loss'
@@ -861,8 +862,9 @@ async def get_mlflow_summary(job_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Training job not found")
 
     try:
-        client = get_mlflow_client()
-        summary = client.get_run_summary(job_id)
+        from app.services.mlflow_service import MLflowService
+        mlflow_service = MLflowService(db)
+        summary = mlflow_service.get_job_run_summary(job_id)
         return summary
     except Exception as e:
         raise HTTPException(
