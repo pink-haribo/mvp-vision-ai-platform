@@ -24,6 +24,14 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from app.core.config import settings
 from app.api import auth, chat, training, projects, debug, datasets, datasets_images, datasets_folder, admin, validation, test_inference, models, image_tools, internal, experiments, invitations, export, inference, websocket
 
+# Redis integration (Phase 5)
+from app.services.redis_manager import RedisManager
+from app.services.redis_session_store import RedisSessionStore
+
+# Global instances for Redis
+redis_manager: RedisManager = None
+session_store: RedisSessionStore = None
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
@@ -41,10 +49,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Startup event to run migrations
+# Startup event to run migrations and initialize Redis
 @app.on_event("startup")
 async def startup_event():
     """Run startup tasks."""
+    global redis_manager, session_store
+
+    # Initialize Redis connection
+    print("[STARTUP] Connecting to Redis...")
+    try:
+        redis_url = getattr(settings, "REDIS_URL", "redis://localhost:6379/0")
+        redis_manager = RedisManager(redis_url=redis_url)
+        await redis_manager.connect()
+
+        # Initialize Session Store
+        session_store = RedisSessionStore(redis_manager)
+
+        print(f"[STARTUP] ✓ Redis connected: {redis_url}")
+    except Exception as e:
+        print(f"[STARTUP] ⚠️  Redis connection failed: {e}")
+        print("[STARTUP] Application will continue without Redis (graceful degradation)")
+        redis_manager = None
+        session_store = None
+
     print("[STARTUP] Running database migrations...")
     try:
         from sqlalchemy import create_engine, text, inspect
@@ -131,8 +158,25 @@ app.include_router(websocket.router, prefix=f"{settings.API_V1_PREFIX}", tags=["
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy", "service": "vision-ai-mvp-backend"}
+    """Health check endpoint with Redis status."""
+    health_status = {
+        "status": "healthy",
+        "service": "vision-ai-mvp-backend",
+        "database": "connected",
+        "redis": "unknown"
+    }
+
+    # Check Redis connection
+    if redis_manager and redis_manager.is_connected:
+        redis_healthy = await redis_manager.ping()
+        health_status["redis"] = "connected" if redis_healthy else "disconnected"
+    else:
+        health_status["redis"] = "not_configured"
+
+    # Overall status: healthy if DB connected (Redis optional)
+    health_status["status"] = "healthy"
+
+    return health_status
 
 
 @app.get("/")
@@ -160,23 +204,28 @@ async def start_background_tasks():
     from datetime import datetime, timedelta
     import shutil
 
-    # Initialize database tables
+    # Initialize database tables (Phase 11: Separate Platform and User DBs)
     print("[STARTUP] Initializing database tables...")
-    from app.db.database import init_db, SessionLocal
-    from app.db.models import User
+    from app.db.database import init_db, init_user_db, UserSessionLocal
+    from app.db.models import User, UserRole
     from app.core.security import get_password_hash
 
     try:
+        # Initialize Platform DB (projects, datasets, training jobs, etc.)
         init_db()
-        print("[STARTUP] Database tables initialized successfully")
+        print("[STARTUP] ✓ Platform DB tables initialized")
+
+        # Initialize Shared User DB (users, organizations, invitations, etc.)
+        init_user_db()
+        print("[STARTUP] ✓ Shared User DB tables initialized")
     except Exception as e:
         print(f"[STARTUP] Database initialization error: {e}")
         # Don't crash the app if tables already exist
 
-    # Create default admin user if no users exist
+    # Create default admin user if no users exist (Phase 11: Use User DB)
     try:
-        db = SessionLocal()
-        user_count = db.query(User).count()
+        user_db = UserSessionLocal()
+        user_count = user_db.query(User).count()
 
         if user_count == 0:
             admin_email = "admin@example.com"
@@ -185,16 +234,18 @@ async def start_background_tasks():
             admin_user = User(
                 email=admin_email,
                 hashed_password=get_password_hash(admin_password),
-                full_name="Admin User"
+                full_name="Admin User",
+                system_role=UserRole.ADMIN,
+                is_active=True
             )
-            db.add(admin_user)
-            db.commit()
-            print(f"[STARTUP] Created default admin user: {admin_email} / {admin_password}")
+            user_db.add(admin_user)
+            user_db.commit()
+            print(f"[STARTUP] Created default admin user in Shared User DB: {admin_email} / {admin_password}")
             print("[STARTUP] ⚠️  IMPORTANT: Change the default password after first login!")
         else:
-            print(f"[STARTUP] Found {user_count} existing user(s)")
+            print(f"[STARTUP] Found {user_count} existing user(s) in Shared User DB")
 
-        db.close()
+        user_db.close()
     except Exception as e:
         print(f"[STARTUP] Error creating admin user: {e}")
 
