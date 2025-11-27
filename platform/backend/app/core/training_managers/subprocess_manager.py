@@ -1,13 +1,16 @@
 """
-Training Subprocess Manager
+Subprocess Training Manager
 
-Manages training jobs by executing Training Service CLI via subprocess.
+Phase 12: Temporal Orchestration & Backend Modernization
+
+Manages training jobs by executing Training Service CLI via subprocess (Tier 0).
 This approach maintains consistency between local dev and K8s Job production.
 
 Architecture:
 - Backend executes Training Service's train.py using its dedicated venv
 - Training Service has its own dependencies (ultralytics, torch, etc.)
 - Same execution model for both local subprocess and K8s Job
+- Implements TrainingManager abstract interface
 """
 
 import asyncio
@@ -31,11 +34,12 @@ except ImportError:
 
 from app.db.database import SessionLocal
 from app.db import models
+from app.core.training_manager import TrainingManager
 
 logger = logging.getLogger(__name__)
 
 
-class TrainingSubprocessManager:
+class SubprocessTrainingManager(TrainingManager):
     """
     Manages training subprocesses for local development.
 
@@ -45,7 +49,9 @@ class TrainingSubprocessManager:
 
     def __init__(self):
         # Get Trainers base directory
-        self.backend_dir = Path(__file__).parent.parent.parent
+        # __file__ = app/core/training_managers/subprocess_manager.py
+        # parent x4 = app/core/training_managers -> app/core -> app -> backend
+        self.backend_dir = Path(__file__).parent.parent.parent.parent
         self.platform_dir = self.backend_dir.parent
         self.trainers_dir = self.platform_dir / "trainers"
 
@@ -466,9 +472,11 @@ class TrainingSubprocessManager:
             logger.error(f"[TrainingSubprocess] Error stopping job {job_id}: {e}")
             return False
 
-    def get_process_status(self, job_id: int) -> Optional[Dict[str, Any]]:
+    def get_training_status(self, job_id: int) -> Optional[Dict[str, Any]]:
         """
         Get status of a training subprocess.
+
+        Implements TrainingManager.get_training_status()
 
         Args:
             job_id: Training job ID
@@ -818,15 +826,44 @@ class TrainingSubprocessManager:
             raise
 
 
-# Global singleton instance
-_training_subprocess_manager: Optional[TrainingSubprocessManager] = None
+    def cleanup_resources(self, job_id: int) -> None:
+        """
+        Clean up resources for a training job.
+
+        Implements TrainingManager.cleanup_resources()
+
+        This includes:
+        - Stopping running processes
+        - Removing from process tracking dictionary
+
+        Args:
+            job_id: Training job ID
+        """
+        logger.info(f"[SubprocessTrainingManager] Cleaning up resources for job {job_id}")
+
+        # Stop training if still running
+        self.stop_training(job_id)
+
+        # Remove from process tracking
+        if job_id in self.processes:
+            del self.processes[job_id]
+            logger.info(f"[SubprocessTrainingManager] Removed job {job_id} from process tracking")
 
 
-def get_training_subprocess_manager() -> TrainingSubprocessManager:
-    """Get or create global TrainingSubprocessManager instance."""
+# Global singleton instance (backward compatibility)
+_training_subprocess_manager: Optional[SubprocessTrainingManager] = None
+
+
+def get_training_subprocess_manager() -> SubprocessTrainingManager:
+    """
+    Get or create global SubprocessTrainingManager instance.
+
+    Note: This function is kept for backward compatibility.
+    New code should use get_training_manager() from app.core.training_manager instead.
+    """
     global _training_subprocess_manager
 
     if _training_subprocess_manager is None:
-        _training_subprocess_manager = TrainingSubprocessManager()
+        _training_subprocess_manager = SubprocessTrainingManager()
 
     return _training_subprocess_manager
