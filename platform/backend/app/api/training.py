@@ -12,141 +12,105 @@ from app.db import models
 from app.schemas import training
 from app.core.config import settings
 from app.services.websocket_manager import get_websocket_manager
+from app.utils.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-async def auto_create_snapshot_if_needed(dataset_id: str, job_id: int, db: Session) -> str:
+async def auto_create_snapshot_if_needed(
+    dataset_id: str,
+    user_id: int,
+    db: Session,
+    split_config: dict = None
+) -> str:
     """
     Automatically create a snapshot of the dataset before training starts.
 
+    Phase 11.5: Dataset Service Integration
+    - Queries Labeler API for dataset metadata
+    - Creates snapshot using SnapshotService
+    - Stores snapshot reference in Platform DB
+
+    Phase 11.5.5: Split Integration
+    - Captures resolved split configuration in snapshot for reproducibility
+
     This ensures reproducibility by freezing the dataset state at the time of training.
-    If the dataset hasn't changed since the last snapshot, the existing snapshot is reused.
 
     Args:
-        dataset_id: Dataset ID to snapshot
-        job_id: Training job ID (used in version tag)
+        dataset_id: Dataset ID from Labeler
+        user_id: User creating the snapshot
         db: Database session
+        split_config: Resolved split configuration (from resolve_split_configuration)
 
     Returns:
-        Snapshot dataset ID (either newly created or existing)
+        Snapshot ID (snap_{uuid}) or None if failed
     """
-    from app.db.models import Dataset
-    from app.utils.dual_storage import dual_storage
-    import json
-
-    # Get parent dataset
-    parent_dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not parent_dataset:
-        logger.warning(f"[SNAPSHOT] Dataset {dataset_id} not found, skipping snapshot")
-        return None
-
-    # Cannot snapshot a snapshot
-    if parent_dataset.is_snapshot:
-        logger.info(f"[SNAPSHOT] Dataset {dataset_id} is already a snapshot, skipping")
-        return dataset_id
-
-    # Check if we have existing snapshots
-    existing_snapshots = db.query(Dataset).filter(
-        Dataset.parent_dataset_id == dataset_id,
-        Dataset.is_snapshot == True,
-        Dataset.status == 'active'
-    ).order_by(Dataset.snapshot_created_at.desc()).all()
-
-    # Check if latest snapshot has same content_hash (dataset unchanged)
-    if existing_snapshots and existing_snapshots[0].content_hash == parent_dataset.content_hash:
-        logger.info(f"[SNAPSHOT] Dataset {dataset_id} unchanged, reusing snapshot {existing_snapshots[0].id}")
-        return existing_snapshots[0].id
-
-    # Need to create new snapshot
-    logger.info(f"[SNAPSHOT] Creating new snapshot for dataset {dataset_id} (job {job_id})")
-
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    snapshot_id = f"{dataset_id}-snapshot-job{job_id}-{timestamp}"
-    version_tag = f"training-job-{job_id}"
-
-    snapshot_name = f"{parent_dataset.name} (Training Snapshot - Job {job_id})"
-    snapshot_storage_path = f"datasets/snapshots/{snapshot_id}/"
-
-    # Copy dataset files in storage
-    storage_client = dual_storage
-    parent_storage_path = parent_dataset.storage_path.rstrip('/')
+    from app.clients.labeler_client import labeler_client
+    from app.services.snapshot_service import snapshot_service
 
     try:
-        # List and copy all files
-        files = storage_client.list_files(parent_storage_path)
-        logger.info(f"[SNAPSHOT] Copying {len(files)} files from {parent_storage_path} to {snapshot_storage_path}")
+        # Get dataset metadata from Labeler (Phase 11.5.6: Pass user_id for JWT)
+        dataset = await labeler_client.get_dataset(dataset_id, user_id=user_id)
+        logger.info(f"[SNAPSHOT] Retrieved dataset {dataset_id} from Labeler: {dataset['name']}")
 
-        for file_path in files:
-            relative_path = file_path.replace(parent_storage_path, '').lstrip('/')
-            if not relative_path:
-                continue
+        # Check if we have existing snapshots for this dataset
+        existing_snapshots = snapshot_service.list_snapshots_by_dataset(dataset_id, db, limit=1)
 
-            file_content = storage_client.get_file_content(file_path)
-            target_path = f"{snapshot_storage_path}{relative_path}"
+        # Check if latest snapshot has same content_hash (dataset unchanged)
+        if existing_snapshots:
+            latest_snapshot = existing_snapshots[0]
+            # Compare content hash from Labeler with our latest snapshot
+            # For now, we always create new snapshot (optimization: add content_hash comparison later)
+            logger.info(f"[SNAPSHOT] Found existing snapshot {latest_snapshot.id}, creating new one")
 
-            # Determine content type
-            content_type = 'application/octet-stream'
-            if relative_path.endswith('.json'):
-                content_type = 'application/json'
-            elif relative_path.endswith('.yaml') or relative_path.endswith('.yml'):
-                content_type = 'application/x-yaml'
-            elif relative_path.lower().endswith(('.jpg', '.jpeg')):
-                content_type = 'image/jpeg'
-            elif relative_path.lower().endswith('.png'):
-                content_type = 'image/png'
+        # Create snapshot using SnapshotService
+        logger.info(f"[SNAPSHOT] Creating new snapshot for dataset {dataset_id}")
 
-            storage_client.upload_bytes(file_content, target_path, content_type=content_type)
+        # Prepare snapshot notes with split info
+        notes_parts = [f"Automatic snapshot for training job (dataset: {dataset['name']})"]
+        if split_config:
+            split_source = split_config.get('source', 'unknown')
+            split_method = split_config.get('method', 'unknown')
+            notes_parts.append(f"Split: {split_source} ({split_method})")
 
-        logger.info(f"[SNAPSHOT] Files copied successfully")
+        snapshot = await snapshot_service.create_snapshot(
+            dataset_id=dataset_id,
+            dataset_path=dataset['storage_path'],
+            user_id=user_id,
+            db=db,
+            notes=" | ".join(notes_parts),
+            split_config=split_config  # Phase 11.5.5: Capture split for reproducibility
+        )
+
+        logger.info(f"[SNAPSHOT] Snapshot created successfully: {snapshot.id}")
+        return snapshot.id
+
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.error(f"[SNAPSHOT] Dataset {dataset_id} not found in Labeler")
+        elif e.response.status_code == 403:
+            logger.error(f"[SNAPSHOT] Access denied to dataset {dataset_id}")
+        else:
+            logger.error(f"[SNAPSHOT] HTTP error from Labeler: {e}")
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"Failed to get dataset from Labeler: {e.response.text}"
+        )
 
     except Exception as e:
-        logger.error(f"[SNAPSHOT] Failed to copy dataset files: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create snapshot: {str(e)}")
-
-    # Create snapshot database record
-    snapshot_dataset = Dataset(
-        id=snapshot_id,
-        name=snapshot_name,
-        description=f"Automatic snapshot created for training job {job_id}",
-        owner_id=parent_dataset.owner_id,
-        visibility=parent_dataset.visibility,
-        tags=parent_dataset.tags,
-        storage_path=snapshot_storage_path,
-        storage_type=parent_dataset.storage_type,
-        format=parent_dataset.format,
-        labeled=parent_dataset.labeled,
-        annotation_path=snapshot_storage_path + "annotations.json" if parent_dataset.annotation_path else None,
-        num_classes=parent_dataset.num_classes,
-        num_images=parent_dataset.num_images,
-        class_names=parent_dataset.class_names,
-        split_config=parent_dataset.split_config,
-        is_snapshot=True,
-        parent_dataset_id=dataset_id,
-        snapshot_created_at=datetime.utcnow(),
-        version_tag=version_tag,
-        status='active',
-        integrity_status='valid',
-        version=1,
-        content_hash=parent_dataset.content_hash,
-        last_modified_at=parent_dataset.last_modified_at,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
-    )
-
-    db.add(snapshot_dataset)
-    db.commit()
-    db.refresh(snapshot_dataset)
-
-    logger.info(f"[SNAPSHOT] Created snapshot {snapshot_id} for job {job_id}")
-    return snapshot_id
+        logger.error(f"[SNAPSHOT] Failed to create snapshot: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create snapshot: {str(e)}"
+        )
 
 
 @router.post("/jobs", response_model=training.TrainingJobResponse)
 async def create_training_job(
     job_request: training.TrainingJobCreate,
+    current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -154,9 +118,11 @@ async def create_training_job(
 
     This endpoint creates a training job but does not start it immediately.
     Use the /jobs/{job_id}/start endpoint to start training.
+
+    Phase 11.5.6: Requires authentication to pass user_id to Labeler API.
     """
     # DEBUG: Log what we received
-    logger.info(f"[DEBUG] Received training job request:")
+    logger.info(f"[DEBUG] Received training job request from user {current_user.id}:")
     logger.info(f"[DEBUG]   framework: {job_request.config.framework}")
     logger.info(f"[DEBUG]   model_name: {job_request.config.model_name}")
     logger.info(f"[DEBUG]   task_type: {job_request.config.task_type}")
@@ -178,33 +144,51 @@ async def create_training_job(
     dataset_format = config.dataset_format
 
     if config.dataset_id:
-        # Look up dataset in database
-        dataset = db.query(models.Dataset).filter(models.Dataset.id == config.dataset_id).first()
-        if not dataset:
+        # Phase 11.5: Query Labeler API for dataset metadata
+        from app.clients.labeler_client import labeler_client
+
+        try:
+            # Get dataset metadata from Labeler (Phase 11.5.6: Pass user_id for JWT)
+            dataset = await labeler_client.get_dataset(config.dataset_id, user_id=current_user.id)
+            logger.info(f"[DATASET] Retrieved dataset from Labeler: {dataset['name']} (format: {dataset['format']})")
+
+            # Check user permission
+            permission = await labeler_client.check_permission(config.dataset_id, current_user.id)
+            if not permission.get('has_access'):
+                raise HTTPException(status_code=403, detail="Access denied to dataset")
+
+            # Use dataset information from Labeler
+            dataset_id = dataset['id']
+            dataset_path = config.dataset_id  # Use ID as path for Training Service
+            dataset_format = dataset['format']
+
+            # Get split configuration from dataset annotations (if exists)
+            # For now, we don't have split_config in Labeler response
+            dataset_split_config = None
+            logger.info(f"[DATASET] Using dataset: {dataset_id} (format: {dataset_format})")
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Dataset '{config.dataset_id}' not found in Labeler"
+                )
+            elif e.response.status_code == 403:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Access denied to dataset '{config.dataset_id}'"
+                )
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to query Labeler API: {e.response.text}"
+                )
+        except Exception as e:
+            logger.error(f"[DATASET] Error querying Labeler: {e}")
             raise HTTPException(
-                status_code=404,
-                detail=f"Dataset with id '{config.dataset_id}' not found"
+                status_code=500,
+                detail=f"Failed to retrieve dataset information: {str(e)}"
             )
-
-        # Check access permissions (for now, only public datasets allowed)
-        if dataset.visibility != 'public':
-            raise HTTPException(
-                status_code=403,
-                detail=f"Dataset '{config.dataset_id}' is not publicly accessible"
-            )
-
-        # Use dataset information from DB
-        dataset_id = dataset.id
-        dataset_path = config.dataset_id  # Use ID as path for Training Service
-        dataset_format = dataset.format
-        logger.info(f"[DATASET] Using dataset from DB: {dataset_id} (format: {dataset_format})")
-
-        # Get split configuration from dataset (if exists)
-        dataset_split_config = dataset.split_config if dataset.split_config else None
-        if dataset_split_config:
-            logger.info(f"[DATASET] Found split configuration: {dataset_split_config.get('method')}")
-        else:
-            logger.info(f"[DATASET] No split configuration found, will use defaults")
 
     elif config.dataset_path:
         # Legacy: direct path provided
@@ -226,10 +210,11 @@ async def create_training_job(
 
     # For classification tasks, use num_classes from Dataset if available (optional optimization)
     if config.task_type == "image_classification" and not config.num_classes:
-        if dataset is not None and dataset.num_classes and dataset.num_classes > 0:
-            # Use pre-computed num_classes from Dataset (faster)
-            config.num_classes = dataset.num_classes
-            logger.info(f"[training] Using num_classes from Dataset: {config.num_classes}")
+        # Phase 11.5: dataset is now a dict from Labeler API
+        if dataset is not None and dataset.get('num_classes') and dataset['num_classes'] > 0:
+            # Use pre-computed num_classes from Labeler (faster)
+            config.num_classes = dataset['num_classes']
+            logger.info(f"[training] Using num_classes from Labeler: {config.num_classes}")
         else:
             # num_classes will be auto-detected by Training Service during dataset loading
             logger.info(f"[training] num_classes not provided - will be auto-detected by Training Service")
@@ -281,6 +266,12 @@ async def create_training_job(
         advanced_config_dict['split_config'] = dataset_split_config
         logger.info(f"[CONFIG] Added split_config to advanced_config")
 
+    # Phase 11.5.5: Extract split_strategy from config
+    split_strategy_dict = None
+    if job_request.config.split_strategy:
+        split_strategy_dict = job_request.config.split_strategy.model_dump()
+        logger.info(f"[SPLIT] Job-level split strategy provided: {split_strategy_dict['method']}")
+
     # Create training job
     job = models.TrainingJob(
         session_id=job_request.session_id,
@@ -300,6 +291,7 @@ async def create_training_job(
         batch_size=job_request.config.batch_size,
         learning_rate=job_request.config.learning_rate,
         advanced_config=advanced_config_dict if advanced_config_dict else None,
+        split_strategy=split_strategy_dict,  # Phase 11.5.5: Store split override
         primary_metric=primary_metric,
         primary_metric_mode=primary_metric_mode,
         status="pending",
@@ -308,12 +300,92 @@ async def create_training_job(
     db.add(job)
     db.commit()
     db.refresh(job)
+
+    # Phase 12.6: Create dataset snapshot before starting workflow
+    if dataset_id:
+        try:
+            # Step 1: Resolve split configuration using 3-Level Priority System
+            from app.utils.split_resolver import resolve_split_configuration
+
+            logger.info(f"[JOB {job.id}] Resolving split configuration...")
+            resolved_split = await resolve_split_configuration(
+                dataset_id=dataset_id,
+                job_split_strategy=split_strategy_dict
+            )
+            logger.info(f"[JOB {job.id}] Split resolved: source={resolved_split['source']}, method={resolved_split['method']}")
+
+            # Step 2: Create snapshot with resolved split
+            snapshot_id = await auto_create_snapshot_if_needed(
+                dataset_id=dataset_id,
+                user_id=current_user.id,
+                db=db,
+                split_config=resolved_split
+            )
+            if snapshot_id:
+                job.dataset_snapshot_id = snapshot_id
+                db.commit()
+                db.refresh(job)  # Ensure job object reflects database state
+                logger.info(f"[JOB {job.id}] Using dataset snapshot: {snapshot_id}")
+            else:
+                logger.warning(f"[JOB {job.id}] No snapshot created")
+        except HTTPException as he:
+            # Re-raise HTTP exceptions (dataset not found, access denied, etc.)
+            job.status = "failed"
+            job.error_message = f"Failed to create snapshot: {he.detail}"
+            db.commit()
+            raise he
+        except Exception as e:
+            logger.error(f"[JOB {job.id}] Failed to create snapshot: {e}")
+            # Fail the training if snapshot creation fails (reproducibility requirement)
+            job.status = "failed"
+            job.error_message = f"Failed to create dataset snapshot: {str(e)}"
+            db.commit()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create dataset snapshot: {str(e)}"
+            )
+
+    # Phase 12.0: Start Temporal workflow for training execution
+    logger.info(f"[TRAINING] Starting Temporal workflow for job {job.id}")
+    try:
+        from app.core.temporal_client import get_temporal_client
+        from app.workflows.training_workflow import TrainingWorkflow, TrainingWorkflowInput
+
+        temporal_client = await get_temporal_client()
+
+        # Start workflow
+        workflow_id = f"training-job-{job.id}"
+        workflow_handle = await temporal_client.start_workflow(
+            TrainingWorkflow.run,
+            TrainingWorkflowInput(job_id=job.id),
+            id=workflow_id,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+        )
+
+        # Update job with workflow_id
+        job.workflow_id = workflow_id
+        db.commit()
+        db.refresh(job)
+
+        logger.info(f"[TRAINING] Workflow started: {workflow_id}")
+        logger.info(f"  Temporal UI: http://localhost:8233/namespaces/default/workflows/{workflow_id}")
+
+    except Exception as e:
+        logger.error(f"[TRAINING] Failed to start workflow for job {job.id}: {e}")
+        # Job is created but workflow failed - mark as failed
+        job.status = "failed"
+        job.error_message = f"Failed to start workflow: {str(e)}"
+        db.commit()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Training job created but workflow failed to start: {str(e)}"
+        )
+
     # Add project_name for breadcrumb navigation
     if job.project_id and job.project:
         job.project_name = job.project.name
     else:
         job.project_name = None
-
 
     return job
 
@@ -325,20 +397,6 @@ async def get_training_job(job_id: int, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(status_code=404, detail="Training job not found")
 
-    # Auto-link MLflow run_id if not already linked and job is running/completed
-    if not job.mlflow_run_id and job.status in ["running", "completed"]:
-        try:
-            from app.services.mlflow_service import MLflowService
-            mlflow_service = MLflowService(db)
-            mlflow_run = mlflow_service.get_run_by_job_id(job_id)
-            if mlflow_run:
-                job.mlflow_run_id = mlflow_run.info.run_id
-                db.commit()
-                db.refresh(job)
-                print(f"[INFO] Linked MLflow run_id {job.mlflow_run_id} to job {job_id}")
-        except Exception as e:
-            # Don't fail the request if MLflow linking fails
-            print(f"[WARNING] Failed to link MLflow run for job {job_id}: {e}")
     # Add project_name for breadcrumb navigation
     if job.project_id and job.project:
         job.project_name = job.project.name
@@ -470,20 +528,43 @@ async def start_training_job(
             detail=f"Cannot start job with status '{job.status}'",
         )
 
-    # Auto-create snapshot before training starts (if dataset_id provided)
+    # Phase 11.5.5: Resolve split configuration and create snapshot
     if job.dataset_id:
         try:
-            snapshot_id = await auto_create_snapshot_if_needed(job.dataset_id, job_id, db)
+            # Step 1: Resolve split configuration using 3-Level Priority System
+            from app.utils.split_resolver import resolve_split_configuration
+
+            logger.info(f"[JOB {job_id}] Resolving split configuration...")
+            resolved_split = await resolve_split_configuration(
+                dataset_id=job.dataset_id,
+                job_split_strategy=job.split_strategy
+            )
+            logger.info(f"[JOB {job_id}] Split resolved: source={resolved_split['source']}, method={resolved_split['method']}")
+
+            # Step 2: Create snapshot with resolved split
+            user_id = job.created_by or 1  # Fallback to system user if not set
+            snapshot_id = await auto_create_snapshot_if_needed(
+                dataset_id=job.dataset_id,
+                user_id=user_id,
+                db=db,
+                split_config=resolved_split
+            )
             if snapshot_id:
                 job.dataset_snapshot_id = snapshot_id
                 db.commit()
                 logger.info(f"[JOB {job_id}] Using dataset snapshot: {snapshot_id}")
             else:
-                logger.info(f"[JOB {job_id}] No snapshot created (dataset not found or already snapshot)")
+                logger.warning(f"[JOB {job_id}] No snapshot created")
+        except HTTPException as he:
+            # Re-raise HTTP exceptions (dataset not found, access denied, etc.)
+            raise he
         except Exception as e:
             logger.error(f"[JOB {job_id}] Failed to create snapshot: {e}")
-            # Don't fail the training if snapshot creation fails
-            logger.warning(f"[JOB {job_id}] Continuing training without snapshot")
+            # Fail the training if snapshot creation fails (reproducibility requirement)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create dataset snapshot: {str(e)}"
+            )
 
     # Phase 12: Start training via Temporal Workflow
     try:
@@ -588,7 +669,7 @@ async def restart_training_job(job_id: int, db: Session = Depends(get_db)):
     job.error_message = None
     job.final_accuracy = None
     job.process_id = None
-    job.mlflow_run_id = None
+    job.clearml_task_id = None  # Clear ClearML task ID
 
     # Clear previous metrics
     db.query(models.TrainingMetric).filter(models.TrainingMetric.job_id == job_id).delete()
@@ -744,25 +825,35 @@ async def get_training_logs_from_loki(
         )
 
 
-@router.get("/jobs/{job_id}/mlflow/metrics")
-async def get_mlflow_metrics(job_id: int, db: Session = Depends(get_db)):
-    """
-    Get MLflow metrics for a training job.
+# ==================== ClearML Experiment Tracking (Phase 12.2) ====================
 
-    Returns all metrics with their history from MLflow tracking server,
-    plus primary metric information.
+
+@router.get("/jobs/{job_id}/clearml/metrics")
+async def get_clearml_metrics(job_id: int, db: Session = Depends(get_db)):
+    """
+    Get ClearML task metrics for a training job.
+
+    Returns all metrics with their history from ClearML server,
+    plus primary metric information and task URL.
     """
     # Verify job exists
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Training job not found")
 
-    try:
-        from app.services.mlflow_service import MLflowService
-        mlflow_service = MLflowService(db)
-        metrics_data = mlflow_service.get_job_run_metrics(job_id)
+    if not job.clearml_task_id:
+        raise HTTPException(
+            status_code=404,
+            detail="No ClearML task associated with this job"
+        )
 
-        # Add primary metric information
+    try:
+        from app.services.clearml_service import ClearMLService
+        clearml_service = ClearMLService(db)
+        metrics_data = clearml_service.get_task_metrics(job.clearml_task_id)
+
+        # Add job metadata
+        metrics_data['job_id'] = job_id
         metrics_data['primary_metric'] = job.primary_metric or 'loss'
         metrics_data['primary_metric_mode'] = job.primary_metric_mode or 'min'
         metrics_data['task_type'] = job.task_type
@@ -772,31 +863,56 @@ async def get_mlflow_metrics(job_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch MLflow metrics: {str(e)}"
+            detail=f"Failed to fetch ClearML metrics: {str(e)}"
         )
 
 
-@router.get("/jobs/{job_id}/mlflow/summary")
-async def get_mlflow_summary(job_id: int, db: Session = Depends(get_db)):
+@router.get("/jobs/{job_id}/clearml/task")
+async def get_clearml_task_info(job_id: int, db: Session = Depends(get_db)):
     """
-    Get MLflow run summary for a training job.
+    Get ClearML task information for a training job.
 
-    Returns summary information including best metrics, parameters, and run status.
+    Returns task status, configuration, and web UI link.
     """
     # Verify job exists
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Training job not found")
 
+    if not job.clearml_task_id:
+        raise HTTPException(
+            status_code=404,
+            detail="No ClearML task associated with this job"
+        )
+
     try:
-        from app.services.mlflow_service import MLflowService
-        mlflow_service = MLflowService(db)
-        summary = mlflow_service.get_job_run_summary(job_id)
-        return summary
+        from app.services.clearml_service import ClearMLService
+        from app.core.config import settings
+
+        clearml_service = ClearMLService(db)
+        task = clearml_service.get_task(job.clearml_task_id)
+
+        if not task:
+            raise HTTPException(
+                status_code=404,
+                detail=f"ClearML task {job.clearml_task_id} not found"
+            )
+
+        # Return task information
+        return {
+            "task_id": job.clearml_task_id,
+            "task_name": task.name,
+            "task_status": task.status,
+            "project_name": task.get_project_name(),
+            "web_url": f"{settings.CLEARML_WEB_HOST}/projects/*/experiments/{job.clearml_task_id}",
+            "created_at": task.data.started if hasattr(task.data, 'started') else None,
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch MLflow summary: {str(e)}"
+            detail=f"Failed to fetch ClearML task info: {str(e)}"
         )
 
 
@@ -1585,15 +1701,11 @@ async def get_checkpoint_upload_url(
         # Generate presigned upload URL
         from app.utils.dual_storage import dual_storage
 
-        # Use boto3 client's generate_presigned_url
-        upload_url = dual_storage.internal_client.generate_presigned_url(
-            ClientMethod='put_object',
-            Params={
-                'Bucket': dual_storage.internal_bucket_checkpoints,
-                'Key': object_key,
-                'ContentType': request.content_type
-            },
-            ExpiresIn=3600  # 1 hour
+        # Use dual_storage's encapsulated method
+        upload_url = dual_storage.generate_checkpoint_upload_url(
+            checkpoint_key=object_key,
+            expiration=3600,  # 1 hour
+            content_type=request.content_type
         )
 
         if not upload_url:

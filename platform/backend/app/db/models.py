@@ -80,7 +80,8 @@ class Invitation(Base):
     # Target entities (one of these will be set based on invitation_type)
     organization_id = Column(Integer, ForeignKey('organizations.id', ondelete='CASCADE'), nullable=True, index=True)
     project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=True, index=True)
-    dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='CASCADE'), nullable=True, index=True)
+    # Phase 11.5: Dataset invitations are now managed by Labeler (removed ForeignKey)
+    dataset_id = Column(String(100), nullable=True, index=True)  # Labeler dataset ID (no FK constraint)
 
     # Invitation parties
     inviter_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -105,7 +106,7 @@ class Invitation(Base):
     invitee = relationship("User", foreign_keys=[invitee_id], backref="received_invitations")
     organization = relationship("Organization")
     project = relationship("Project")
-    dataset = relationship("Dataset")
+    # Phase 11.5: Dataset relationship removed (Dataset model deleted, managed by Labeler)
 
     def is_expired(self) -> bool:
         """Check if invitation is expired."""
@@ -226,91 +227,48 @@ class ProjectMember(Base):
     inviter = relationship("User", back_populates="invited_members", foreign_keys=[invited_by])
 
 
-class Dataset(Base):
-    """Dataset model for managing training data.
+class DatasetSnapshot(Base):
+    """Dataset snapshot model for training reproducibility.
 
-    Datasets can be public (accessible to everyone), private (owner only),
-    or organization-wide. Platform sample datasets are simply public datasets
-    with 'platform-sample' tag.
+    Phase 12.2: Metadata-Only Snapshot Design
+    - Snapshot metadata stored in internal storage (MinIO)
+    - Dataset files (images) remain in external storage (R2) - no duplication
+    - Collision detection via dataset_version_hash ensures reproducibility
+
+    Platform creates immutable snapshots when training jobs are created.
+    Snapshots reference original dataset in R2 instead of copying all files.
+
+    Phase 11.5: Dataset Service Integration - Platform manages snapshots, not Labeler.
     """
 
-    __tablename__ = "datasets"
+    __tablename__ = "dataset_snapshots"
 
-    id = Column(String(100), primary_key=True, index=True)  # UUID or simple ID like "det-coco8"
-    name = Column(String(200), nullable=False)
-    description = Column(Text, nullable=True)
+    id = Column(String(100), primary_key=True, index=True)  # snap_{uuid}
+    dataset_id = Column(String(100), nullable=False, index=True)  # Original dataset ID (from Labeler)
 
-    # Ownership (nullable for public datasets without specific owner)
-    owner_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
+    # Phase 12.2: Metadata-Only Snapshot
+    storage_path = Column(String(500), nullable=False)  # Reference to original dataset path (e.g., "datasets/ds_564a6a/")
+    snapshot_metadata_path = Column(String(500), nullable=True)  # Metadata JSON in internal storage (e.g., "snapshots/snap_abc123/metadata.json")
+    dataset_version_hash = Column(String(64), nullable=True, index=True)  # SHA256 hash for collision detection
 
-    # Visibility and access control
-    visibility = Column(String(20), nullable=False, default='private', index=True)  # 'public', 'private', 'organization'
-    tags = Column(JSON, nullable=True)  # e.g., ['platform-sample', 'object-detection', 'coco']
-
-    # Storage
-    storage_path = Column(String(500), nullable=False)  # e.g., "datasets/det-coco8/" or "datasets/{uuid}/"
-    storage_type = Column(String(20), nullable=False, default='minio')  # 'r2', 'minio', 's3', 'gcs' - auto-detected from env
-
-    # Dataset metadata
-    format = Column(String(50), nullable=False)  # 'dice', 'yolo', 'imagefolder', 'coco', 'pascal_voc'
-    labeled = Column(Boolean, nullable=False, default=False)  # Whether dataset has annotation.json
-    annotation_path = Column(String(500), nullable=True)  # Path to annotation.json in R2
-    num_classes = Column(Integer, nullable=True)
-    num_images = Column(Integer, nullable=False, default=0)
-    class_names = Column(JSON, nullable=True)  # List of class names
-
-    # Train/Val split configuration (cached from annotations.json)
-    split_config = Column(JSON, nullable=True)  # {"method": "auto", "default_ratio": [0.8, 0.2], "seed": 42, "splits": {...}}
-
-    # Versioning and snapshots
-    is_snapshot = Column(Boolean, nullable=False, default=False, index=True)  # Is this a snapshot?
-    parent_dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='CASCADE'), nullable=True, index=True)  # Parent if snapshot
-    snapshot_created_at = Column(DateTime, nullable=True)  # When snapshot was created
-    version_tag = Column(String(50), nullable=True)  # User-defined version tag (v1, v2, etc.)
-
-    # Status and integrity
-    status = Column(String(20), nullable=False, default='active')  # 'active', 'archived', 'deleted'
-    integrity_status = Column(String(20), nullable=False, default='valid')  # 'valid', 'broken', 'repairing'
-
-    # Change tracking
-    version = Column(Integer, nullable=False, default=1)
-    content_hash = Column(String(64), nullable=True)  # SHA256 hash of dataset content
-    last_modified_at = Column(DateTime, nullable=True)  # When data was last modified
-
-    # Timestamps
+    # Phase 11: User table moved to User DB - no FK constraint across databases
+    created_by_user_id = Column(Integer, nullable=True)  # References User DB users.id
+    notes = Column(Text, nullable=True)  # Optional notes about this snapshot
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships
-    owner = relationship("User", backref="owned_datasets", foreign_keys=[owner_id])
-    permissions = relationship("DatasetPermission", back_populates="dataset", cascade="all, delete-orphan")
-    training_jobs = relationship("TrainingJob", back_populates="dataset", foreign_keys="[TrainingJob.dataset_id]")
+    # Phase 11.5.5: Split integration - Capture resolved split for reproducibility
+    split_config = Column(JSON, nullable=True)
+    # Example: {
+    #   "source": "job_override" | "dataset_default" | "auto",
+    #   "method": "auto" | "manual",
+    #   "ratio": [0.8, 0.2],
+    #   "seed": 42,
+    #   "num_train": 800,
+    #   "num_val": 200
+    # }
 
-    # Snapshot relationships (self-referential)
-    parent = relationship("Dataset", remote_side=[id], foreign_keys=[parent_dataset_id], backref="snapshots")
-    snapshot_training_jobs = relationship("TrainingJob", back_populates="dataset_snapshot", foreign_keys="[TrainingJob.dataset_snapshot_id]")
-
-
-class DatasetPermission(Base):
-    """Dataset permission model for collaboration.
-
-    Controls who can view, edit, or manage a dataset.
-    Public datasets don't require permissions for viewing.
-    """
-
-    __tablename__ = "dataset_permissions"
-
-    id = Column(Integer, primary_key=True, index=True)
-    dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='CASCADE'), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    role = Column(String(20), nullable=False, default='viewer')  # 'owner', 'editor', 'viewer'
-    granted_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
-    granted_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-
-    # Relationships
-    dataset = relationship("Dataset", back_populates="permissions")
-    user = relationship("User", foreign_keys=[user_id], backref="dataset_permissions")
-    grantor = relationship("User", foreign_keys=[granted_by])
+    # Phase 11: User relationship removed (User table moved to User DB)
+    # created_by_user_id is just an integer reference, no relationship
 
 
 class Project(Base):
@@ -460,23 +418,29 @@ class TrainingJob(Base):
     experiment_name = Column(String(200), nullable=True)
     tags = Column(JSON, nullable=True)
     notes = Column(Text, nullable=True)
-    mlflow_experiment_id = Column(String(100), nullable=True)  # MLflow experiment ID
-    mlflow_run_id = Column(String(100), nullable=True)  # MLflow run ID for this training
+
+    # ClearML Task ID (Phase 12.2: Replaces MLflow)
+    clearml_task_id = Column(String(200), nullable=True, index=True)
 
     framework = Column(String(50), nullable=False, default="timm")
     model_name = Column(String(100), nullable=False)
     task_type = Column(String(50), nullable=False)
     num_classes = Column(Integer, nullable=True)
 
-    # Dataset reference (new approach)
-    dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='SET NULL'), nullable=True, index=True)
-    dataset_snapshot_id = Column(String(100), ForeignKey('datasets.id', ondelete='SET NULL'), nullable=True, index=True)  # Immutable snapshot reference
+    # Dataset reference (Phase 11.5: Labeler integration)
+    dataset_id = Column(String(100), nullable=True, index=True)  # References Labeler dataset UUID (no FK)
+    dataset_snapshot_id = Column(String(100), ForeignKey('dataset_snapshots.id', ondelete='SET NULL'), nullable=True, index=True)  # Immutable snapshot reference
     dataset_version = Column(Integer, nullable=True)  # Deprecated: kept for backward compatibility
 
     # Legacy dataset path (backward compatibility)
     dataset_path = Column(String(500), nullable=True)  # Made nullable for transition
     dataset_format = Column(String(50), nullable=False, default="imagefolder")
     output_dir = Column(String(500), nullable=False)
+
+    # Phase 11.5.5: Split integration
+    split_strategy = Column(JSON, nullable=True)  # Training-specific split override
+    # Example: {"method": "auto", "ratio": [0.7, 0.3], "seed": 123}
+    # Or: {"method": "manual", "splits": {...}, "exclude_images": [...]}
 
     epochs = Column(Integer, nullable=False)
     batch_size = Column(Integer, nullable=False)
@@ -491,6 +455,9 @@ class TrainingJob(Base):
 
     # Temporal Workflow ID (Phase 12: Temporal Orchestration)
     workflow_id = Column(String(200), nullable=True, index=True)
+
+    # ClearML Task ID (Phase 12.2: Replaces MLflow)
+    clearml_task_id = Column(String(200), nullable=True, index=True)
 
     final_accuracy = Column(Float, nullable=True)
     best_checkpoint_path = Column(String(500), nullable=True)
@@ -508,8 +475,10 @@ class TrainingJob(Base):
     session = relationship("Session", back_populates="training_jobs")
     project = relationship("Project", back_populates="training_jobs")
     experiment = relationship("Experiment", back_populates="training_jobs")
-    dataset = relationship("Dataset", back_populates="training_jobs", foreign_keys=[dataset_id])
-    dataset_snapshot = relationship("Dataset", back_populates="snapshot_training_jobs", foreign_keys=[dataset_snapshot_id])
+    # Phase 11.5: Dataset relationships removed (Dataset model deleted, managed by Labeler)
+    # dataset_id references Labeler UUID (no FK, no relationship)
+    # dataset_snapshot_id references DatasetSnapshot.id (FK exists, but no back_populates)
+    dataset_snapshot = relationship("DatasetSnapshot", foreign_keys=[dataset_snapshot_id])
     metrics = relationship("TrainingMetric", back_populates="job", cascade="all, delete-orphan")
     logs = relationship("TrainingLog", back_populates="job", cascade="all, delete-orphan")
     validation_results = relationship("ValidationResult", back_populates="job", cascade="all, delete-orphan")

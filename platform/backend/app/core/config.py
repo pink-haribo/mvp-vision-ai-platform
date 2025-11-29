@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # Service-to-Service Authentication (Phase 11.5.6: Hybrid JWT)
+    # Separate secret for inter-service JWTs (different from user JWT_SECRET)
+    # Generated with: openssl rand -hex 32
+    SERVICE_JWT_SECRET: str = "service-jwt-secret-change-in-production-use-openssl-rand-hex-32"
+
     # Storage Paths (will be converted to absolute paths)
     # Note: Paths are relative to project root (mvp-vision-ai-platform/)
     UPLOAD_DIR: str = "./data/uploads"
@@ -121,6 +126,12 @@ class Settings(BaseSettings):
     # ULTRALYTICS_SERVICE_URL removed - using subprocess CLI execution
     HUGGINGFACE_SERVICE_URL: str = "http://localhost:8003"  # UNUSED
 
+    # Labeler Service (Phase 11.5: Dataset Service Integration)
+    # Labeler Backend is the Single Source of Truth for dataset metadata
+    # Platform queries Labeler API for dataset information
+    LABELER_API_URL: str = "http://localhost:8011"
+    LABELER_SERVICE_KEY: str = "dev-labeler-service-key-change-in-production"
+
     # Training Defaults
     DEFAULT_BATCH_SIZE: int = 32
     DEFAULT_EPOCHS: int = 50
@@ -134,6 +145,14 @@ class Settings(BaseSettings):
 
     # Training Execution Mode (Phase 12: TrainingManager)
     TRAINING_MODE: str = "subprocess"  # Options: "subprocess" (Tier 0), "kubernetes" (Tier 1+)
+
+    # ClearML Configuration (Phase 12.2: Replaces MLflow)
+    CLEARML_API_HOST: str = "http://localhost:8008"
+    CLEARML_WEB_HOST: str = "http://localhost:8080"
+    CLEARML_FILES_HOST: str = "http://localhost:8081"
+    CLEARML_API_ACCESS_KEY: str = ""  # Empty for open-source server
+    CLEARML_API_SECRET_KEY: str = ""  # Empty for open-source server
+    CLEARML_DEFAULT_PROJECT: str = "Platform Training"
 
     class Config:
         # Don't load .env file - use environment variables directly
