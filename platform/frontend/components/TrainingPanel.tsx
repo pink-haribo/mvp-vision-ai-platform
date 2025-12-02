@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { getModelDisplayNameSync, getTaskDisplayName, formatTrainingJobTitle } from '@/lib/utils/modelUtils'
-import MLflowMetricsCharts from './training/MLflowMetricsCharts'
+// import MLflowMetricsCharts from './training/MLflowMetricsCharts' // Removed: Migrated to ClearML
 import DatabaseMetricsTable from './training/DatabaseMetricsTable'
 import ResumeDialog from './training/ResumeDialog'
 import { ValidationDashboard } from './training/validation/ValidationDashboard'
@@ -26,6 +26,7 @@ interface TrainingJob {
   num_classes: number | null
   dataset_format: string
   dataset_path?: string
+  dataset_id?: string
   output_dir?: string
   epochs: number
   batch_size: number
@@ -35,6 +36,9 @@ interface TrainingJob {
   final_accuracy: number | null
   primary_metric: string | null
   primary_metric_mode: string | null
+  // Phase 12: Temporal Workflow & Dataset Snapshot metadata
+  workflow_id?: string | null
+  dataset_snapshot_id?: string | null
 }
 
 interface TrainingMetric {
@@ -79,6 +83,15 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
   const [activeTab, setActiveTab] = useState<'metrics' | 'validation' | 'test_inference' | 'export_deploy' | 'config' | 'logs'>('metrics')
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
+  // Helper: Get auth headers (Phase 12: JWT required for all API calls)
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('access_token')
+    return {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` })
+    }
+  }
+
   // Export & Deploy modals
   const [showCreateExportModal, setShowCreateExportModal] = useState(false)
   const [showCreateDeploymentModal, setShowCreateDeploymentModal] = useState(false)
@@ -92,7 +105,8 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
     if (!trainingJobId) return
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}`
+        `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}`,
+        { headers: getAuthHeaders() }
       )
       if (response.ok) {
         const data = await response.json()
@@ -229,7 +243,10 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/start`,
-        { method: 'POST' }
+        {
+          method: 'POST',
+          headers: getAuthHeaders()
+        }
       )
 
       if (response.ok) {
@@ -269,7 +286,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
       url.searchParams.append('checkpoint_path', latestCheckpoint.checkpoint_path)
       url.searchParams.append('resume', 'true')
 
-      const response = await fetch(url.toString(), { method: 'POST' })
+      const response = await fetch(url.toString(), { method: 'POST', headers: getAuthHeaders() })
 
       if (response.ok) {
         const data = await response.json()
@@ -292,7 +309,10 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/cancel`,
-        { method: 'POST' }
+        {
+          method: 'POST',
+          headers: getAuthHeaders()
+        }
       )
 
       if (response.ok) {
@@ -336,7 +356,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
       // First reset the job
       const restartResponse = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/restart`,
-        { method: 'POST' }
+        { method: 'POST', headers: getAuthHeaders() }
       )
 
       if (!restartResponse.ok) {
@@ -352,7 +372,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
       // Then start training
       const startResponse = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/start`,
-        { method: 'POST' }
+        { method: 'POST', headers: getAuthHeaders() }
       )
 
       if (startResponse.ok) {
@@ -389,7 +409,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
       // First reset the job to pending state
       const restartResponse = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/restart`,
-        { method: 'POST' }
+        { method: 'POST', headers: getAuthHeaders() }
       )
 
       if (!restartResponse.ok) {
@@ -411,7 +431,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
       url.searchParams.append('checkpoint_path', latestCheckpoint.checkpoint_path)
       url.searchParams.append('resume', 'true')
 
-      const startResponse = await fetch(url.toString(), { method: 'POST' })
+      const startResponse = await fetch(url.toString(), { method: 'POST', headers: getAuthHeaders() })
 
       if (startResponse.ok) {
         const startData = await startResponse.json()
@@ -451,12 +471,6 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
   const epochProgressPercent = progress.totalEpochs > 0
     ? Math.round((progress.currentEpoch / progress.totalEpochs) * 100)
     : 0
-
-  // Debug logging
-  console.log('[DEBUG] Progress:', progress)
-  console.log('[DEBUG] Job status:', job?.status)
-  console.log('[DEBUG] Metrics length:', metrics.length)
-  console.log('[DEBUG] Epoch progress percent:', epochProgressPercent)
 
   const getStatusBadge = (status: string) => {
     const styles = {
@@ -791,12 +805,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                   </a>
                 </div>
               </div>
-              <MLflowMetricsCharts
-                jobId={job.id}
-                selectedMetrics={selectedMetrics}
-                jobStatus={job.status}
-                refreshKey={metricsRefreshKey}
-              />
+              {/* MLflowMetricsCharts removed - migrated to ClearML */}
             </div>
 
             {/* Metrics Table - Hide when pending */}
@@ -1068,13 +1077,58 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                   {/* Dataset Path */}
                   <div>
                     <h4 className="text-sm font-semibold text-gray-700 mb-3">데이터셋</h4>
-                    <div className="text-sm">
-                      <span className="text-gray-600">경로:</span>
-                      <p className="mt-1 font-mono text-xs text-gray-900 bg-gray-50 p-2 rounded border border-gray-200 break-all">
-                        {job.dataset_path || 'N/A'}
-                      </p>
+                    <div className="space-y-3 text-sm">
+                      {job.dataset_id && (
+                        <div>
+                          <span className="text-gray-600">데이터셋 ID:</span>
+                          <p className="mt-1 font-mono text-xs text-gray-900 bg-gray-50 p-2 rounded border border-gray-200 break-all">
+                            {job.dataset_id}
+                          </p>
+                        </div>
+                      )}
+                      {job.dataset_path && (
+                        <div>
+                          <span className="text-gray-600">경로:</span>
+                          <p className="mt-1 font-mono text-xs text-gray-900 bg-gray-50 p-2 rounded border border-gray-200 break-all">
+                            {job.dataset_path}
+                          </p>
+                        </div>
+                      )}
+                      {job.dataset_snapshot_id && (
+                        <div>
+                          <span className="text-gray-600 flex items-center gap-1">
+                            Snapshot ID:
+                            <span className="text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded">Phase 12</span>
+                          </span>
+                          <p className="mt-1 font-mono text-xs text-gray-900 bg-green-50 p-2 rounded border border-green-200 break-all">
+                            {job.dataset_snapshot_id}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            재현 가능한 메타데이터 전용 스냅샷 (~500 bytes)
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
+
+                  {/* Workflow Orchestration */}
+                  {job.workflow_id && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                        워크플로우 오케스트레이션
+                        <span className="text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Phase 12</span>
+                      </h4>
+                      <div className="text-sm">
+                        <span className="text-gray-600">Temporal Workflow ID:</span>
+                        <p className="mt-1 font-mono text-xs text-gray-900 bg-blue-50 p-2 rounded border border-blue-200 break-all">
+                          {job.workflow_id}
+                        </p>
+                        <p className="mt-2 text-xs text-gray-500">
+                          이 작업은 Temporal Workflow로 오케스트레이션되어 장기 실행 작업의 안정성과 재시작 기능을 제공합니다.
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Output Directory */}
                   <div>

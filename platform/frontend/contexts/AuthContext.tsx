@@ -84,51 +84,126 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     formData.append('username', email)  // OAuth2 uses 'username' field for email
     formData.append('password', password)
 
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
-      method: 'POST',
-      body: formData
-    })
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+        method: 'POST',
+        body: formData
+      })
 
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.detail || 'Login failed')
-    }
+      if (!response.ok) {
+        let errorMessage = 'Login failed'
 
-    const data = await response.json()
+        try {
+          const error = await response.json()
 
-    // Store tokens
-    localStorage.setItem('access_token', data.access_token)
-    localStorage.setItem('refresh_token', data.refresh_token)
+          // Customize error messages based on status code
+          if (response.status === 503) {
+            errorMessage = '🔌 데이터베이스 서버에 연결할 수 없습니다.\n\nPostgreSQL이 실행 중인지 확인해주세요 (포트 5433).'
+          } else if (response.status === 500) {
+            errorMessage = '⚠️ 서버 내부 오류가 발생했습니다.\n\n' + (error.detail || 'Backend 로그를 확인해주세요.')
+          } else if (response.status === 401) {
+            errorMessage = '🔒 이메일 또는 비밀번호가 올바르지 않습니다.'
+          } else if (response.status === 400) {
+            errorMessage = error.detail || 'Invalid request'
+          } else {
+            errorMessage = error.detail || `Server error (${response.status})`
+          }
+        } catch (e) {
+          // If response body is not JSON
+          errorMessage = `서버 오류 (${response.status}): ${response.statusText}`
+        }
 
-    // Fetch user info
-    const userResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`, {
-      headers: {
-        'Authorization': `Bearer ${data.access_token}`
+        throw new Error(errorMessage)
       }
-    })
 
-    if (userResponse.ok) {
+      const data = await response.json()
+
+      // Store tokens
+      localStorage.setItem('access_token', data.access_token)
+      localStorage.setItem('refresh_token', data.refresh_token)
+
+      // Fetch user info
+      const userResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`, {
+        headers: {
+          'Authorization': `Bearer ${data.access_token}`
+        }
+      })
+
+      if (!userResponse.ok) {
+        // Clear tokens if user fetch fails
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+
+        let errorMessage = 'Failed to fetch user information'
+        try {
+          const error = await userResponse.json()
+          errorMessage = error.detail || errorMessage
+        } catch (e) {
+          // Ignore JSON parse error
+        }
+        throw new Error(`⚠️ 로그인은 성공했지만 사용자 정보를 가져올 수 없습니다.\n\n${errorMessage}`)
+      }
+
       const userData = await userResponse.json()
       setUser(userData)
+    } catch (error) {
+      // Network error (server not running, CORS, etc.)
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error('🌐 Backend 서버에 연결할 수 없습니다.\n\nBackend가 실행 중인지 확인해주세요 (http://localhost:8001).')
+      }
+
+      // Re-throw if it's already our custom error
+      throw error
     }
   }
 
   const register = async (data: RegisterData) => {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(data)
-    })
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      })
 
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.detail || 'Registration failed')
+      if (!response.ok) {
+        let errorMessage = 'Registration failed'
+
+        try {
+          const error = await response.json()
+
+          // Customize error messages based on status code
+          if (response.status === 503) {
+            errorMessage = '🔌 데이터베이스 서버에 연결할 수 없습니다.\n\nPostgreSQL이 실행 중인지 확인해주세요 (포트 5433).'
+          } else if (response.status === 500) {
+            errorMessage = '⚠️ 서버 내부 오류가 발생했습니다.\n\n' + (error.detail || 'Backend 로그를 확인해주세요.')
+          } else if (response.status === 400) {
+            errorMessage = error.detail || 'Invalid registration data'
+          } else if (response.status === 409) {
+            errorMessage = '이미 등록된 이메일입니다.'
+          } else {
+            errorMessage = error.detail || `Server error (${response.status})`
+          }
+        } catch (e) {
+          // If response body is not JSON
+          errorMessage = `서버 오류 (${response.status}): ${response.statusText}`
+        }
+
+        throw new Error(errorMessage)
+      }
+
+      // Auto-login after registration
+      await login(data.email, data.password)
+    } catch (error) {
+      // Network error (server not running, CORS, etc.)
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error('🌐 Backend 서버에 연결할 수 없습니다.\n\nBackend가 실행 중인지 확인해주세요 (http://localhost:8001).')
+      }
+
+      // Re-throw if it's already our custom error
+      throw error
     }
-
-    // Auto-login after registration
-    await login(data.email, data.password)
   }
 
   const logout = () => {

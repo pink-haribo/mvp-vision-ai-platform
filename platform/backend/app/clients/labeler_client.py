@@ -140,6 +140,7 @@ class LabelerClient:
         owner_user_id: Optional[int] = None,
         visibility: Optional[str] = None,
         labeled: Optional[bool] = None,
+        task_type: Optional[str] = None,
         tags: Optional[List[str]] = None,
         format: Optional[str] = None,
         page: int = 1,
@@ -153,6 +154,8 @@ class LabelerClient:
             owner_user_id: Filter by dataset owner user ID
             visibility: Filter by visibility (public, private, organization)
             labeled: Filter by annotation status
+            task_type: Filter by task type (detection, segmentation, classification, etc.)
+                      Returns task-type-specific statistics (Phase 16.6)
             tags: Filter by tags (AND logic)
             format: Filter by dataset format (coco, yolo, voc, etc.)
             page: Page number (1-indexed)
@@ -172,6 +175,8 @@ class LabelerClient:
             params["visibility"] = visibility
         if labeled is not None:
             params["labeled"] = labeled
+        if task_type:
+            params["task_type"] = task_type
         if tags:
             params["tags"] = ",".join(tags)
         if format:
@@ -179,11 +184,23 @@ class LabelerClient:
 
         try:
             headers = self._get_auth_headers(user_id=requesting_user_id, scopes=["labeler:read"])
+
+            # DEBUG: Log request details
+            logger.info(f"[LabelerClient] Calling Labeler API: GET /api/v1/platform/datasets")
+            logger.info(f"[LabelerClient] Request params: {params}")
+            logger.info(f"[LabelerClient] Request headers: {list(headers.keys())}")
+            logger.info(f"[LabelerClient] Full URL: {self.base_url}/api/v1/platform/datasets")
+
             response = await self.client.get(
                 "/api/v1/platform/datasets",
                 params=params,
                 headers=headers
             )
+
+            # DEBUG: Log response
+            logger.info(f"[LabelerClient] Response status: {response.status_code}")
+            logger.info(f"[LabelerClient] Response headers: {dict(response.headers)}")
+
             response.raise_for_status()
             result = response.json()
             logger.info(
@@ -193,6 +210,9 @@ class LabelerClient:
             return result
         except httpx.HTTPError as e:
             logger.error(f"[LabelerClient] HTTP error listing datasets: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"[LabelerClient] Response status: {e.response.status_code}")
+                logger.error(f"[LabelerClient] Response body: {e.response.text}")
             raise
 
     async def check_permission(

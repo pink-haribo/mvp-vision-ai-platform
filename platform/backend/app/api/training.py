@@ -121,11 +121,26 @@ async def create_training_job(
 
     Phase 11.5.6: Requires authentication to pass user_id to Labeler API.
     """
-    # DEBUG: Log what we received
-    logger.info(f"[DEBUG] Received training job request from user {current_user.id}:")
-    logger.info(f"[DEBUG]   framework: {job_request.config.framework}")
-    logger.info(f"[DEBUG]   model_name: {job_request.config.model_name}")
-    logger.info(f"[DEBUG]   task_type: {job_request.config.task_type}")
+    # Log and save full request body for test script replication
+    import json
+    from pathlib import Path
+    from datetime import datetime
+
+    request_data = job_request.model_dump()
+
+    # Save to file
+    debug_dir = Path("debug")
+    debug_dir.mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    request_file = debug_dir / f"training_request_{timestamp}.json"
+    with open(request_file, 'w') as f:
+        json.dump(request_data, f, indent=2, default=str)
+
+    logger.info(f"===== TRAINING JOB CREATE REQUEST (User: {current_user.id}) =====")
+    logger.info(f"Request saved to: {request_file}")
+    logger.info(f"Request body JSON:")
+    logger.info(json.dumps(request_data, indent=2, default=str))
+    logger.info(f"===============================================")
 
     # Validate required fields
     config = job_request.config
@@ -345,41 +360,12 @@ async def create_training_job(
                 detail=f"Failed to create dataset snapshot: {str(e)}"
             )
 
-    # Phase 12.0: Start Temporal workflow for training execution
-    logger.info(f"[TRAINING] Starting Temporal workflow for job {job.id}")
-    try:
-        from app.core.temporal_client import get_temporal_client
-        from app.workflows.training_workflow import TrainingWorkflow, TrainingWorkflowInput
-
-        temporal_client = await get_temporal_client()
-
-        # Start workflow
-        workflow_id = f"training-job-{job.id}"
-        workflow_handle = await temporal_client.start_workflow(
-            TrainingWorkflow.run,
-            TrainingWorkflowInput(job_id=job.id),
-            id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-        )
-
-        # Update job with workflow_id
-        job.workflow_id = workflow_id
-        db.commit()
-        db.refresh(job)
-
-        logger.info(f"[TRAINING] Workflow started: {workflow_id}")
-        logger.info(f"  Temporal UI: http://localhost:8233/namespaces/default/workflows/{workflow_id}")
-
-    except Exception as e:
-        logger.error(f"[TRAINING] Failed to start workflow for job {job.id}: {e}")
-        # Job is created but workflow failed - mark as failed
-        job.status = "failed"
-        job.error_message = f"Failed to start workflow: {str(e)}"
-        db.commit()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Training job created but workflow failed to start: {str(e)}"
-        )
+    # Phase 12.7: Job created successfully
+    # Training will be started via POST /jobs/{job_id}/start endpoint
+    logger.info(f"[JOB {job.id}] Training job created successfully (status: pending)")
+    logger.info(f"[JOB {job.id}] Framework: {job.framework}, Model: {job.model_name}, Task: {job.task_type}")
+    if job.dataset_snapshot_id:
+        logger.info(f"[JOB {job.id}] Dataset snapshot: {job.dataset_snapshot_id}")
 
     # Add project_name for breadcrumb navigation
     if job.project_id and job.project:
@@ -522,11 +508,27 @@ async def start_training_job(
     if not job:
         raise HTTPException(status_code=404, detail="Training job not found")
 
-    if job.status != "pending":
+    # Phase 12.9.3: Allow restart for completed/failed jobs
+    if job.status not in ["pending", "completed", "failed"]:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot start job with status '{job.status}'",
+            detail=f"Cannot start job with status '{job.status}'. Only pending, completed, or failed jobs can be started.",
         )
+
+    # If completed/failed, reset to pending for restart
+    if job.status in ["completed", "failed"]:
+        logger.info(f"[JOB {job_id}] Restarting {job.status} job, resetting to pending")
+
+        job.status = "pending"
+        job.started_at = None
+        job.completed_at = None
+        job.error_message = None
+
+        # TODO: Optional clear_history parameter to clear metrics/logs
+        # clear_history = request.query_params.get('clear_history', 'false').lower() == 'true'
+
+        db.commit()
+        db.refresh(job)
 
     # Phase 11.5.5: Resolve split configuration and create snapshot
     if job.dataset_id:
@@ -566,45 +568,79 @@ async def start_training_job(
                 detail=f"Failed to create dataset snapshot: {str(e)}"
             )
 
-    # Phase 12: Start training via Temporal Workflow
+    # Phase 12: Start training (Temporal Workflow or Direct Subprocess)
     try:
-        from app.core.temporal_client import get_temporal_client
-        from app.workflows.training_workflow import TrainingWorkflow, TrainingWorkflowInput
+        if settings.TRAINING_MODE == "subprocess":
+            logger.info(f"[JOB {job_id}] Starting training in direct subprocess mode")
 
-        # Get Temporal client
-        client = await get_temporal_client()
-        logger.info(f"[JOB {job_id}] Temporal client ready")
+            # Phase 12.2: Create ClearML Task
+            clearml_task_id = None
+            try:
+                from app.services.clearml_service import ClearMLService
+                clearml_service = ClearMLService(db)
+                clearml_task_id = clearml_service.create_task(
+                    job_id=job_id,
+                    project_name=f"Project {job.project_id}",
+                    task_name=f"Training Job {job_id}",
+                    task_type="training"
+                )
+                logger.info(f"[JOB {job_id}] ClearML task created: {clearml_task_id}")
+            except Exception as e:
+                logger.warning(f"[JOB {job_id}] Failed to create ClearML task: {str(e)}")
 
-        # Generate workflow ID
-        workflow_id = f"training-job-{job_id}"
+            job.status = "running"
+            job.started_at = datetime.utcnow()
+            if clearml_task_id:
+                job.clearml_task_id = clearml_task_id
+            db.commit()
+            db.refresh(job)
 
-        # Start TrainingWorkflow
-        workflow_handle = await client.start_workflow(
-            TrainingWorkflow.run,
-            TrainingWorkflowInput(job_id=job_id),
-            id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-        )
+            from app.workflows.training_workflow import execute_training
+            import asyncio
+            asyncio.create_task(execute_training(job_id, clearml_task_id=clearml_task_id))
 
-        logger.info(f"[JOB {job_id}] TrainingWorkflow started: {workflow_id}")
+            logger.info(f"[JOB {job_id}] Training started in subprocess mode (ClearML: {clearml_task_id})")
 
-        # Update job status
-        job.status = "running"
-        job.started_at = datetime.utcnow()
-        job.workflow_id = workflow_id
-        db.commit()
-        db.refresh(job)
+        else:
+            # Temporal Workflow (default for production)
+            from app.core.temporal_client import get_temporal_client
+            from app.workflows.training_workflow import TrainingWorkflow, TrainingWorkflowInput
 
-        logger.info(
-            f"[JOB {job_id}] Training orchestration started "
-            f"(workflow_id: {workflow_id}, mode: {settings.TRAINING_MODE})"
-        )
+            # Get Temporal client
+            client = await get_temporal_client()
+            logger.info(f"[JOB {job_id}] Temporal client ready")
+
+            # Generate unique workflow ID (with timestamp to allow retries)
+            timestamp = int(datetime.utcnow().timestamp())
+            workflow_id = f"training-job-{job_id}-{timestamp}"
+
+            # Start TrainingWorkflow
+            workflow_handle = await client.start_workflow(
+                TrainingWorkflow.run,
+                TrainingWorkflowInput(job_id=job_id),
+                id=workflow_id,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+            logger.info(f"[JOB {job_id}] TrainingWorkflow started: {workflow_id}")
+
+            # Update job status
+            job.status = "running"
+            job.started_at = datetime.utcnow()
+            job.workflow_id = workflow_id
+            db.commit()
+            db.refresh(job)
+
+            logger.info(
+                f"[JOB {job_id}] Training orchestration started "
+                f"(workflow_id: {workflow_id}, mode: {settings.TRAINING_MODE})"
+            )
 
     except Exception as e:
-        logger.error(f"[JOB {job_id}] Failed to start training workflow: {e}")
+        logger.error(f"[JOB {job_id}] Failed to start training: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to start training workflow: {str(e)}"
+            detail=f"Failed to start training: {str(e)}"
         )
 
     return job

@@ -23,6 +23,7 @@ interface TrainingConfig {
   framework?: string
   model_name?: string
   task_type?: string
+  dataset_id?: string  // Phase 12: Labeler integration
   dataset_path?: string
   dataset_format?: string
   epochs?: number
@@ -69,9 +70,15 @@ export default function TrainingConfigPanel({
   const [isLoadingDatasets, setIsLoadingDatasets] = useState(true)
 
   // Load available datasets from Backend API
+  // Phase 16.6: Wait until task_type is set (from model selection)
   useEffect(() => {
-    fetchAvailableDatasets()
-  }, [])
+    if (taskType) {
+      console.log('[DATASETS] Task type is set:', taskType, '- Fetching datasets...')
+      fetchAvailableDatasets()
+    } else {
+      console.log('[DATASETS] Task type not set yet, skipping dataset fetch')
+    }
+  }, [taskType])
 
   // Load primary fields when framework changes
   useEffect(() => {
@@ -80,20 +87,52 @@ export default function TrainingConfigPanel({
     }
   }, [framework])
 
+  // Map Platform task_type to Labeler task_type (Phase 16.6)
+  const mapTaskTypeForLabeler = (platformTaskType: string): string => {
+    const mapping: Record<string, string> = {
+      'image_classification': 'classification',
+      'object_detection': 'detection',
+      'instance_segmentation': 'segmentation',
+      'semantic_segmentation': 'segmentation',
+      'pose_estimation': 'pose',
+      'zero_shot_detection': 'detection',
+      // Fallback: use as-is
+    }
+    return mapping[platformTaskType] || platformTaskType
+  }
+
   const fetchAvailableDatasets = async () => {
+    console.log('[DATASETS] fetchAvailableDatasets() called')
     try {
       setIsLoadingDatasets(true)
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
       const token = localStorage.getItem('access_token')
 
+      console.log('[DATASETS] baseUrl:', baseUrl)
+      console.log('[DATASETS] token exists:', !!token)
+      console.log('[DATASETS] Platform task_type:', taskType || 'not specified')
+
       if (!token) {
-        console.error('No access token found')
+        console.error('[DATASETS] No access token found')
+        alert('로그인 토큰이 없습니다. 다시 로그인해주세요.')
         setAvailableDatasets([])
         setIsLoadingDatasets(false)
         return
       }
 
-      const response = await fetch(`${baseUrl}/datasets/available?labeled=true`, {
+      // Phase 16.6: Include task_type for task-specific statistics
+      // Map Platform task_type to Labeler task_type
+      const params = new URLSearchParams({ labeled: 'true' })
+      if (taskType) {
+        const labelerTaskType = mapTaskTypeForLabeler(taskType)
+        console.log('[DATASETS] Labeler task_type:', labelerTaskType)
+        params.append('task_type', labelerTaskType)
+      }
+
+      const apiUrl = `${baseUrl}/datasets/available?${params.toString()}`
+      console.log('[DATASETS] Calling API:', apiUrl)
+
+      const response = await fetch(apiUrl, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -101,13 +140,17 @@ export default function TrainingConfigPanel({
 
       if (response.ok) {
         const datasets = await response.json()
+        console.log('[DATASETS] Fetched datasets:', datasets)
+        console.log('[DATASETS] Dataset count:', datasets.length)
         setAvailableDatasets(datasets)
       } else {
-        console.error('Failed to fetch datasets:', response.statusText)
+        console.error('[DATASETS] Failed to fetch datasets:', response.status, response.statusText)
+        alert(`데이터셋 로드 실패: ${response.status} ${response.statusText}`)
         setAvailableDatasets([])
       }
     } catch (error) {
-      console.error('Error fetching datasets:', error)
+      console.error('[DATASETS] Error fetching datasets:', error)
+      alert(`데이터셋 로드 에러: ${error instanceof Error ? error.message : 'Unknown error'}`)
       setAvailableDatasets([])
     } finally {
       setIsLoadingDatasets(false)
@@ -438,7 +481,7 @@ export default function TrainingConfigPanel({
         task_type: taskType,
         dataset_id: selectedDatasetId,  // Use dataset_id instead of dataset_path
         dataset_format: selectedDataset?.format || datasetFormat,
-        num_classes: selectedDataset?.num_items ? undefined : undefined,  // Let backend determine from DB
+        // num_classes will be determined by Backend from Labeler metadata
         epochs,
         batch_size: batchSize,
         primary_metric: primaryMetric || undefined,
@@ -464,10 +507,17 @@ export default function TrainingConfigPanel({
 
       console.log('[DEBUG] Request body:', JSON.stringify(requestBody, null, 2))
 
+      // Get JWT token for authentication (Phase 12: Required for all training job creation)
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        throw new Error('인증이 필요합니다. 다시 로그인해주세요.')
+      }
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/training/jobs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,  // Phase 12: JWT authentication
         },
         body: JSON.stringify(requestBody),
       })
@@ -731,7 +781,7 @@ export default function TrainingConfigPanel({
                         </div>
 
                         <div className="flex items-center justify-between text-xs text-gray-600">
-                          <span>{dataset.num_items?.toLocaleString() || 0} images</span>
+                          <span>{dataset.num_images?.toLocaleString() || 0} images</span>
                           {dataset.size_mb && (
                             <span>{dataset.size_mb.toFixed(1)} MB</span>
                           )}
@@ -761,7 +811,7 @@ export default function TrainingConfigPanel({
                     <div>
                       <span className="text-gray-600">이미지 수:</span>
                       <span className="ml-2 font-medium text-gray-900">
-                        {selectedDataset.num_items?.toLocaleString() || 0}장
+                        {selectedDataset.num_images?.toLocaleString() || 0}장
                       </span>
                     </div>
                     <div>
