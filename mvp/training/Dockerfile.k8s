@@ -1,0 +1,45 @@
+# MVP Training - Kubernetes Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /workspace
+
+# Install system dependencies for CV libraries
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install training dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir "numpy<2.0" && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir fastapi uvicorn
+
+# Copy training code
+COPY . /workspace/training/
+
+# Create necessary directories
+RUN mkdir -p /workspace/data/outputs /workspace/data/logs /workspace/mlruns
+
+# Set Python path
+ENV PYTHONPATH=/workspace/training:$PYTHONPATH
+
+# Expose port
+EXPOSE 8001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8001/health || exit 1
+
+# Start Training API server
+CMD ["python", "/workspace/training/api_server.py"]
