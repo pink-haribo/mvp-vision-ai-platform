@@ -1,18 +1,19 @@
 """
-LLM integration with Gemini Structured Output (Phase 1+2)
+LLM integration with OpenAI Compatible API (Phase 1+2)
 
-This module uses Gemini's structured output to get action-based responses.
+This module uses OpenAI-compatible API to get action-based responses.
+Supports: OpenAI, Azure OpenAI, LocalAI, Ollama, vLLM, LiteLLM, etc.
 """
 
 import json
 import logging
 from typing import Optional, Dict, Any
-import google.generativeai as genai
+from openai import AsyncOpenAI
 
 from app.core.config import settings
 from app.models.conversation import (
     ActionType,
-    GeminiActionResponse,
+    GeminiActionResponse,  # Keep name for backward compatibility
     ConversationState,
 )
 
@@ -21,22 +22,20 @@ logger = logging.getLogger(__name__)
 
 class StructuredIntentParser:
     """
-    Parse user intent using Gemini with structured output
+    Parse user intent using OpenAI-compatible API with structured output
 
-    Instead of parsing text responses, we get structured JSON actions from Gemini.
+    Instead of parsing text responses, we get structured JSON actions from LLM.
+    Supports any OpenAI-compatible endpoint (OpenAI, Azure, LocalAI, Ollama, vLLM, etc.)
     """
 
     def __init__(self):
-        """Initialize the structured intent parser"""
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
-
-        # Create model with JSON mode (Gemini 0.3.x compatible)
-        self.model = genai.GenerativeModel(
-            model_name=settings.LLM_MODEL,
-            generation_config={
-                "temperature": settings.LLM_TEMPERATURE,
-            }
+        """Initialize the structured intent parser with OpenAI client"""
+        self.client = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            base_url=settings.OPENAI_BASE_URL,
         )
+        self.model = settings.LLM_MODEL
+        self.temperature = settings.LLM_TEMPERATURE
 
     def _build_system_prompt(self, state: ConversationState) -> str:
         """Build state-specific system prompt"""
@@ -617,23 +616,32 @@ Example for training setup:
 
             prompt_parts.append("\n\n**IMPORTANT**: Respond ONLY with valid JSON. No markdown, no code blocks, no explanations. Just the JSON object.")
 
-            full_prompt = "\n".join(prompt_parts)
+            # Build system prompt and user content for OpenAI format
+            system_prompt = self._build_system_prompt(state)
+            user_content = "\n".join(prompt_parts[1:])  # Everything except system prompt
 
-            logger.debug(f"Gemini prompt (state={state}):\n{full_prompt[:500]}...")
+            logger.debug(f"LLM prompt (state={state}):\n{user_content[:500]}...")
 
-            # Call Gemini
-            response = self.model.generate_content(full_prompt)
+            # Call OpenAI-compatible API
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ],
+                temperature=self.temperature,
+            )
 
             # Parse response
-            response_text = response.text.strip()
-            logger.debug(f"Gemini response: {response_text}")
+            response_text = response.choices[0].message.content.strip()
+            logger.debug(f"LLM response: {response_text}")
 
-            # DEBUG: Write raw Gemini response to file
+            # DEBUG: Write raw LLM response to file
             try:
-                with open("gemini_responses.txt", "a", encoding="utf-8") as f:
+                with open("llm_responses.txt", "a", encoding="utf-8") as f:
                     f.write("\n" + "="*80 + "\n")
                     f.write(f"State: {state}, User msg: {user_message}\n")
-                    f.write(f"Gemini Response:\n{response_text}\n")
+                    f.write(f"LLM Response:\n{response_text}\n")
                     f.write("="*80 + "\n")
             except Exception:
                 pass  # Silently ignore logging errors

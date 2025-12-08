@@ -1,23 +1,23 @@
-"""LLM integration for intent parsing."""
+"""LLM integration for intent parsing (Legacy - kept for backward compatibility)."""
 
 import json
 from typing import Optional, Dict, Any
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from openai import AsyncOpenAI
 
 from app.core.config import settings
 
 
 class IntentParser:
-    """Parse user intent using Gemini API."""
+    """Parse user intent using OpenAI-compatible API (Legacy class)."""
 
     def __init__(self):
-        """Initialize the intent parser."""
-        self.llm = ChatGoogleGenerativeAI(
-            google_api_key=settings.GOOGLE_API_KEY,
-            model=settings.LLM_MODEL,
-            temperature=settings.LLM_TEMPERATURE,
+        """Initialize the intent parser with OpenAI client."""
+        self.client = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            base_url=settings.OPENAI_BASE_URL,
         )
+        self.model = settings.LLM_MODEL
+        self.temperature = settings.LLM_TEMPERATURE
 
         self.system_prompt = """You are an AI assistant for a computer vision training platform.
 
@@ -461,27 +461,32 @@ IMPORTANT: Do not wrap the JSON in markdown code blocks. Return raw JSON directl
         Returns:
             Dictionary with parsing result
         """
+        # Build messages for OpenAI format
         messages = [
-            SystemMessage(content=self.system_prompt),
+            {"role": "system", "content": self.system_prompt},
         ]
 
         if context:
-            messages.append(HumanMessage(content=f"Previous context: {context}"))
+            messages.append({"role": "user", "content": f"Previous context: {context}"})
 
         # Add dataset analysis information if available
         if dataset_info and dataset_info.get("exists"):
             dataset_context = self._format_dataset_info(dataset_info)
-            messages.append(HumanMessage(content=dataset_context))
+            messages.append({"role": "user", "content": dataset_context})
 
-        messages.append(HumanMessage(content=f"User message: {user_message}"))
+        messages.append({"role": "user", "content": f"User message: {user_message}"})
 
         try:
-            response = await self.llm.ainvoke(messages)
-            print(f"[DEBUG] LLM raw response type: {type(response.content)}")
-            print(f"[DEBUG] LLM raw response content: {response.content}")
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+            )
+            content = response.choices[0].message.content
+            print(f"[DEBUG] LLM raw response content: {content}")
 
             # Remove markdown code blocks if present
-            content = response.content.strip()
+            content = content.strip()
             if content.startswith("```json"):
                 content = content[7:]  # Remove ```json
             elif content.startswith("```"):
@@ -495,7 +500,6 @@ IMPORTANT: Do not wrap the JSON in markdown code blocks. Return raw JSON directl
             return result
         except json.JSONDecodeError as e:
             print(f"[DEBUG] JSON decode error: {str(e)}")
-            print(f"[DEBUG] Response content that failed to parse: '{response.content}'")
             return {
                 "status": "error",
                 "error": "Failed to parse LLM response",
