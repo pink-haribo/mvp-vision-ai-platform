@@ -1,5 +1,7 @@
 """Security utilities for password hashing and JWT token management."""
 
+import hashlib
+import base64
 from datetime import datetime, timedelta
 from typing import Optional, Any
 
@@ -11,6 +13,37 @@ from app.core.config import settings
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# bcrypt 72-byte limit constant
+BCRYPT_MAX_BYTES = 72
+
+
+def _prepare_password_for_bcrypt(password: str) -> str:
+    """
+    Prepare password for bcrypt hashing by applying 72-byte rule.
+
+    bcrypt only uses the first 72 bytes of a password. To handle longer
+    passwords securely, we first hash the password with SHA-256 and then
+    base64 encode the result. This produces a 44-byte string that fits
+    within bcrypt's limit while preserving full password entropy.
+
+    Args:
+        password: Plain text password
+
+    Returns:
+        Prepared password string (base64-encoded SHA-256 hash if password
+        would exceed 72 bytes, otherwise original password)
+    """
+    password_bytes = password.encode('utf-8')
+
+    # If password fits within bcrypt limit, use it directly
+    if len(password_bytes) <= BCRYPT_MAX_BYTES:
+        return password
+
+    # For longer passwords, use SHA-256 pre-hashing
+    # SHA-256 produces 32 bytes, base64 encoding produces 44 bytes
+    sha256_hash = hashlib.sha256(password_bytes).digest()
+    return base64.b64encode(sha256_hash).decode('ascii')
+
 # JWT settings
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour
@@ -21,6 +54,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a plain password against a hashed password.
 
+    Applies 72-byte rule for bcrypt compatibility.
+
     Args:
         plain_password: Plain text password
         hashed_password: Hashed password from database
@@ -28,12 +63,16 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         True if password matches, False otherwise
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    prepared_password = _prepare_password_for_bcrypt(plain_password)
+    return pwd_context.verify(prepared_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
     """
-    Hash a password using bcrypt.
+    Hash a password using bcrypt with 72-byte rule.
+
+    Applies SHA-256 pre-hashing for passwords exceeding 72 bytes
+    to ensure full password entropy is preserved.
 
     Args:
         password: Plain text password
@@ -41,7 +80,8 @@ def get_password_hash(password: str) -> str:
     Returns:
         Hashed password
     """
-    return pwd_context.hash(password)
+    prepared_password = _prepare_password_for_bcrypt(password)
+    return pwd_context.hash(prepared_password)
 
 
 def create_access_token(
