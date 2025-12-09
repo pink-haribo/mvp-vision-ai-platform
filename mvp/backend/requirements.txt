@@ -10,9 +10,13 @@ alembic==1.13.1  # Database migrations
 
 # LLM
 langchain>=0.1.0
-langchain-google-genai>=0.0.5
 langchain-core>=0.1.7
+# Gemini support
+langchain-google-genai>=0.0.5
 google-generativeai>=0.3.0
+# OpenAI support (also for OpenAI-compatible APIs: vLLM, Ollama, LocalAI)
+langchain-openai>=0.0.5
+openai>=1.0.0
 
 # WebSocket
 python-socketio==5.10.0
