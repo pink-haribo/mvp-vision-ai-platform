@@ -1070,6 +1070,9 @@ class TrainerSDK:
         """
         job_dataset_dir = Path(dest_dir) / "dataset"
 
+        # Ensure parent directory exists (fixes "no such file or directory" error)
+        job_dataset_dir.parent.mkdir(parents=True, exist_ok=True)
+
         # Remove existing dataset if present
         if job_dataset_dir.exists():
             if job_dataset_dir.is_symlink():
