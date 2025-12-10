@@ -89,7 +89,11 @@ class Invitation(Base):
     invitee_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)  # Set when accepted
 
     # Role to assign upon acceptance
-    invitee_role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.GUEST)
+    invitee_role = Column(
+        SQLEnum(UserRole, values_callable=lambda obj: [e.value for e in obj]),
+        nullable=False,
+        default=UserRole.GUEST
+    )
 
     # Optional invitation message
     message = Column(Text, nullable=True)
