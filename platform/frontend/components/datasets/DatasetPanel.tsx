@@ -71,7 +71,7 @@ export default function DatasetPanel({
                 Selected: {selectedDataset.name}
               </p>
               <p className="text-xs text-gray-600 mt-1">
-                {selectedDataset.num_items.toLocaleString()} images • {selectedDataset.format} format
+                {(selectedDataset.num_images ?? 0).toLocaleString()} images • {selectedDataset.format} format
               </p>
             </div>
             <div className="flex gap-2">

@@ -6,7 +6,7 @@ export interface Dataset {
   description: string;
   format: string;
   labeled: boolean;  // Whether dataset has annotations (annotation.json)
-  num_items: number;
+  num_images: number;
   size_mb?: number | null;
   source: string;
   path: string;
