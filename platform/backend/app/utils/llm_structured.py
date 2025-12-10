@@ -1,18 +1,22 @@
 """
-LLM integration with Gemini Structured Output (Phase 1+2)
+LLM integration with Dual Provider Support (Phase 1+2)
 
-This module uses Gemini's structured output to get action-based responses.
+This module supports both OpenAI-compatible API and Google Gemini API.
+Provider is selected via LLM_PROVIDER environment variable.
+
+Supported providers:
+- openai: OpenAI, Azure OpenAI, LocalAI, Ollama, vLLM, LiteLLM, etc.
+- gemini: Google Gemini API
 """
 
 import json
 import logging
 from typing import Optional, Dict, Any
-import google.generativeai as genai
 
 from app.core.config import settings
 from app.models.conversation import (
     ActionType,
-    GeminiActionResponse,
+    GeminiActionResponse,  # Keep name for backward compatibility
     ConversationState,
 )
 
@@ -21,22 +25,69 @@ logger = logging.getLogger(__name__)
 
 class StructuredIntentParser:
     """
-    Parse user intent using Gemini with structured output
+    Parse user intent using LLM with structured output
 
-    Instead of parsing text responses, we get structured JSON actions from Gemini.
+    Supports dual providers:
+    - OpenAI-compatible API (OpenAI, Azure, LocalAI, Ollama, vLLM, etc.)
+    - Google Gemini API
     """
 
     def __init__(self):
-        """Initialize the structured intent parser"""
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
+        """Initialize the structured intent parser based on LLM_PROVIDER setting"""
+        self.provider = settings.LLM_PROVIDER.lower()
+        self.model_name = settings.LLM_MODEL
+        self.temperature = settings.LLM_TEMPERATURE
 
-        # Create model with JSON mode (Gemini 0.3.x compatible)
-        self.model = genai.GenerativeModel(
-            model_name=settings.LLM_MODEL,
+        if self.provider == "gemini":
+            self._init_gemini()
+        else:
+            self._init_openai()
+
+        logger.info(f"LLM Provider initialized: {self.provider}, Model: {self.model_name}")
+
+    def _init_openai(self):
+        """Initialize OpenAI-compatible client"""
+        from openai import AsyncOpenAI
+        self.client = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            base_url=settings.OPENAI_BASE_URL,
+        )
+
+    def _init_gemini(self):
+        """Initialize Google Gemini client"""
+        import google.generativeai as genai
+        genai.configure(api_key=settings.GOOGLE_API_KEY)
+        self.gemini_model = genai.GenerativeModel(
+            model_name=self.model_name,
             generation_config={
-                "temperature": settings.LLM_TEMPERATURE,
+                "temperature": self.temperature,
             }
         )
+
+    async def _call_openai(self, system_prompt: str, user_content: str) -> str:
+        """Call OpenAI-compatible API and return response text"""
+        response = await self.client.chat.completions.create(
+            model=self.model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            temperature=self.temperature,
+        )
+        return response.choices[0].message.content.strip()
+
+    async def _call_gemini(self, system_prompt: str, user_content: str) -> str:
+        """Call Google Gemini API and return response text"""
+        import asyncio
+        # Gemini uses a single prompt format
+        full_prompt = f"{system_prompt}\n\n{user_content}"
+        # Run sync Gemini call in executor for async compatibility
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.gemini_model.generate_content(full_prompt)
+        )
+        return response.text.strip()
 
     def _build_system_prompt(self, state: ConversationState) -> str:
         """Build state-specific system prompt"""
@@ -617,23 +668,26 @@ Example for training setup:
 
             prompt_parts.append("\n\n**IMPORTANT**: Respond ONLY with valid JSON. No markdown, no code blocks, no explanations. Just the JSON object.")
 
-            full_prompt = "\n".join(prompt_parts)
+            # Build system prompt and user content
+            system_prompt = self._build_system_prompt(state)
+            user_content = "\n".join(prompt_parts[1:])  # Everything except system prompt
 
-            logger.debug(f"Gemini prompt (state={state}):\n{full_prompt[:500]}...")
+            logger.debug(f"LLM prompt (state={state}):\n{user_content[:500]}...")
 
-            # Call Gemini
-            response = self.model.generate_content(full_prompt)
+            # Call LLM based on provider
+            if self.provider == "gemini":
+                response_text = await self._call_gemini(system_prompt, user_content)
+            else:
+                response_text = await self._call_openai(system_prompt, user_content)
 
-            # Parse response
-            response_text = response.text.strip()
-            logger.debug(f"Gemini response: {response_text}")
+            logger.debug(f"LLM response: {response_text}")
 
-            # DEBUG: Write raw Gemini response to file
+            # DEBUG: Write raw LLM response to file
             try:
-                with open("gemini_responses.txt", "a", encoding="utf-8") as f:
+                with open("llm_responses.txt", "a", encoding="utf-8") as f:
                     f.write("\n" + "="*80 + "\n")
                     f.write(f"State: {state}, User msg: {user_message}\n")
-                    f.write(f"Gemini Response:\n{response_text}\n")
+                    f.write(f"LLM Response:\n{response_text}\n")
                     f.write("="*80 + "\n")
             except Exception:
                 pass  # Silently ignore logging errors

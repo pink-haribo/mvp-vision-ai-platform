@@ -1,25 +1,88 @@
-"""LLM integration for intent parsing."""
+"""LLM integration for intent parsing.
+
+Supports:
+- OpenAI API and OpenAI-compatible APIs (vLLM, Ollama, LocalAI, etc.)
+- Google Gemini API
+
+Configuration via environment variables:
+- LLM_PROVIDER: "openai" or "gemini"
+- LLM_MODEL: Model name (e.g., "gpt-4o-mini", "gemini-2.0-flash-exp")
+- LLM_TEMPERATURE: Temperature for sampling (default: 0.0)
+- OPENAI_API_KEY: API key for OpenAI or compatible service
+- OPENAI_BASE_URL: Base URL for OpenAI-compatible endpoints
+- GOOGLE_API_KEY: API key for Google Gemini
+"""
 
 import json
 from typing import Optional, Dict, Any
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.config import settings
 
 
 class IntentParser:
-    """Parse user intent using Gemini API."""
+    """Parse user intent using LLM (OpenAI-compatible or Gemini)."""
 
     def __init__(self):
-        """Initialize the intent parser."""
-        self.llm = ChatGoogleGenerativeAI(
-            google_api_key=settings.GOOGLE_API_KEY,
-            model=settings.LLM_MODEL,
-            temperature=settings.LLM_TEMPERATURE,
+        """Initialize the intent parser based on LLM_PROVIDER setting."""
+        self.provider = settings.LLM_PROVIDER.lower()
+        self.model_name = settings.LLM_MODEL
+        self.temperature = settings.LLM_TEMPERATURE
+        self.system_prompt = self.SYSTEM_PROMPT
+
+        if self.provider == "gemini":
+            self._init_gemini()
+        else:
+            self._init_openai()
+
+    def _init_openai(self):
+        """Initialize OpenAI-compatible client."""
+        from openai import AsyncOpenAI
+        self.client = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            base_url=settings.OPENAI_BASE_URL,
         )
 
-        self.system_prompt = """You are an AI assistant for a computer vision training platform.
+    def _init_gemini(self):
+        """Initialize Google Gemini client."""
+        import google.generativeai as genai
+        genai.configure(api_key=settings.GOOGLE_API_KEY)
+        self.gemini_model = genai.GenerativeModel(
+            model_name=self.model_name,
+            generation_config={
+                "temperature": self.temperature,
+            }
+        )
+
+    async def _call_openai(self, messages: list) -> str:
+        """Call OpenAI-compatible API."""
+        response = await self.client.chat.completions.create(
+            model=self.model_name,
+            messages=messages,
+            temperature=self.temperature,
+        )
+        return response.choices[0].message.content
+
+    async def _call_gemini(self, messages: list) -> str:
+        """Call Google Gemini API."""
+        import asyncio
+        # Convert messages to single prompt for Gemini
+        prompt_parts = []
+        for msg in messages:
+            if msg["role"] == "system":
+                prompt_parts.append(msg["content"])
+            else:
+                prompt_parts.append(f"\n{msg['content']}")
+        full_prompt = "\n".join(prompt_parts)
+
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.gemini_model.generate_content(full_prompt)
+        )
+        return response.text
+
+    # System prompt for intent parsing
+    SYSTEM_PROMPT = """You are an AI assistant for a computer vision training platform.
 
 LANGUAGE REQUIREMENT:
 - You MUST respond in Korean (한국어) at all times
@@ -461,27 +524,31 @@ IMPORTANT: Do not wrap the JSON in markdown code blocks. Return raw JSON directl
         Returns:
             Dictionary with parsing result
         """
+        # Build messages for OpenAI format
         messages = [
-            SystemMessage(content=self.system_prompt),
+            {"role": "system", "content": self.system_prompt},
         ]
 
         if context:
-            messages.append(HumanMessage(content=f"Previous context: {context}"))
+            messages.append({"role": "user", "content": f"Previous context: {context}"})
 
         # Add dataset analysis information if available
         if dataset_info and dataset_info.get("exists"):
             dataset_context = self._format_dataset_info(dataset_info)
-            messages.append(HumanMessage(content=dataset_context))
+            messages.append({"role": "user", "content": dataset_context})
 
-        messages.append(HumanMessage(content=f"User message: {user_message}"))
+        messages.append({"role": "user", "content": f"User message: {user_message}"})
 
         try:
-            response = await self.llm.ainvoke(messages)
-            print(f"[DEBUG] LLM raw response type: {type(response.content)}")
-            print(f"[DEBUG] LLM raw response content: {response.content}")
+            # Call LLM based on provider
+            if self.provider == "gemini":
+                content = await self._call_gemini(messages)
+            else:
+                content = await self._call_openai(messages)
+            print(f"[DEBUG] LLM raw response content: {content}")
 
             # Remove markdown code blocks if present
-            content = response.content.strip()
+            content = content.strip()
             if content.startswith("```json"):
                 content = content[7:]  # Remove ```json
             elif content.startswith("```"):
@@ -495,7 +562,6 @@ IMPORTANT: Do not wrap the JSON in markdown code blocks. Return raw JSON directl
             return result
         except json.JSONDecodeError as e:
             print(f"[DEBUG] JSON decode error: {str(e)}")
-            print(f"[DEBUG] Response content that failed to parse: '{response.content}'")
             return {
                 "status": "error",
                 "error": "Failed to parse LLM response",

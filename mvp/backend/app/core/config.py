@@ -26,10 +26,18 @@ class Settings(BaseSettings):
     # If not set, will use local SQLite in __init__
     DATABASE_URL: Optional[str] = None
 
-    # LLM
-    GOOGLE_API_KEY: str
+    # LLM Provider Selection
+    # Options: "gemini", "openai"
+    LLM_PROVIDER: str = "gemini"
     LLM_MODEL: str = "gemini-2.0-flash-exp"
     LLM_TEMPERATURE: float = 0.0
+
+    # Gemini Configuration
+    GOOGLE_API_KEY: Optional[str] = None
+
+    # OpenAI Configuration (also supports OpenAI-compatible APIs)
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_API_BASE: Optional[str] = None  # For OpenAI-compatible endpoints (e.g., vLLM, Ollama)
     # Security & Authentication
     JWT_SECRET: str = "your-secret-key-change-this-in-production-use-openssl-rand-hex-32"
     JWT_ALGORITHM: str = "HS256"

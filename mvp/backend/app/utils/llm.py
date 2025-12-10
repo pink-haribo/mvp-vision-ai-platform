@@ -2,22 +2,66 @@
 
 import json
 from typing import Optional, Dict, Any
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.language_models.chat_models import BaseChatModel
 
 from app.core.config import settings
 
 
-class IntentParser:
-    """Parse user intent using Gemini API."""
+def create_llm_client() -> BaseChatModel:
+    """
+    Create LLM client based on LLM_PROVIDER setting.
 
-    def __init__(self):
-        """Initialize the intent parser."""
-        self.llm = ChatGoogleGenerativeAI(
+    Supports:
+    - gemini: Google Gemini API
+    - openai: OpenAI API or OpenAI-compatible APIs (vLLM, Ollama, LocalAI, etc.)
+
+    Returns:
+        BaseChatModel: LangChain chat model instance
+    """
+    provider = settings.LLM_PROVIDER.lower()
+
+    if provider == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        if not settings.GOOGLE_API_KEY:
+            raise ValueError("GOOGLE_API_KEY is required when LLM_PROVIDER=gemini")
+
+        return ChatGoogleGenerativeAI(
             google_api_key=settings.GOOGLE_API_KEY,
             model=settings.LLM_MODEL,
             temperature=settings.LLM_TEMPERATURE,
         )
+
+    elif provider == "openai":
+        from langchain_openai import ChatOpenAI
+
+        if not settings.OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY is required when LLM_PROVIDER=openai")
+
+        # Build kwargs for ChatOpenAI
+        kwargs = {
+            "api_key": settings.OPENAI_API_KEY,
+            "model": settings.LLM_MODEL,
+            "temperature": settings.LLM_TEMPERATURE,
+        }
+
+        # Add base_url for OpenAI-compatible endpoints
+        if settings.OPENAI_API_BASE:
+            kwargs["base_url"] = settings.OPENAI_API_BASE
+
+        return ChatOpenAI(**kwargs)
+
+    else:
+        raise ValueError(f"Unsupported LLM_PROVIDER: {provider}. Use 'gemini' or 'openai'.")
+
+
+class IntentParser:
+    """Parse user intent using LLM API (Gemini or OpenAI-compatible)."""
+
+    def __init__(self):
+        """Initialize the intent parser."""
+        self.llm = create_llm_client()
 
         self.system_prompt = """You are an AI assistant for a computer vision training platform.
 
