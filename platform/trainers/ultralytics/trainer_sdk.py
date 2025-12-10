@@ -897,7 +897,9 @@ class TrainerSDK:
 
             for file_name in images_to_download:
                 s3_key = f"{image_root}{file_name}"
-                local_path = Path(dest_dir) / file_name
+                # Save under images/ directory to match YOLO's expected structure
+                # YOLO expects: images/abc.jpg ↔ labels/abc.txt
+                local_path = Path(dest_dir) / "images" / file_name
                 local_path.parent.mkdir(parents=True, exist_ok=True)
 
                 future = executor.submit(
@@ -1657,8 +1659,9 @@ class TrainerSDK:
             if local_image_root:
                 image_file = dataset_dir / local_image_root / file_name
             else:
-                # Fallback: no storage_info, assume file_name is relative to dataset_dir
-                image_file = dataset_dir / file_name
+                # Fallback: no storage_info, look in images/ folder
+                # This matches download_dataset_selective which saves to images/
+                image_file = dataset_dir / "images" / file_name
 
             if not image_file.exists():
                 raise FileNotFoundError(
