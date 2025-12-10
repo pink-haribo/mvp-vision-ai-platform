@@ -18,10 +18,11 @@ import io
 import json
 import logging
 import os
+import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from sqlalchemy.orm import Session
 
@@ -69,6 +70,19 @@ class SubprocessTrainingManager(TrainingManager):
         else:
             logger.info(f"[TrainingSubprocess] Loki logging disabled (using DB only)")
 
+        # UV package manager support
+        self.use_uv = os.getenv('USE_UV', 'false').lower() == 'true'
+        if self.use_uv:
+            self.uv_path = shutil.which('uv')
+            if self.uv_path:
+                logger.info(f"[TrainingSubprocess] UV mode enabled: {self.uv_path}")
+            else:
+                logger.warning("[TrainingSubprocess] USE_UV=true but 'uv' not found in PATH. Falling back to venv.")
+                self.use_uv = False
+        else:
+            self.uv_path = None
+            logger.info("[TrainingSubprocess] Using traditional venv mode")
+
     def get_python_executable(self, framework: str) -> Path:
         """
         Get Python executable for a specific framework's Trainer.
@@ -111,6 +125,40 @@ class SubprocessTrainingManager(TrainingManager):
 
         return trainer_dir
 
+    def build_command(self, framework: str, script_name: str, extra_args: List[str] = None) -> List[str]:
+        """
+        Build command list for subprocess execution.
+
+        Supports both traditional venv and uv package manager modes.
+
+        Args:
+            framework: Framework name (ultralytics, timm, huggingface)
+            script_name: Script to execute (e.g., "train.py", "evaluate.py")
+            extra_args: Additional CLI arguments
+
+        Returns:
+            List of command arguments for subprocess.Popen
+
+        Example (venv mode):
+            ["/path/to/venv/bin/python", "train.py", "--log-level", "INFO"]
+
+        Example (uv mode):
+            ["uv", "run", "python", "train.py", "--log-level", "INFO"]
+        """
+        if extra_args is None:
+            extra_args = []
+
+        if self.use_uv:
+            # UV mode: use "uv run python script.py"
+            # uv automatically detects .venv or pyproject.toml in cwd
+            cmd = [self.uv_path, "run", "python", script_name] + extra_args
+            return cmd
+        else:
+            # Traditional venv mode
+            python_exe = self.get_python_executable(framework)
+            cmd = [str(python_exe), script_name] + extra_args
+            return cmd
+
     async def start_training(
         self,
         job_id: int,
@@ -142,21 +190,16 @@ class SubprocessTrainingManager(TrainingManager):
         """
         try:
             # Get paths
-            python_exe = self.get_python_executable(framework)
             trainer_dir = self.get_trainer_directory(framework)
 
             logger.info(f"[TrainingSubprocess] Starting job {job_id}")
             logger.info(f"[TrainingSubprocess]   Framework: {framework}")
             logger.info(f"[TrainingSubprocess]   Trainer dir: {trainer_dir}")
-            logger.info(f"[TrainingSubprocess]   Python: {python_exe}")
+            logger.info(f"[TrainingSubprocess]   UV mode: {self.use_uv}")
             logger.info(f"[TrainingSubprocess]   Model: {model_name}")
 
             # Prepare command (K8s Job style - use env vars instead of CLI args)
-            cmd = [
-                str(python_exe),
-                "train.py",
-                "--log-level", "INFO",  # Only keep log-level as CLI arg for quick override
-            ]
+            cmd = self.build_command(framework, "train.py", ["--log-level", "INFO"])
 
             logger.info(f"[TrainingSubprocess] Command: {' '.join(cmd)}")
 
@@ -544,21 +587,16 @@ class SubprocessTrainingManager(TrainingManager):
         """
         try:
             # Get paths
-            python_exe = self.get_python_executable(framework)
             trainer_dir = self.get_trainer_directory(framework)
 
             logger.info(f"[EvaluationSubprocess] Starting test run {test_run_id}")
             logger.info(f"[EvaluationSubprocess]   Framework: {framework}")
             logger.info(f"[EvaluationSubprocess]   Trainer dir: {trainer_dir}")
-            logger.info(f"[EvaluationSubprocess]   Python: {python_exe}")
+            logger.info(f"[EvaluationSubprocess]   UV mode: {self.use_uv}")
             logger.info(f"[EvaluationSubprocess]   Checkpoint: {checkpoint_s3_uri}")
 
             # Prepare command (K8s Job style - use env vars instead of CLI args)
-            cmd = [
-                str(python_exe),
-                "evaluate.py",
-                "--log-level", "INFO",  # Only keep log-level as CLI arg for quick override
-            ]
+            cmd = self.build_command(framework, "evaluate.py", ["--log-level", "INFO"])
 
             logger.info(f"[EvaluationSubprocess] Command: {' '.join(cmd)}")
 
@@ -654,21 +692,16 @@ class SubprocessTrainingManager(TrainingManager):
         """
         try:
             # Get paths
-            python_exe = self.get_python_executable(framework)
             trainer_dir = self.get_trainer_directory(framework)
 
             logger.info(f"[InferenceSubprocess] Starting inference job {inference_job_id}")
             logger.info(f"[InferenceSubprocess]   Framework: {framework}")
             logger.info(f"[InferenceSubprocess]   Trainer dir: {trainer_dir}")
-            logger.info(f"[InferenceSubprocess]   Python: {python_exe}")
+            logger.info(f"[InferenceSubprocess]   UV mode: {self.use_uv}")
             logger.info(f"[InferenceSubprocess]   Checkpoint: {checkpoint_s3_uri}")
 
             # Prepare command (K8s Job style - use env vars instead of CLI args)
-            cmd = [
-                str(python_exe),
-                "predict.py",
-                "--log-level", "INFO",  # Only keep log-level as CLI arg for quick override
-            ]
+            cmd = self.build_command(framework, "predict.py", ["--log-level", "INFO"])
 
             logger.info(f"[InferenceSubprocess] Command: {' '.join(cmd)}")
 
@@ -764,22 +797,17 @@ class SubprocessTrainingManager(TrainingManager):
         """
         try:
             # Get paths
-            python_exe = self.get_python_executable(framework)
             trainer_dir = self.get_trainer_directory(framework)
 
             logger.info(f"[ExportSubprocess] Starting export job {export_job_id}")
             logger.info(f"[ExportSubprocess]   Framework: {framework}")
             logger.info(f"[ExportSubprocess]   Trainer dir: {trainer_dir}")
-            logger.info(f"[ExportSubprocess]   Python: {python_exe}")
+            logger.info(f"[ExportSubprocess]   UV mode: {self.use_uv}")
             logger.info(f"[ExportSubprocess]   Export format: {export_format}")
             logger.info(f"[ExportSubprocess]   Checkpoint: {checkpoint_s3_uri}")
 
             # Prepare command (K8s Job style - use env vars instead of CLI args)
-            cmd = [
-                str(python_exe),
-                "export.py",
-                "--log-level", "INFO",  # Only keep log-level as CLI arg for quick override
-            ]
+            cmd = self.build_command(framework, "export.py", ["--log-level", "INFO"])
 
             logger.info(f"[ExportSubprocess] Command: {' '.join(cmd)}")
 
