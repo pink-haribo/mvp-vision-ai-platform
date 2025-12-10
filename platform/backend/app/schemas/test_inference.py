@@ -308,3 +308,67 @@ class InferenceSummaryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ========== Callback Schemas (for Training CLIs) ==========
+
+class TestResultsCallback(BaseModel):
+    """
+    Callback payload from evaluate.py (Training CLI).
+
+    Sent when test/evaluation completes.
+    """
+    status: str  # completed, failed
+    task_type: str
+
+    # Metrics
+    metrics: Optional[Dict[str, Any]] = None
+    per_class_metrics: Optional[Dict[str, Any]] = None
+
+    # Metadata
+    class_names: Optional[List[str]] = None
+    num_images: Optional[int] = None
+
+    # Visualization
+    visualization_urls: Optional[Dict[str, str]] = None
+    predictions_json_uri: Optional[str] = None
+
+    # Config used
+    config: Optional[Dict[str, Any]] = None
+
+    # Error info (if failed)
+    error_message: Optional[str] = None
+    traceback: Optional[str] = None
+
+
+class ImagePredictionResult(BaseModel):
+    """
+    Single image prediction result from predict.py.
+
+    Used in InferenceResultsCallback.
+    """
+    image_path: str
+    image_name: Optional[str] = None
+    predictions: List[Dict[str, Any]] = Field(default_factory=list)
+    inference_time_ms: Optional[float] = None
+
+
+class InferenceResultsCallback(BaseModel):
+    """
+    Callback payload from predict.py (Training CLI).
+
+    Sent when inference job completes.
+    """
+    status: str  # completed, failed
+
+    # Summary metrics
+    total_images: Optional[int] = None
+    total_inference_time_ms: Optional[float] = None
+    avg_inference_time_ms: Optional[float] = None
+
+    # Per-image results
+    results: Optional[List[ImagePredictionResult]] = None
+
+    # Error info (if failed)
+    error_message: Optional[str] = None
+    traceback: Optional[str] = None
