@@ -1,4 +1,17 @@
-"""LLM integration for intent parsing (Legacy - kept for backward compatibility)."""
+"""LLM integration for intent parsing.
+
+Supports:
+- OpenAI API and OpenAI-compatible APIs (vLLM, Ollama, LocalAI, etc.)
+- Google Gemini API
+
+Configuration via environment variables:
+- LLM_PROVIDER: "openai" or "gemini"
+- LLM_MODEL: Model name (e.g., "gpt-4o-mini", "gemini-2.0-flash-exp")
+- LLM_TEMPERATURE: Temperature for sampling (default: 0.0)
+- OPENAI_API_KEY: API key for OpenAI or compatible service
+- OPENAI_BASE_URL: Base URL for OpenAI-compatible endpoints
+- GOOGLE_API_KEY: API key for Google Gemini
+"""
 
 import json
 from typing import Optional, Dict, Any
@@ -7,7 +20,7 @@ from app.core.config import settings
 
 
 class IntentParser:
-    """Parse user intent using LLM (Legacy class with dual provider support)."""
+    """Parse user intent using LLM (OpenAI-compatible or Gemini)."""
 
     def __init__(self):
         """Initialize the intent parser based on LLM_PROVIDER setting."""
@@ -22,7 +35,7 @@ class IntentParser:
             self._init_openai()
 
     def _init_openai(self):
-        """Initialize OpenAI-compatible client"""
+        """Initialize OpenAI-compatible client."""
         from openai import AsyncOpenAI
         self.client = AsyncOpenAI(
             api_key=settings.OPENAI_API_KEY,
@@ -30,7 +43,7 @@ class IntentParser:
         )
 
     def _init_gemini(self):
-        """Initialize Google Gemini client"""
+        """Initialize Google Gemini client."""
         import google.generativeai as genai
         genai.configure(api_key=settings.GOOGLE_API_KEY)
         self.gemini_model = genai.GenerativeModel(
@@ -41,7 +54,7 @@ class IntentParser:
         )
 
     async def _call_openai(self, messages: list) -> str:
-        """Call OpenAI-compatible API"""
+        """Call OpenAI-compatible API."""
         response = await self.client.chat.completions.create(
             model=self.model_name,
             messages=messages,
@@ -50,7 +63,7 @@ class IntentParser:
         return response.choices[0].message.content
 
     async def _call_gemini(self, messages: list) -> str:
-        """Call Google Gemini API"""
+        """Call Google Gemini API."""
         import asyncio
         # Convert messages to single prompt for Gemini
         prompt_parts = []
