@@ -178,9 +178,10 @@ class Settings(BaseSettings):
     TENSORBOARD_ENABLED: bool = False
 
     class Config:
-        # Don't load .env file - use environment variables directly
-        # Railway provides environment variables, not .env files
-        # For local development, use .env file loaded by main.py
+        # Load .env file for local development
+        # Environment variables (e.g., Railway) take precedence over .env file
+        env_file = ".env"
+        env_file_encoding = "utf-8"
         case_sensitive = True
         extra = "ignore"
 
