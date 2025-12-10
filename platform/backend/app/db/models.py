@@ -9,12 +9,12 @@ from app.db.database import Base
 
 
 class UserRole(str, enum.Enum):
-    """5-tier user permission system"""
-    ADMIN = "admin"              # All permissions
-    MANAGER = "manager"          # Can grant permissions below manager
-    ENGINEER_II = "engineer_ii"  # Advanced training features
-    ENGINEER_I = "engineer_i"    # Basic training features
-    GUEST = "guest"              # Limited: 1 project, 1 dataset, no collaboration
+    """5-tier user permission system (matches schemas/enums.py SystemRole)"""
+    GUEST = "guest"                           # 기본 모델만 사용, Limited: 1 project, 1 dataset
+    STANDARD_ENGINEER = "standard_engineer"   # 모든 모델 사용 가능
+    ADVANCED_ENGINEER = "advanced_engineer"   # 세부 기능 사용 가능
+    MANAGER = "manager"                       # 권한 승급 가능
+    ADMIN = "admin"                           # 모든 기능 (권한/사용자/프로젝트 관리)
 
 
 class InvitationType(str, enum.Enum):
