@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "trainer.fullname" . }}-config
+  labels:
+    {{- include "trainer.labels" . | nindent 4 }}
+data:
+  training-config.yaml: |
+    # Default training configuration for HuggingFace Transformers
+    model_name: google/vit-base-patch16-224
+    task: image-classification
+    data_dir: /data/datasets
+    output_dir: /data/outputs
+    num_train_epochs: {{ .Values.training.defaultEpochs }}
+    per_device_train_batch_size: {{ .Values.training.defaultBatchSize }}
+    image_size: {{ .Values.training.defaultImgSize }}
+    learning_rate: {{ .Values.training.defaultLearningRate }}
+    warmup_steps: {{ .Values.training.defaultWarmupSteps }}
+    evaluation_strategy: epoch
+    save_strategy: epoch
+    load_best_model_at_end: true
+    metric_for_best_model: accuracy
+    fp16: true
+    dataloader_num_workers: 4
+    remove_unused_columns: false

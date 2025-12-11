@@ -1,0 +1,113 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: vision-ai-platform
+  namespace: argocd
+spec:
+  generators:
+    # Generate applications for each environment
+    - matrix:
+        generators:
+          # Environment generator
+          - list:
+              elements:
+                - env: dev
+                  namespace: vision-ai-dev
+                  cluster: https://kubernetes.default.svc
+                - env: staging
+                  namespace: vision-ai-staging
+                  cluster: https://kubernetes.default.svc
+                - env: prod
+                  namespace: vision-ai-prod
+                  cluster: https://kubernetes.default.svc
+          # Application generator
+          - list:
+              elements:
+                - app: backend
+                  chart: backend
+                - app: frontend
+                  chart: frontend
+  template:
+    metadata:
+      name: "vision-ai-{{app}}-{{env}}"
+      labels:
+        app.kubernetes.io/part-of: vision-ai-platform
+        environment: "{{env}}"
+    spec:
+      project: vision-ai
+      source:
+        repoURL: https://github.com/dengol66/mvp-vision-ai-platform.git
+        targetRevision: HEAD
+        path: "platform/infrastructure/helm/charts/{{chart}}"
+        helm:
+          valueFiles:
+            - "../../environments/{{env}}/values-{{chart}}.yaml"
+      destination:
+        server: "{{cluster}}"
+        namespace: "{{namespace}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - PrunePropagationPolicy=foreground
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+---
+# Trainers are deployed separately as they're managed dynamically
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: vision-ai-trainers
+  namespace: argocd
+spec:
+  generators:
+    - matrix:
+        generators:
+          - list:
+              elements:
+                - env: dev
+                  namespace: vision-ai-trainers-dev
+                  cluster: https://kubernetes.default.svc
+                - env: staging
+                  namespace: vision-ai-trainers-staging
+                  cluster: https://kubernetes.default.svc
+                - env: prod
+                  namespace: vision-ai-trainers-prod
+                  cluster: https://kubernetes.default.svc
+          - list:
+              elements:
+                - trainer: ultralytics
+                - trainer: timm
+                - trainer: huggingface
+  template:
+    metadata:
+      name: "vision-ai-trainer-{{trainer}}-{{env}}"
+      labels:
+        app.kubernetes.io/part-of: vision-ai-platform
+        app.kubernetes.io/component: trainer
+        environment: "{{env}}"
+        trainer: "{{trainer}}"
+    spec:
+      project: vision-ai
+      source:
+        repoURL: https://github.com/dengol66/mvp-vision-ai-platform.git
+        targetRevision: HEAD
+        path: "platform/infrastructure/helm/charts/trainer-{{trainer}}"
+        helm:
+          valueFiles:
+            - "../../environments/{{env}}/values-trainer-{{trainer}}.yaml"
+      destination:
+        server: "{{cluster}}"
+        namespace: "{{namespace}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

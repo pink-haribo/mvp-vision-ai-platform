@@ -1,0 +1,39 @@
+# Staging environment values for huggingface trainer
+image:
+  repository: vision-ai-trainer-huggingface
+  tag: "staging"
+
+resources:
+  limits:
+    cpu: "4"
+    memory: 32Gi
+    nvidia.com/gpu: "1"
+  requests:
+    cpu: "2"
+    memory: 16Gi
+    nvidia.com/gpu: "1"
+
+training:
+  defaultEpochs: 5
+  defaultBatchSize: 16
+  defaultImgSize: 224
+
+nodeSelector:
+  accelerator: nvidia-gpu
+
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+s3:
+  enabled: true
+  endpoint: "http://minio:9000"
+  bucket: "models-staging"
+
+mlflow:
+  enabled: true
+  trackingUri: "http://mlflow:5000"
+
+huggingfaceHub:
+  enabled: false

@@ -1,0 +1,58 @@
+# Production environment values for backend
+replicaCount: 3
+
+image:
+  repository: vision-ai-backend
+  tag: "latest"
+
+resources:
+  limits:
+    cpu: "2"
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+  hosts:
+    - host: api.vision-ai.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - api.vision-ai.example.com
+      secretName: api-tls-prod
+
+env:
+  ENVIRONMENT: "production"
+  DEBUG: "false"
+  LOG_LEVEL: "WARNING"
+  DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@postgres-primary:5432/vision_ai_prod"
+  REDIS_URL: "redis://redis-master:6379/0"
+  S3_ENDPOINT: "https://s3.amazonaws.com"
+  S3_BUCKET: "vision-ai-prod"
+  CORS_ORIGINS: "https://vision-ai.example.com"
+
+# Production uses external managed services
+postgresql:
+  enabled: false
+
+redis:
+  enabled: false
+
+minio:
+  enabled: false

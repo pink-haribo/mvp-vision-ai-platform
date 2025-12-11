@@ -1,0 +1,61 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: vision-ai
+  namespace: argocd
+spec:
+  description: Vision AI Training Platform
+
+  # Source repositories
+  sourceRepos:
+    - https://github.com/dengol66/mvp-vision-ai-platform.git
+
+  # Destination clusters and namespaces
+  destinations:
+    - namespace: vision-ai-dev
+      server: https://kubernetes.default.svc
+    - namespace: vision-ai-staging
+      server: https://kubernetes.default.svc
+    - namespace: vision-ai-prod
+      server: https://kubernetes.default.svc
+    - namespace: vision-ai-trainers-dev
+      server: https://kubernetes.default.svc
+    - namespace: vision-ai-trainers-staging
+      server: https://kubernetes.default.svc
+    - namespace: vision-ai-trainers-prod
+      server: https://kubernetes.default.svc
+
+  # Cluster resource whitelist
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: networking.k8s.io
+      kind: IngressClass
+
+  # Namespace resource blacklist (prevent dangerous resources)
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange
+
+  # Allow orphaned resources to be deleted
+  orphanedResources:
+    warn: true
+
+  # Roles for project access
+  roles:
+    - name: admin
+      description: Admin access to vision-ai project
+      policies:
+        - p, proj:vision-ai:admin, applications, *, vision-ai/*, allow
+      groups:
+        - vision-ai-admins
+
+    - name: developer
+      description: Developer access (read + sync)
+      policies:
+        - p, proj:vision-ai:developer, applications, get, vision-ai/*, allow
+        - p, proj:vision-ai:developer, applications, sync, vision-ai/*, allow
+      groups:
+        - vision-ai-developers

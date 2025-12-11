@@ -1,0 +1,129 @@
+# Default values for vision-ai-backend
+
+replicaCount: 1
+
+image:
+  repository: vision-ai-backend
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+service:
+  type: ClusterIP
+  port: 8000
+  mlflowPort: 5000
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: api.vision-ai.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+  requests:
+    cpu: 200m
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Environment variables
+env:
+  # Database
+  DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/vision_ai"
+
+  # Redis
+  REDIS_URL: "redis://redis:6379"
+
+  # Storage (MinIO/S3)
+  S3_ENDPOINT: "http://minio:9000"
+  S3_BUCKET: "vision-ai"
+  AWS_ACCESS_KEY_ID: "minioadmin"
+  AWS_SECRET_ACCESS_KEY: "minioadmin"
+
+  # Temporal
+  TEMPORAL_HOST: "temporal:7233"
+  TEMPORAL_NAMESPACE: "default"
+
+  # MLflow
+  MLFLOW_TRACKING_URI: "http://localhost:5000"
+
+  # Application
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"
+
+# Secret environment variables (reference to external secret)
+secretEnv:
+  # LLM API Keys
+  - name: OPENAI_API_KEY
+    secretName: vision-ai-secrets
+    secretKey: openai-api-key
+  - name: ANTHROPIC_API_KEY
+    secretName: vision-ai-secrets
+    secretKey: anthropic-api-key
+  - name: GOOGLE_API_KEY
+    secretName: vision-ai-secrets
+    secretKey: google-api-key
+  # JWT
+  - name: JWT_SECRET
+    secretName: vision-ai-secrets
+    secretKey: jwt-secret
+
+# Probes
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Persistence for MLflow artifacts (optional - prefer S3)
+persistence:
+  enabled: false
+  storageClass: ""
+  size: 10Gi
+  accessModes:
+    - ReadWriteOnce

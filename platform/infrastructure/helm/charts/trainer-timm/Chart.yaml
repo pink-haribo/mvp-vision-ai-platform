@@ -1,0 +1,14 @@
+apiVersion: v2
+name: trainer-timm
+description: Vision AI Platform - PyTorch Image Models (timm) Trainer
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - vision-ai
+  - trainer
+  - timm
+  - pytorch
+  - image-classification
+maintainers:
+  - name: Vision AI Team

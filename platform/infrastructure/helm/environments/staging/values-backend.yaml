@@ -1,0 +1,44 @@
+# Staging environment values for backend
+replicaCount: 2
+
+image:
+  repository: vision-ai-backend
+  tag: "staging"
+
+resources:
+  limits:
+    cpu: "1"
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+  hosts:
+    - host: api.vision-ai.staging.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - api.vision-ai.staging.example.com
+      secretName: api-tls-staging
+
+env:
+  ENVIRONMENT: "staging"
+  DEBUG: "false"
+  LOG_LEVEL: "INFO"
+  DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/vision_ai_staging"
+  REDIS_URL: "redis://redis:6379/0"
+  S3_ENDPOINT: "http://minio:9000"
+  S3_BUCKET: "vision-ai-staging"
+  CORS_ORIGINS: "https://vision-ai.staging.example.com"

@@ -1,0 +1,32 @@
+# Development environment values for timm trainer
+image:
+  repository: vision-ai-trainer-timm
+  tag: "dev"
+
+resources:
+  limits:
+    cpu: "2"
+    memory: 8Gi
+    nvidia.com/gpu: "1"
+  requests:
+    cpu: "1"
+    memory: 4Gi
+    nvidia.com/gpu: "1"
+
+training:
+  defaultEpochs: 10
+  defaultBatchSize: 16
+  defaultImgSize: 224
+
+nodeSelector: {}
+
+tolerations: []
+
+s3:
+  enabled: true
+  endpoint: "http://minio:9000"
+  bucket: "models-dev"
+
+mlflow:
+  enabled: true
+  trackingUri: "http://mlflow:5000"

@@ -1,0 +1,47 @@
+# Development environment values for backend
+replicaCount: 1
+
+image:
+  repository: vision-ai-backend
+  tag: "dev"
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: api.vision-ai.dev.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+env:
+  ENVIRONMENT: "development"
+  DEBUG: "true"
+  LOG_LEVEL: "DEBUG"
+  DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/vision_ai_dev"
+  REDIS_URL: "redis://redis:6379/0"
+  S3_ENDPOINT: "http://minio:9000"
+  S3_BUCKET: "vision-ai-dev"
+  MLFLOW_TRACKING_URI: "http://mlflow:5000"
+  CORS_ORIGINS: "*"
+
+# Use internal database for dev
+postgresql:
+  enabled: true
+
+redis:
+  enabled: true
+
+minio:
+  enabled: true

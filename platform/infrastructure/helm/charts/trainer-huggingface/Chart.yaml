@@ -1,0 +1,14 @@
+apiVersion: v2
+name: trainer-huggingface
+description: Vision AI Platform - HuggingFace Transformers Trainer
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - vision-ai
+  - trainer
+  - huggingface
+  - transformers
+  - vision-transformer
+maintainers:
+  - name: Vision AI Team

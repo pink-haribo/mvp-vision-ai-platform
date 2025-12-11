@@ -1,0 +1,84 @@
+image:
+  repository: vision-ai-trainer-ultralytics
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Default resources for training jobs
+resources:
+  limits:
+    cpu: "4"
+    memory: 16Gi
+    nvidia.com/gpu: "1"
+  requests:
+    cpu: "2"
+    memory: 8Gi
+    nvidia.com/gpu: "1"
+
+# GPU node selector
+nodeSelector:
+  accelerator: nvidia-gpu
+
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+affinity: {}
+
+# Job configuration
+job:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  activeDeadlineSeconds: 86400  # 24 hours max
+
+# Training defaults
+training:
+  defaultEpochs: 100
+  defaultBatchSize: 16
+  defaultImgSize: 640
+  defaultPatience: 50
+
+# Storage configuration
+storage:
+  datasetPvc: "datasets-pvc"
+  outputPvc: "training-outputs-pvc"
+  checkpointPvc: "checkpoints-pvc"
+
+# S3/MinIO configuration for model uploads
+s3:
+  enabled: true
+  endpoint: "http://minio:9000"
+  bucket: "models"
+  region: "us-east-1"
+
+# MLflow tracking
+mlflow:
+  enabled: true
+  trackingUri: "http://backend:5000"
+
+# Environment variables
+env:
+  TRAINER_TYPE: "ultralytics"
+  LOG_LEVEL: "INFO"

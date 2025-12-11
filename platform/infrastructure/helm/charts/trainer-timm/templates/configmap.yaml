@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "trainer.fullname" . }}-config
+  labels:
+    {{- include "trainer.labels" . | nindent 4 }}
+data:
+  training-config.yaml: |
+    # Default training configuration for timm
+    model: resnet50
+    task: classification
+    data_dir: /data/datasets
+    output_dir: /data/outputs
+    epochs: {{ .Values.training.defaultEpochs }}
+    batch_size: {{ .Values.training.defaultBatchSize }}
+    img_size: {{ .Values.training.defaultImgSize }}
+    learning_rate: {{ .Values.training.defaultLearningRate }}
+    optimizer: {{ .Values.training.defaultOptimizer }}
+    num_classes: 1000
+    pretrained: true
+    save_checkpoint: true
+    checkpoint_interval: 10

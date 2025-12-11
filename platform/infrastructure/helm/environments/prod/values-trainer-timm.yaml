@@ -1,0 +1,45 @@
+# Production environment values for timm trainer
+image:
+  repository: vision-ai-trainer-timm
+  tag: "latest"
+
+resources:
+  limits:
+    cpu: "8"
+    memory: 32Gi
+    nvidia.com/gpu: "1"
+  requests:
+    cpu: "4"
+    memory: 16Gi
+    nvidia.com/gpu: "1"
+
+training:
+  defaultEpochs: 100
+  defaultBatchSize: 64
+  defaultImgSize: 224
+  defaultLearningRate: 0.001
+  defaultOptimizer: "adamw"
+
+nodeSelector:
+  accelerator: nvidia-gpu
+  gpu-type: a100
+
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+job:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 172800
+
+s3:
+  enabled: true
+  endpoint: "https://s3.amazonaws.com"
+  bucket: "vision-ai-models-prod"
+  region: "us-east-1"
+
+mlflow:
+  enabled: true
+  trackingUri: "https://mlflow.vision-ai.example.com"

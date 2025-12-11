@@ -1,0 +1,33 @@
+# Development environment values for ultralytics trainer
+image:
+  repository: vision-ai-trainer-ultralytics
+  tag: "dev"
+
+resources:
+  limits:
+    cpu: "2"
+    memory: 8Gi
+    nvidia.com/gpu: "1"
+  requests:
+    cpu: "1"
+    memory: 4Gi
+    nvidia.com/gpu: "1"
+
+# Dev uses smaller defaults
+training:
+  defaultEpochs: 10
+  defaultBatchSize: 8
+  defaultImgSize: 640
+
+nodeSelector: {}  # No GPU requirement in dev
+
+tolerations: []
+
+s3:
+  enabled: true
+  endpoint: "http://minio:9000"
+  bucket: "models-dev"
+
+mlflow:
+  enabled: true
+  trackingUri: "http://mlflow:5000"

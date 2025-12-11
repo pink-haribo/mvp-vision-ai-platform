@@ -1,0 +1,39 @@
+# Staging environment values for frontend
+replicaCount: 2
+
+image:
+  repository: vision-ai-frontend
+  tag: "staging"
+
+resources:
+  limits:
+    cpu: 300m
+    memory: 384Mi
+  requests:
+    cpu: 100m
+    memory: 192Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+  hosts:
+    - host: vision-ai.staging.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - vision-ai.staging.example.com
+      secretName: frontend-tls-staging
+
+env:
+  NEXT_PUBLIC_API_URL: "https://api.vision-ai.staging.example.com/api/v1"
+  NEXT_PUBLIC_WS_URL: "wss://api.vision-ai.staging.example.com/ws"
+  NEXT_PUBLIC_ENVIRONMENT: "staging"

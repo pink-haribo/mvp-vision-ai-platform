@@ -1,0 +1,31 @@
+# Development environment values for frontend
+replicaCount: 1
+
+image:
+  repository: vision-ai-frontend
+  tag: "dev"
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: vision-ai.dev.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+env:
+  NEXT_PUBLIC_API_URL: "http://api.vision-ai.dev.local/api/v1"
+  NEXT_PUBLIC_WS_URL: "ws://api.vision-ai.dev.local/ws"
+  NEXT_PUBLIC_ENVIRONMENT: "development"

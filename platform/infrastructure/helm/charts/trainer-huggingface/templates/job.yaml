@@ -1,0 +1,122 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "trainer.fullname" . }}-{{ .Release.Revision }}
+  labels:
+    {{- include "trainer.labels" . | nindent 4 }}
+    training-job: "true"
+spec:
+  backoffLimit: {{ .Values.job.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.job.ttlSecondsAfterFinished }}
+  activeDeadlineSeconds: {{ .Values.job.activeDeadlineSeconds }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "trainer.selectorLabels" . | nindent 8 }}
+        training-job: "true"
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "trainer.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: trainer
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "train.py"]
+          args:
+            - "--config"
+            - "/config/training-config.yaml"
+          env:
+            - name: TRAINER_TYPE
+              value: {{ .Values.env.TRAINER_TYPE | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.env.LOG_LEVEL | quote }}
+            - name: HF_HOME
+              value: {{ .Values.env.HF_HOME | quote }}
+            - name: TRANSFORMERS_CACHE
+              value: {{ .Values.env.TRANSFORMERS_CACHE | quote }}
+            {{- if .Values.mlflow.enabled }}
+            - name: MLFLOW_TRACKING_URI
+              value: {{ .Values.mlflow.trackingUri | quote }}
+            {{- end }}
+            {{- if .Values.huggingfaceHub.enabled }}
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "trainer.fullname" . }}-hf
+                  key: token
+            {{- end }}
+            {{- if .Values.s3.enabled }}
+            - name: S3_ENDPOINT
+              value: {{ .Values.s3.endpoint | quote }}
+            - name: S3_BUCKET
+              value: {{ .Values.s3.bucket | quote }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "trainer.fullname" . }}-s3
+                  key: access-key
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "trainer.fullname" . }}-s3
+                  key: secret-key
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: datasets
+              mountPath: /data/datasets
+              readOnly: true
+            - name: outputs
+              mountPath: /data/outputs
+            - name: checkpoints
+              mountPath: /data/checkpoints
+            - name: tmp
+              mountPath: /tmp
+            - name: hf-cache
+              mountPath: /tmp/huggingface
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "trainer.fullname" . }}-config
+        - name: datasets
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.datasetPvc }}
+        - name: outputs
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.outputPvc }}
+        - name: checkpoints
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.checkpointPvc }}
+        - name: tmp
+          emptyDir: {}
+        - name: hf-cache
+          emptyDir:
+            sizeLimit: 10Gi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
