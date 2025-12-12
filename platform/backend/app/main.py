@@ -139,6 +139,18 @@ async def startup_event():
                 print("[MIGRATION] dataset_version column added successfully")
             else:
                 print("[MIGRATION] dataset_version column already exists, skipping")
+
+            # Add custom_docker_image if missing (for custom training frameworks)
+            if 'custom_docker_image' not in columns:
+                print("[MIGRATION] Adding custom_docker_image column to training_jobs...")
+                with engine.begin() as conn:
+                    if db_url.startswith("sqlite"):
+                        conn.execute(text("ALTER TABLE training_jobs ADD COLUMN custom_docker_image TEXT"))
+                    else:
+                        conn.execute(text("ALTER TABLE training_jobs ADD COLUMN custom_docker_image VARCHAR(500)"))
+                print("[MIGRATION] custom_docker_image column added successfully")
+            else:
+                print("[MIGRATION] custom_docker_image column already exists, skipping")
         else:
             print("[MIGRATION] training_jobs table not found, skipping migration")
     except Exception as e:

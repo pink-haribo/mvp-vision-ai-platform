@@ -438,6 +438,11 @@ class TrainingJob(Base):
     task_type = Column(String(50), nullable=False)
     num_classes = Column(Integer, nullable=True)
 
+    # Custom Docker Image (for new/custom training frameworks)
+    # When set, this image is used instead of the default framework image
+    # Image must follow TrainerSDK convention (see docs/CUSTOM_TRAINER_SDK.md)
+    custom_docker_image = Column(String(500), nullable=True)
+
     # Dataset reference (Phase 11.5: Labeler integration)
     dataset_id = Column(String(100), nullable=True, index=True)  # References Labeler dataset UUID (no FK)
     dataset_snapshot_id = Column(String(100), ForeignKey('dataset_snapshots.id', ondelete='SET NULL'), nullable=True, index=True)  # Immutable snapshot reference

@@ -169,6 +169,7 @@ class SubprocessTrainingManager(TrainingManager):
         config: Dict[str, Any],
         snapshot_id: str = None,
         dataset_version_hash: str = None,
+        custom_docker_image: str = None,
     ) -> subprocess.Popen:
         """
         Start training subprocess.
@@ -180,6 +181,9 @@ class SubprocessTrainingManager(TrainingManager):
             dataset_s3_uri: S3 URI of dataset
             callback_url: Backend API callback URL
             config: Training configuration dictionary
+            snapshot_id: Dataset snapshot ID (for caching)
+            dataset_version_hash: Dataset version hash (for caching)
+            custom_docker_image: Custom Docker image (ignored in subprocess mode)
 
         Returns:
             subprocess.Popen instance
@@ -187,6 +191,10 @@ class SubprocessTrainingManager(TrainingManager):
         Raises:
             FileNotFoundError: If Training Service not found
             subprocess.CalledProcessError: If subprocess fails to start
+
+        Note:
+            custom_docker_image is ignored in subprocess mode since training
+            runs as local Python processes, not Docker containers.
         """
         try:
             # Get paths

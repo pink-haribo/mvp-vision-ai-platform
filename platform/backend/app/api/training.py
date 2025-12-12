@@ -298,6 +298,7 @@ async def create_training_job(
         model_name=job_request.config.model_name,
         task_type=job_request.config.task_type,
         num_classes=job_request.config.num_classes,
+        custom_docker_image=job_request.config.custom_docker_image,  # Custom Docker image for new frameworks
         dataset_id=dataset_id,  # Store dataset ID if from DB
         dataset_path=dataset_path,  # Use resolved path
         dataset_format=dataset_format,  # Use format from DB or config

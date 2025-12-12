@@ -292,6 +292,7 @@ class KubernetesTrainingManager(TrainingManager):
         config: Dict[str, Any],
         snapshot_id: str = None,
         dataset_version_hash: str = None,
+        custom_docker_image: str = None,
     ) -> Dict[str, Any]:
         """
         Start training by creating a K8s Job.
@@ -305,6 +306,7 @@ class KubernetesTrainingManager(TrainingManager):
             config: Training configuration dictionary
             snapshot_id: Dataset snapshot ID (for caching)
             dataset_version_hash: Dataset version hash (for caching)
+            custom_docker_image: Custom Docker image URI (overrides default framework image)
 
         Returns:
             Dict containing K8s job metadata
@@ -321,9 +323,13 @@ class KubernetesTrainingManager(TrainingManager):
             # Generate job name
             k8s_job_name = self._generate_job_name("training", job_id)
 
-            # Get trainer image
-            image = self._get_trainer_image(framework)
-            logger.info(f"[KubernetesTrainingManager]   Image: {image}")
+            # Get trainer image (custom image overrides framework default)
+            if custom_docker_image:
+                image = custom_docker_image
+                logger.info(f"[KubernetesTrainingManager]   Using custom image: {image}")
+            else:
+                image = self._get_trainer_image(framework)
+                logger.info(f"[KubernetesTrainingManager]   Image: {image}")
 
             # Extract dataset_id from S3 URI
             dataset_id_match = re.search(r"/datasets/([^/]+)/?$", dataset_s3_uri)

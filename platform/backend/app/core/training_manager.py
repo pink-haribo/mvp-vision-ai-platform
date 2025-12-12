@@ -43,6 +43,7 @@ class TrainingManager(ABC):
         config: Dict[str, Any],
         snapshot_id: Optional[str] = None,
         dataset_version_hash: Optional[str] = None,
+        custom_docker_image: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Start a training job.
@@ -56,6 +57,7 @@ class TrainingManager(ABC):
             config: Training configuration dictionary
             snapshot_id: Dataset snapshot ID (for caching)
             dataset_version_hash: Dataset version hash (for caching)
+            custom_docker_image: Custom Docker image URI (overrides default framework image)
 
         Returns:
             Dict containing execution metadata (k8s_job_name, status, etc.)

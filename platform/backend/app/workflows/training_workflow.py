@@ -297,6 +297,7 @@ async def execute_training(job_id: int, clearml_task_id: str) -> Dict[str, Any]:
             config=training_config,
             snapshot_id=snapshot_id,
             dataset_version_hash=dataset_version_hash,
+            custom_docker_image=job.custom_docker_image,  # Custom image for new frameworks
         )
         logger.info(f"[execute_training] Training started: {training_metadata}")
 
