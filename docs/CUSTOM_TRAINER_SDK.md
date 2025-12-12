@@ -8,12 +8,13 @@ Vision AI Training Platform에서 커스텀 학습 이미지를 개발하기 위
 2. [필수 요구사항](#필수-요구사항)
 3. [TrainerSDK 사용법](#trainersdk-사용법)
 4. [환경 변수](#환경-변수)
-5. [Lifecycle Callbacks](#lifecycle-callbacks)
-6. [Storage 연동](#storage-연동)
-7. [Exit Codes](#exit-codes)
-8. [Dockerfile 템플릿](#dockerfile-템플릿)
-9. [전체 예제](#전체-예제)
-10. [Checklist](#checklist)
+5. [Volume Mount Paths (K8s Mode)](#volume-mount-paths-k8s-mode)
+6. [Lifecycle Callbacks](#lifecycle-callbacks)
+7. [Storage 연동](#storage-연동)
+8. [Exit Codes](#exit-codes)
+9. [Dockerfile 템플릿](#dockerfile-템플릿)
+10. [전체 예제](#전체-예제)
+11. [Checklist](#checklist)
 
 ---
 
@@ -212,6 +213,64 @@ advanced_config = sdk.get_advanced_config()
 full_config = sdk.get_full_config()
 # {'basic': {...}, 'advanced': {...}}
 ```
+
+---
+
+## Volume Mount Paths (K8s Mode)
+
+K8s 모드에서 Backend가 컨테이너에 마운트하는 볼륨입니다.
+
+### 표준 마운트 경로
+
+| 마운트 경로 | 타입 | 용도 | 권장 사용법 |
+|-------------|------|------|-------------|
+| `/tmp` | emptyDir | 임시 파일 | 데이터셋 다운로드, 임시 파일 |
+| `/workspace` | emptyDir | 작업 디렉토리 | 학습 결과, 로그, 체크포인트 |
+
+### 사용 예시
+
+```python
+# 데이터셋 다운로드 (권장: /tmp 사용)
+dataset_dir = sdk.download_dataset(dataset_id, '/tmp/dataset')
+
+# 체크포인트 저장 (권장: /workspace 사용)
+checkpoint_path = '/workspace/checkpoints/best.pt'
+torch.save(model.state_dict(), checkpoint_path)
+
+# 체크포인트 업로드
+best_uri = sdk.upload_checkpoint(checkpoint_path, 'best')
+```
+
+### 주의사항
+
+- **emptyDir**: Pod 종료 시 삭제됨. 영구 저장이 필요한 파일은 반드시 S3에 업로드
+- **용량 제한**: 기본 제한 없음 (노드 디스크 공간에 의존)
+- **경로 하드코딩 금지**: 환경변수나 설정으로 경로 관리 권장
+
+```python
+# ❌ 하드코딩 (비권장)
+dataset_dir = '/tmp/dataset'
+
+# ✅ 환경변수 활용 (권장)
+import os
+WORK_DIR = os.getenv('WORK_DIR', '/workspace')
+TMP_DIR = os.getenv('TMP_DIR', '/tmp')
+```
+
+### PVC vs emptyDir
+
+현재 기본 설정은 **emptyDir**을 사용합니다:
+
+| 특성 | emptyDir (현재) | PVC |
+|------|-----------------|-----|
+| 데이터 영속성 | Pod 종료 시 삭제 | 유지 |
+| 프로비저닝 | 자동 | 사전 생성 필요 |
+| 성능 | 노드 디스크 (SSD/HDD) | 스토리지 클래스에 따름 |
+| 용량 관리 | 노드에 의존 | 명시적 할당 |
+| 사용 사례 | 대부분의 학습 작업 | 대용량 캐시, 재사용 필요 시 |
+
+> **설계 철학**: S3를 primary storage로 사용하므로 emptyDir로 충분합니다.
+> 데이터셋은 S3에서 다운로드, 체크포인트는 S3로 업로드하는 패턴입니다.
 
 ---
 
@@ -586,6 +645,13 @@ if __name__ == "__main__":
 - [ ] `report_completed()`를 학습 성공 시 호출하는가?
 - [ ] `report_failed()`를 예외 발생 시 호출하는가?
 - [ ] Exit code가 올바르게 반환되는가? (0=성공, 1=실패, 2=콜백실패)
+
+### 볼륨 마운트 항목 (K8s Mode)
+
+- [ ] 데이터셋을 `/tmp` 경로에 다운로드하는가?
+- [ ] 체크포인트/결과물을 `/workspace` 경로에 저장하는가?
+- [ ] 영구 저장이 필요한 파일은 S3에 업로드하는가?
+- [ ] 경로를 하드코딩하지 않고 환경변수로 관리하는가?
 
 ### 권장 항목
 
