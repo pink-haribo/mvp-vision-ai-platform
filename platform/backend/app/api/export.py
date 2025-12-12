@@ -19,7 +19,7 @@ from app.db.database import get_db
 from app.db import models
 import asyncio
 from app.schemas import export as export_schemas
-from app.core.training_managers.subprocess_manager import get_training_subprocess_manager
+from app.core.training_manager import get_training_manager
 from app.utils.dual_storage import dual_storage
 from app.services.websocket_manager import get_websocket_manager
 
@@ -340,8 +340,8 @@ async def create_export_job(
             job.started_at = datetime.utcnow()
             db_session.commit()
 
-            # Get training subprocess manager
-            manager = get_training_subprocess_manager()
+            # Get training manager (works for both subprocess and kubernetes)
+            manager = get_training_manager()
 
             # Prepare export config
             export_config = job.export_config or {}
