@@ -8,15 +8,17 @@ WORKDIR /app
 
 # Create a non-root user (same UID as K8s securityContext)
 RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs && \
-    chown nextjs:nodejs /app
+    adduser --system --uid 1001 nextjs
 
-# Install dependencies (as root for npm ci performance)
+# Install dependencies
 COPY package.json package-lock.json* ./
-RUN npm ci && chown -R nextjs:nodejs node_modules
+RUN npm ci
 
-# Copy source code and set ownership
-COPY --chown=nextjs:nodejs . .
+# Copy source code
+COPY . .
+
+# Set ownership for all files
+RUN chown -R 1001:1001 /app
 
 # Switch to non-root user
 USER nextjs
