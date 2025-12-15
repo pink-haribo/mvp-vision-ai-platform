@@ -168,8 +168,10 @@ jobs:
 
   # Build Backend
   build-backend:
-    needs: [detect-changes, generate-tag]
-    if: needs.detect-changes.outputs.backend == 'true'
+    needs: [guard, detect-changes, generate-tag]
+    if: |
+      needs.guard.outputs.should_run == 'true' &&
+      needs.detect-changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -202,8 +204,10 @@ jobs:
 
   # Build Frontend
   build-frontend:
-    needs: [detect-changes, generate-tag]
-    if: needs.detect-changes.outputs.frontend == 'true'
+    needs: [guard, detect-changes, generate-tag]
+    if: |
+      needs.guard.outputs.should_run == 'true' &&
+      needs.detect-changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -236,8 +240,10 @@ jobs:
 
   # Build Trainers (matrix)
   build-trainers:
-    needs: [detect-changes, generate-tag]
-    if: needs.detect-changes.outputs.trainers == 'true'
+    needs: [guard, detect-changes, generate-tag]
+    if: |
+      needs.guard.outputs.should_run == 'true' &&
+      needs.detect-changes.outputs.trainers == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -287,9 +293,10 @@ jobs:
 
   # ArgoCD Sync - Update image tags and sync
   argocd-sync:
-    needs: [generate-tag, detect-changes, build-backend, build-frontend, build-trainers]
+    needs: [guard, generate-tag, detect-changes, build-backend, build-frontend, build-trainers]
     if: |
       always() &&
+      needs.guard.outputs.should_run == 'true' &&
       needs.generate-tag.result == 'success' &&
       github.event.inputs.skip_sync != 'true' &&
       (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
@@ -346,8 +353,11 @@ jobs:
 
   # Summary
   summary:
-    needs: [generate-tag, build-backend, build-frontend, build-trainers, argocd-sync]
-    if: always() && needs.generate-tag.result == 'success'
+    needs: [guard, generate-tag, build-backend, build-frontend, build-trainers, argocd-sync]
+    if: |
+      always() &&
+      needs.guard.outputs.should_run == 'true' &&
+      needs.generate-tag.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Summary
