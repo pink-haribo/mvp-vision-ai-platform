@@ -1,10 +1,5 @@
-# Vision AI Platform - Unified ArgoCD ApplicationSet
-# Deploys the entire platform (backend, frontend, training-infra) per environment
-# Uses JFrog Helm repository with token authentication
-#
-# Multi-source pattern:
-#   - Chart: JFrog Helm repo
-#   - Values: Git repo (environment-specific)
+# Vision AI Platform - ArgoCD ApplicationSet
+# Single chart from JFrog Helm repo per environment
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -34,22 +29,14 @@ spec:
         environment: "{{env}}"
     spec:
       project: vision-ai
-      # Multi-source: Chart from Helm repo + Values from Git
-      sources:
-        # Source 1: Helm Chart from JFrog
-        - repoURL: https://your-company.jfrog.io/artifactory/helm-local
-          chart: vision-ai-platform
-          targetRevision: "{{chartVersion}}"
-          helm:
-            valueFiles:
-              # Reference values file from source 2 (Git repo)
-              - $values/platform/infrastructure/helm/environments/{{env}}/values.yaml
-
-        # Source 2: Values files from Git (referenced as $values)
-        - repoURL: https://github.com/your-org/vision-ai-platform-config.git
-          targetRevision: main
-          ref: values
-
+      source:
+        repoURL: https://your-company.jfrog.io/artifactory/helm-local
+        chart: vision-ai-platform
+        targetRevision: "{{chartVersion}}"
+        helm:
+          # Edit values via ArgoCD UI or kubectl edit
+          values: |
+            # {{env}} environment
       destination:
         server: "{{cluster}}"
         namespace: "{{namespace}}"
@@ -59,19 +46,9 @@ spec:
           selfHeal: true
         syncOptions:
           - CreateNamespace=true
-          - PrunePropagationPolicy=foreground
-        retry:
-          limit: 5
-          backoff:
-            duration: 5s
-            factor: 2
-            maxDuration: 3m
 ---
-# JFrog Helm Repository Credentials
-# Apply this secret FIRST before deploying ApplicationSet:
+# JFrog credentials - apply first:
 #   kubectl apply -f argocd-jfrog-secret.yaml
-#
-# For production, use External Secrets Operator or Sealed Secrets
 apiVersion: v1
 kind: Secret
 metadata:
@@ -84,6 +61,5 @@ stringData:
   type: helm
   name: jfrog-helm
   url: https://your-company.jfrog.io/artifactory/helm-local
-  # Token authentication (recommended)
   username: ""
   password: "YOUR_JFROG_TOKEN_HERE"
