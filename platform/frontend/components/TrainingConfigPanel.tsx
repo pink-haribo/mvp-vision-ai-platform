@@ -29,6 +29,7 @@ interface TrainingConfig {
   epochs?: number
   batch_size?: number
   learning_rate?: number
+  custom_docker_image?: string  // Custom Docker image for new frameworks
 }
 
 interface TrainingConfigPanelProps {
@@ -55,6 +56,7 @@ export default function TrainingConfigPanel({
   const [selectedModel, setSelectedModel] = useState<ModelInfo | null>(null)
   const [customPrompts, setCustomPrompts] = useState<string[]>([])
   const [showPromptsModal, setShowPromptsModal] = useState(false)
+  const [customDockerImage, setCustomDockerImage] = useState(initialConfig?.custom_docker_image || '')
 
   // Step 2: Dataset
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null)
@@ -212,6 +214,7 @@ export default function TrainingConfigPanel({
   const allFrameworks = [
     { value: 'timm', label: 'timm (PyTorch Image Models)', supportedTasks: ['image_classification'] },
     { value: 'ultralytics', label: 'Ultralytics YOLO', supportedTasks: ['object_detection', 'instance_segmentation', 'pose_estimation', 'image_classification'] },
+    { value: 'custom', label: 'Custom (사용자 정의 Docker 이미지)', supportedTasks: ['image_classification', 'object_detection', 'instance_segmentation', 'pose_estimation'] },
   ]
 
   // All available models with their framework and supported tasks
@@ -387,6 +390,9 @@ export default function TrainingConfigPanel({
   const canProceedStep1 = framework && modelName && taskType && (
     // YOLO-World requires custom prompts
     taskType !== 'zero_shot_detection' || customPrompts.length > 0
+  ) && (
+    // Custom framework requires Docker image
+    framework !== 'custom' || customDockerImage.trim() !== ''
   )
   const canProceedStep2 = selectedDatasetId !== null  // Dataset selected from R2
 
@@ -491,6 +497,8 @@ export default function TrainingConfigPanel({
           ...(advancedConfig || {})  // Merge with user's advanced settings
         },
         custom_prompts: customPrompts.length > 0 ? customPrompts : undefined,
+        // Custom Docker image for custom frameworks
+        custom_docker_image: framework === 'custom' && customDockerImage.trim() ? customDockerImage.trim() : undefined,
       }
 
       // DEBUG: Log what we're sending
@@ -630,23 +638,116 @@ export default function TrainingConfigPanel({
                 </div>
               )}
 
+              {/* Framework Type Selector */}
               <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-semibold text-gray-900">
-                    모델 선택
-                  </h3>
-                  {selectedModel && (
-                    <span className="text-sm text-gray-600">
-                      선택됨: <span className="font-semibold text-blue-600">{selectedModel.display_name}</span>
-                    </span>
-                  )}
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  프레임워크 유형
+                </label>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFramework('timm')
+                      setSelectedModel(null)
+                      setModelName('')
+                      setCustomDockerImage('')
+                    }}
+                    className={cn(
+                      'flex-1 px-4 py-3 border-2 rounded-lg text-sm font-medium transition-all',
+                      framework !== 'custom'
+                        ? 'border-violet-500 bg-violet-50 text-violet-700'
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                    )}
+                  >
+                    🎯 기본 프레임워크
+                    <span className="block text-xs font-normal mt-1 text-gray-500">timm, Ultralytics 등</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFramework('custom')
+                      setSelectedModel(null)
+                      setModelName('')
+                    }}
+                    className={cn(
+                      'flex-1 px-4 py-3 border-2 rounded-lg text-sm font-medium transition-all',
+                      framework === 'custom'
+                        ? 'border-orange-500 bg-orange-50 text-orange-700'
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                    )}
+                  >
+                    🐳 Custom
+                    <span className="block text-xs font-normal mt-1 text-gray-500">사용자 정의 Docker 이미지</span>
+                  </button>
                 </div>
-
-                <ModelSelector
-                  onModelSelect={handleModelSelect}
-                  selectedModel={selectedModel}
-                />
               </div>
+
+              {/* Standard Framework: ModelSelector */}
+              {framework !== 'custom' && (
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-base font-semibold text-gray-900">
+                      모델 선택
+                    </h3>
+                    {selectedModel && (
+                      <span className="text-sm text-gray-600">
+                        선택됨: <span className="font-semibold text-blue-600">{selectedModel.display_name}</span>
+                      </span>
+                    )}
+                  </div>
+
+                  <ModelSelector
+                    onModelSelect={handleModelSelect}
+                    selectedModel={selectedModel}
+                  />
+                </div>
+              )}
+
+              {/* Custom Framework: Manual Input */}
+              {framework === 'custom' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      모델 이름 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={modelName}
+                      onChange={(e) => setModelName(e.target.value)}
+                      placeholder="예: my-custom-model-v1"
+                      className={cn(
+                        'w-full px-4 py-2.5 border border-gray-300 rounded-lg',
+                        'focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent',
+                        'text-sm'
+                      )}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      학습에 사용할 모델 식별자 (로깅 및 추적용)
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      작업 유형 <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={taskType}
+                      onChange={(e) => setTaskType(e.target.value)}
+                      className={cn(
+                        'w-full px-4 py-2.5 border border-gray-300 rounded-lg',
+                        'focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent',
+                        'text-sm bg-white'
+                      )}
+                    >
+                      {allTaskTypes.map((task) => (
+                        <option key={task.value} value={task.value}>
+                          {task.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
 
               {/* YOLO-World Custom Prompts */}
               {selectedModel && selectedModel.task_types.includes('zero_shot_detection') && (
@@ -698,6 +799,45 @@ export default function TrainingConfigPanel({
                     >
                       프롬프트 설정하기
                     </button>
+                  )}
+                </div>
+              )}
+
+              {/* Custom Framework Docker Image Input */}
+              {framework === 'custom' && (
+                <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                  <div className="mb-3">
+                    <h4 className="text-sm font-semibold text-orange-900 mb-1">
+                      🐳 Custom Docker 이미지 <span className="text-red-500">*</span>
+                    </h4>
+                    <p className="text-xs text-orange-700">
+                      TrainerSDK 규약을 따르는 Docker 이미지를 입력하세요
+                    </p>
+                  </div>
+
+                  <input
+                    type="text"
+                    value={customDockerImage}
+                    onChange={(e) => setCustomDockerImage(e.target.value)}
+                    placeholder="예: myregistry.io/custom-trainer:v1.0"
+                    className={cn(
+                      'w-full px-4 py-2.5 border rounded-lg',
+                      'focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent',
+                      'text-sm font-mono',
+                      customDockerImage.trim() ? 'border-orange-300 bg-white' : 'border-orange-400 bg-orange-100'
+                    )}
+                  />
+
+                  <div className="mt-3 text-xs text-orange-700 space-y-1">
+                    <p>• 이미지는 <code className="bg-orange-100 px-1 rounded">trainer_sdk.py</code>를 포함해야 합니다</p>
+                    <p>• Entry point: <code className="bg-orange-100 px-1 rounded">python train.py</code></p>
+                    <p>• <a href="/docs/CUSTOM_TRAINER_SDK.md" target="_blank" className="text-orange-800 underline hover:text-orange-900">TrainerSDK 문서 보기 →</a></p>
+                  </div>
+
+                  {customDockerImage.trim() && (
+                    <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800">
+                      ✓ 이미지 설정됨: <span className="font-mono">{customDockerImage}</span>
+                    </div>
                   )}
                 </div>
               )}

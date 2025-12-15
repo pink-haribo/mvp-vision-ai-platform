@@ -118,7 +118,7 @@ export default function DatasetCard({ dataset, onSelect, selected }: DatasetCard
         <div>
           <span className="text-gray-500">Images:</span>
           <span className="ml-1 font-medium text-gray-900">
-            {dataset.num_items.toLocaleString()}
+            {(dataset.num_images ?? 0).toLocaleString()}
           </span>
         </div>
         {dataset.size_mb && (

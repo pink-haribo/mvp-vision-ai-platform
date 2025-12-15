@@ -71,7 +71,7 @@ export default function DatasetsPage() {
                 </div>
                 <div>
                   <span className="text-gray-600">Images:</span>
-                  <p className="font-medium text-gray-900">{selectedDataset.num_items.toLocaleString()}</p>
+                  <p className="font-medium text-gray-900">{(selectedDataset.num_images ?? 0).toLocaleString()}</p>
                 </div>
                 <div>
                   <span className="text-gray-600">Source:</span>

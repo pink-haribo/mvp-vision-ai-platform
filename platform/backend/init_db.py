@@ -1,12 +1,12 @@
 """Database initialization script for Vision AI Training Platform.
 
-This script creates all required database tables for both Platform DB and User DB.
+This script creates all required database tables and optionally creates an admin user.
 
 Usage:
     python init_db.py                 # Initialize both databases
     python init_db.py --platform-only # Initialize platform DB only
     python init_db.py --user-only     # Initialize user DB only
-    python init_db.py --reset         # Drop and recreate all tables (CAUTION!)
+    python init_db.py --reset         # Drop and recreate all tables + create admin user (CAUTION!)
 
 Environment Variables:
     DATABASE_URL - PostgreSQL connection string for Platform DB
@@ -15,9 +15,11 @@ Environment Variables:
 
 import sys
 import argparse
+from datetime import datetime
 from pathlib import Path
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
+from passlib.context import CryptContext
 
 # Load .env file for local development
 from dotenv import load_dotenv
@@ -26,18 +28,104 @@ load_dotenv()
 from app.core.config import settings
 from app.db.database import Base
 from app.db.models import (
-    Organization, Invitation, User, ProjectMember,
+    Organization, Invitation, User, ProjectMember, UserRole,
     DatasetSnapshot, Project, Experiment, ExperimentStar, ExperimentNote,
     Session, Message, TrainingJob, TrainingMetric, TrainingLog,
     ValidationResult, ValidationImageResult, TestRun, TestImageResult,
     InferenceJob, InferenceResult, ExportJob, DeploymentTarget, DeploymentHistory
 )
 
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 def get_table_names(engine):
     """Get list of existing tables in database."""
     inspector = inspect(engine)
     return inspector.get_table_names()
+
+
+def drop_enum_types(engine):
+    """Drop PostgreSQL enum types to allow recreation with new values."""
+    enum_types = ['userrole', 'invitationtype', 'invitationstatus',
+                  'exportformat', 'exportjobstatus', 'deploymenttype',
+                  'deploymentstatus', 'deploymenteventtype']
+
+    with engine.connect() as conn:
+        for enum_type in enum_types:
+            try:
+                conn.execute(text(f"DROP TYPE IF EXISTS {enum_type} CASCADE"))
+                print(f"  Dropped enum type: {enum_type}")
+            except Exception as e:
+                print(f"  Warning: Could not drop {enum_type}: {e}")
+        conn.commit()
+
+
+def create_admin_user(engine):
+    """Create default admin user with credentials: admin@example.com / admin123"""
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    try:
+        # Check if admin user already exists
+        existing = db.query(User).filter(User.email == "admin@example.com").first()
+
+        if existing:
+            print("ℹ️  Admin user already exists")
+            print(f"   Email: {existing.email}")
+            print(f"   Role: {existing.system_role}")
+            return
+
+        # Create admin user
+        hashed_password = pwd_context.hash("admin123")
+
+        admin_user = User(
+            email="admin@example.com",
+            hashed_password=hashed_password,
+            full_name="Admin User",
+            system_role=UserRole.ADMIN,
+            is_active=True,
+            badge_color="violet",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+
+        db.add(admin_user)
+        db.commit()
+        db.refresh(admin_user)
+
+        print("✅ Admin user created successfully!")
+        print(f"   Email: admin@example.com")
+        print(f"   Password: admin123")
+        print(f"   Role: {admin_user.system_role.value}")
+        print(f"   User ID: {admin_user.id}")
+
+        # Create default "Uncategorized" project for admin
+        uncategorized = Project(
+            name="Uncategorized",
+            description="Default project for uncategorized experiments",
+            task_type=None,
+            user_id=admin_user.id,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+
+        db.add(uncategorized)
+        db.commit()
+        db.refresh(uncategorized)
+
+        print()
+        print("✅ Default project created!")
+        print(f"   Project: {uncategorized.name}")
+        print(f"   Project ID: {uncategorized.id}")
+
+    except Exception as e:
+        print(f"❌ Error creating admin user: {e}")
+        db.rollback()
+        raise
+
+    finally:
+        db.close()
 
 
 def create_platform_db(engine, reset=False):
@@ -61,13 +149,20 @@ def create_platform_db(engine, reset=False):
     print()
 
     if reset:
-        print("[WARNING]  WARNING: Dropping all existing tables...")
+        print("⚠️  WARNING: Dropping all existing tables and enum types...")
         confirmation = input("Are you sure? Type 'yes' to confirm: ")
         if confirmation.lower() != 'yes':
             print("Aborted.")
-            return
+            return False
+
+        # Drop tables
         Base.metadata.drop_all(bind=engine)
-        print("[OK] All tables dropped.")
+        print("✅ All tables dropped.")
+
+        # Drop enum types (PostgreSQL specific)
+        print("Dropping enum types...")
+        drop_enum_types(engine)
+        print("✅ All enum types dropped.")
         print()
 
     # Create all tables
@@ -84,6 +179,8 @@ def create_platform_db(engine, reset=False):
     for table in sorted(new_tables):
         print(f"  - {table}")
     print()
+
+    return True
 
 
 def create_user_db(engine, reset=False):
@@ -114,7 +211,7 @@ def create_user_db(engine, reset=False):
         confirmation = input("Are you sure? Type 'yes' to confirm: ")
         if confirmation.lower() != 'yes':
             print("Aborted.")
-            return
+            return False
         Base.metadata.drop_all(bind=engine)
         print("[OK] All tables dropped.")
         print()
@@ -134,6 +231,8 @@ def create_user_db(engine, reset=False):
         print(f"  - {table}")
     print()
 
+    return True
+
 
 def test_connection(engine, db_name):
     """Test database connection."""
@@ -152,7 +251,7 @@ def main():
     parser = argparse.ArgumentParser(description="Initialize Vision AI Platform databases")
     parser.add_argument('--platform-only', action='store_true', help='Initialize Platform DB only')
     parser.add_argument('--user-only', action='store_true', help='Initialize User DB only')
-    parser.add_argument('--reset', action='store_true', help='Drop and recreate all tables (CAUTION!)')
+    parser.add_argument('--reset', action='store_true', help='Drop and recreate all tables + create admin (CAUTION!)')
     args = parser.parse_args()
 
     print()
@@ -166,10 +265,12 @@ def main():
     init_user = not args.platform_only
 
     if args.reset:
-        print("[WARNING]  RESET MODE: All existing data will be deleted!")
+        print("⚠️  RESET MODE: All existing data will be deleted!")
+        print("   After reset, admin user will be created automatically.")
         print()
 
     success = True
+    platform_engine = None
 
     # Initialize Platform DB
     if init_platform:
@@ -184,8 +285,15 @@ def main():
                 success = False
             else:
                 print()
-                create_platform_db(platform_engine, reset=args.reset)
-                platform_engine.dispose()
+                db_created = create_platform_db(platform_engine, reset=args.reset)
+
+                # Create admin user after reset
+                if db_created and args.reset:
+                    print("Creating admin user...")
+                    print()
+                    create_admin_user(platform_engine)
+                    print()
+
         except Exception as e:
             print(f"[ERROR] Platform DB initialization failed: {e}")
             success = False
@@ -214,11 +322,22 @@ def main():
             print("[INFO]  User DB uses same database as Platform DB (skipping separate initialization)")
             print()
 
+    # Cleanup
+    if platform_engine:
+        platform_engine.dispose()
+
     # Summary
     print("=" * 60)
     if success:
         print("[OK] Database initialization completed successfully!")
         print()
+        if args.reset:
+            print("===========================================")
+            print("Login Credentials:")
+            print("  Email: admin@example.com")
+            print("  Password: admin123")
+            print("===========================================")
+            print()
         print("Next steps:")
         print("1. Start the backend server:")
         print("   poetry run uvicorn app.main:app --reload --port 8000")

@@ -1,0 +1,207 @@
+# Production environment values for Vision AI Platform
+# This file overrides the default values.yaml for production environment
+
+# =============================================================================
+# Backend Configuration
+# =============================================================================
+backend:
+  enabled: true
+  replicaCount: 3
+
+  image:
+    repository: vision-ai-backend
+    # tag should be set via CI/CD with specific version
+    tag: "latest"
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/rate-limit: "100"
+      nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    hosts:
+      - host: api.vision-ai.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: backend-tls
+        hosts:
+          - api.vision-ai.example.com
+
+  env:
+    ENVIRONMENT: "production"
+    DEBUG: "false"
+    LOG_LEVEL: "WARNING"
+    # Database URL should come from secret in production
+    REDIS_URL: "redis://redis-master:6379/0"
+    MLFLOW_TRACKING_URI: "http://mlflow:5000"
+    TEMPORAL_HOST: "temporal:7233"
+    TEMPORAL_NAMESPACE: "default"
+
+  # Production secrets should be managed via external-secrets or sealed-secrets
+  secretEnv:
+    - name: DATABASE_URL
+      secretName: vision-ai-db-credentials
+      secretKey: url
+    - name: OPENAI_API_KEY
+      secretName: vision-ai-llm-credentials
+      secretKey: openai-api-key
+    - name: ANTHROPIC_API_KEY
+      secretName: vision-ai-llm-credentials
+      secretKey: anthropic-api-key
+    - name: JWT_SECRET
+      secretName: vision-ai-auth-credentials
+      secretKey: jwt-secret
+    - name: AWS_ACCESS_KEY_ID
+      secretName: vision-ai-s3-credentials
+      secretKey: access-key
+    - name: AWS_SECRET_ACCESS_KEY
+      secretName: vision-ai-s3-credentials
+      secretKey: secret-key
+
+# =============================================================================
+# Frontend Configuration
+# =============================================================================
+frontend:
+  enabled: true
+  replicaCount: 3
+
+  image:
+    repository: vision-ai-frontend
+    # tag should be set via CI/CD with specific version
+    tag: "latest"
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    hosts:
+      - host: vision-ai.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: frontend-tls
+        hosts:
+          - vision-ai.example.com
+
+  env:
+    NEXT_PUBLIC_API_URL: "https://api.vision-ai.example.com/api/v1"
+    NEXT_PUBLIC_WS_URL: "wss://api.vision-ai.example.com/ws"
+    NEXT_PUBLIC_ENVIRONMENT: "production"
+
+# =============================================================================
+# Training Infrastructure Configuration
+# =============================================================================
+training:
+  enabled: true
+  namespace: vision-ai-training
+
+  registry:
+    url: ghcr.io/dengol66
+    defaultTag: latest
+    pullSecret: ghcr-pull-secret
+
+  job:
+    backoffLimit: 3
+    ttlSecondsAfterFinished: 86400   # 24 hours
+    activeDeadlineSeconds: 172800    # 48 hours
+
+  resources:
+    defaults:
+      cpu:
+        request: "4"
+        limit: "8"
+      memory:
+        request: 16Gi
+        limit: 32Gi
+      gpu:
+        limit: "1"
+
+  gpu:
+    nodeSelector:
+      accelerator: nvidia-gpu
+      gpu-type: a100  # Production uses A100 GPUs
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+
+  s3:
+    enabled: true
+    secretName: training-s3-credentials
+    # endpoint and bucket are in the secret
+
+  frameworks:
+    ultralytics:
+      enabled: true
+      image_suffix: trainer-ultralytics
+      resources:
+        memory:
+          request: 16Gi
+          limit: 32Gi
+        gpu:
+          limit: "1"
+
+    huggingface:
+      enabled: true
+      image_suffix: trainer-huggingface
+      resources:
+        memory:
+          request: 32Gi
+          limit: 64Gi
+        gpu:
+          limit: "1"
+
+    timm:
+      enabled: true
+      image_suffix: trainer-timm
+      resources:
+        memory:
+          request: 16Gi
+          limit: 32Gi
+        gpu:
+          limit: "1"
+
+    custom:
+      enabled: true
+      resources:
+        memory:
+          request: 16Gi
+          limit: 32Gi
+        gpu:
+          limit: "1"
