@@ -22,7 +22,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.core.config import settings
-from app.api import auth, chat, training, projects, debug, datasets, admin, validation, test_inference, models, image_tools, internal, invitations, export, inference, websocket
+from app.api import auth, chat, training, projects, debug, datasets, admin, validation, models, image_tools, internal, invitations, export, inference, websocket
+# test_inference temporarily disabled due to missing dependencies
 # Temporarily disabled: datasets_images, datasets_folder (Phase 11.5 Dataset model cleanup)
 
 # Redis integration (Phase 5)
@@ -174,7 +175,7 @@ app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["
 app.include_router(chat.router, prefix=f"{settings.API_V1_PREFIX}/chat", tags=["chat"])
 app.include_router(training.router, prefix=f"{settings.API_V1_PREFIX}/training", tags=["training"])
 app.include_router(validation.router, prefix=f"{settings.API_V1_PREFIX}", tags=["validation"])
-app.include_router(test_inference.router, prefix=f"{settings.API_V1_PREFIX}", tags=["test_inference"])
+# app.include_router(test_inference.router, prefix=f"{settings.API_V1_PREFIX}", tags=["test_inference"])  # Temporarily disabled
 app.include_router(image_tools.router, prefix=f"{settings.API_V1_PREFIX}", tags=["image_tools"])  # Image tools
 app.include_router(projects.router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["projects"])
 # experiments.router removed - MLflow experiments replaced by ClearML Projects (Phase 12.2)

@@ -21,7 +21,7 @@ from datetime import datetime
 
 from app.db.database import get_db
 from app.db import models
-from app.schemas import test_inference as ti_schemas
+from app.schemas import inference as ti_schemas
 from app.utils.test_inference_runner import TestRunner, InferenceRunner
 
 logger = logging.getLogger(__name__)
