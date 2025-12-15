@@ -5,10 +5,12 @@
 # For GPU support, use NVIDIA base image:
 # docker build -f Dockerfile.gpu -t trainer-timm:gpu .
 
+ARG REGISTRY_MIRROR=
+
 # ============================================
 # Builder Stage
 # ============================================
-FROM python:3.11-slim AS builder
+FROM ${REGISTRY_MIRROR}python:3.11-slim AS builder
 
 WORKDIR /app
 
@@ -31,7 +33,7 @@ RUN uv pip install --system --no-cache ".[export]"
 # ============================================
 # Production Stage
 # ============================================
-FROM python:3.11-slim AS production
+FROM ${REGISTRY_MIRROR}python:3.11-slim AS production
 
 WORKDIR /app
 
