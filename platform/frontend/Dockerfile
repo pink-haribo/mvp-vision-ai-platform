@@ -1,60 +1,22 @@
-# Frontend Dockerfile for Next.js 14 Application
-# Multi-stage build for optimized production image
+# Frontend Dockerfile for Development
+# Uses npm run dev with hot reload
 
-# Stage 1: Dependencies
-FROM node:20-alpine AS deps
+FROM node:20-alpine
+
 WORKDIR /app
 
-# Install dependencies based on the preferred package manager
+# Install dependencies
 COPY package.json package-lock.json* ./
 RUN npm ci
 
-# Stage 2: Builder
-FROM node:20-alpine AS builder
-WORKDIR /app
-
-# Build-time environment variables for Next.js
-# These are inlined into the bundle at build time
-ARG NEXT_PUBLIC_API_URL
-ARG NEXT_PUBLIC_STORAGE_ENDPOINT
-
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-ENV NEXT_PUBLIC_STORAGE_ENDPOINT=${NEXT_PUBLIC_STORAGE_ENDPOINT}
-
-# Copy dependencies from deps stage
-COPY --from=deps /app/node_modules ./node_modules
+# Copy source code
 COPY . .
 
-# Next.js collects anonymous telemetry data about general usage.
-# Disable telemetry during the build.
-ENV NEXT_TELEMETRY_DISABLED=1
-
-# Build the application
-RUN npm run build
-
-# Stage 3: Runner
-FROM node:20-alpine AS runner
-WORKDIR /app
-
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-
-# Create a non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-# Copy necessary files from builder
-# Note: public folder must exist (even if empty with .gitkeep)
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-
-USER nextjs
-
+# Expose dev server port
 EXPOSE 3000
 
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
 
-# Start the Next.js server
-CMD ["node", "server.js"]
+# Start dev server with hot reload
+CMD ["npm", "run", "dev"]
