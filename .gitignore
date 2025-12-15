@@ -160,3 +160,7 @@ platform/trainers/*/debug_*.py
 platform/trainers/*/quick_*.py
 *.old/
 test_output.txt
+
+# ArgoCD secrets (contains tokens)
+**/argocd/secret.yaml
+!**/argocd/secret.yaml.example

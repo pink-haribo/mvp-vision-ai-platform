@@ -8,21 +8,11 @@ spec:
 
   # Source repositories
   sourceRepos:
-    - https://github.com/dengol66/mvp-vision-ai-platform.git
+    - https://your-company.jfrog.io/artifactory/helm-local
 
   # Destination clusters and namespaces
   destinations:
-    - namespace: vision-ai-dev
-      server: https://kubernetes.default.svc
-    - namespace: vision-ai-staging
-      server: https://kubernetes.default.svc
-    - namespace: vision-ai-prod
-      server: https://kubernetes.default.svc
-    - namespace: vision-ai-trainers-dev
-      server: https://kubernetes.default.svc
-    - namespace: vision-ai-trainers-staging
-      server: https://kubernetes.default.svc
-    - namespace: vision-ai-trainers-prod
+    - namespace: vision-ai
       server: https://kubernetes.default.svc
 
   # Cluster resource whitelist
