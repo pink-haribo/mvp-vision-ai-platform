@@ -91,26 +91,99 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0  # Full history for accurate diff
 
       - name: Detect changes
         id: changes
         run: |
+          set -e
           COMPONENTS="${{ github.event.inputs.components }}"
 
-          # Function to detect changes from git diff
-          detect_from_git() {
-            if git diff --name-only HEAD~1 HEAD | grep -q "^platform/backend/"; then
+          # Get the base branch (main or master)
+          BASE_BRANCH=""
+          if git rev-parse --verify origin/main >/dev/null 2>&1; then
+            BASE_BRANCH="origin/main"
+          elif git rev-parse --verify origin/master >/dev/null 2>&1; then
+            BASE_BRANCH="origin/master"
+          fi
+
+          # Function to detect changes from git diff (for push events)
+          detect_from_push() {
+            # Use github.event.before and github.event.after for accurate push diff
+            BEFORE="${{ github.event.before }}"
+            AFTER="${{ github.event.after }}"
+
+            # Handle initial push (before is all zeros)
+            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              # Initial push: compare with base branch or build all
+              if [ -n "$BASE_BRANCH" ]; then
+                DIFF_TARGET="$BASE_BRANCH...$AFTER"
+              else
+                echo "Initial push without base branch, building all"
+                echo "backend=true" >> $GITHUB_OUTPUT
+                echo "frontend=true" >> $GITHUB_OUTPUT
+                echo "trainers=true" >> $GITHUB_OUTPUT
+                return
+              fi
+            else
+              DIFF_TARGET="$BEFORE...$AFTER"
+            fi
+
+            echo "Comparing: $DIFF_TARGET"
+            CHANGED_FILES=$(git diff --name-only $DIFF_TARGET 2>/dev/null || echo "")
+
+            if echo "$CHANGED_FILES" | grep -q "^platform/backend/"; then
               echo "backend=true" >> $GITHUB_OUTPUT
             else
               echo "backend=false" >> $GITHUB_OUTPUT
             fi
-            if git diff --name-only HEAD~1 HEAD | grep -q "^platform/frontend/"; then
+            if echo "$CHANGED_FILES" | grep -q "^platform/frontend/"; then
               echo "frontend=true" >> $GITHUB_OUTPUT
             else
               echo "frontend=false" >> $GITHUB_OUTPUT
             fi
-            if git diff --name-only HEAD~1 HEAD | grep -q "^platform/trainers/"; then
+            if echo "$CHANGED_FILES" | grep -q "^platform/trainers/"; then
+              echo "trainers=true" >> $GITHUB_OUTPUT
+            else
+              echo "trainers=false" >> $GITHUB_OUTPUT
+            fi
+          }
+
+          # Function to detect changes vs base branch (for workflow_dispatch auto mode)
+          detect_from_base_branch() {
+            if [ -z "$BASE_BRANCH" ]; then
+              echo "::warning::No base branch found, building nothing in auto mode"
+              echo "backend=false" >> $GITHUB_OUTPUT
+              echo "frontend=false" >> $GITHUB_OUTPUT
+              echo "trainers=false" >> $GITHUB_OUTPUT
+              return
+            fi
+
+            echo "Comparing HEAD with $BASE_BRANCH"
+            CHANGED_FILES=$(git diff --name-only $BASE_BRANCH...HEAD 2>/dev/null || echo "")
+
+            if [ -z "$CHANGED_FILES" ]; then
+              echo "No changes detected vs $BASE_BRANCH"
+              echo "backend=false" >> $GITHUB_OUTPUT
+              echo "frontend=false" >> $GITHUB_OUTPUT
+              echo "trainers=false" >> $GITHUB_OUTPUT
+              return
+            fi
+
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+
+            if echo "$CHANGED_FILES" | grep -q "^platform/backend/"; then
+              echo "backend=true" >> $GITHUB_OUTPUT
+            else
+              echo "backend=false" >> $GITHUB_OUTPUT
+            fi
+            if echo "$CHANGED_FILES" | grep -q "^platform/frontend/"; then
+              echo "frontend=true" >> $GITHUB_OUTPUT
+            else
+              echo "frontend=false" >> $GITHUB_OUTPUT
+            fi
+            if echo "$CHANGED_FILES" | grep -q "^platform/trainers/"; then
               echo "trainers=true" >> $GITHUB_OUTPUT
             else
               echo "trainers=false" >> $GITHUB_OUTPUT
@@ -120,9 +193,9 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # workflow_dispatch: check input value
             if [ "$COMPONENTS" = "auto" ] || [ -z "$COMPONENTS" ]; then
-              # auto or empty: use git diff detection
-              echo "Using git diff to detect changes (auto mode)"
-              detect_from_git
+              # auto: compare with base branch (main/master)
+              echo "Auto mode: detecting changes vs base branch"
+              detect_from_base_branch
             elif [ "$COMPONENTS" = "all" ]; then
               # all: build everything
               echo "Building all components"
@@ -149,8 +222,9 @@ jobs:
               fi
             fi
           else
-            # push event: always use git diff
-            detect_from_git
+            # push event: use before/after commits
+            echo "Push event: detecting changes from push"
+            detect_from_push
           fi
 
       - name: List trainers
