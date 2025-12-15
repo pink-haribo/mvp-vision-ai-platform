@@ -69,6 +69,11 @@ backend:
 
   # Environment variables
   env:
+    # API Base URL for callbacks (training pods → backend)
+    # This is auto-generated in configmap using K8s service name
+    # Override with full URL if needed (e.g., for cross-namespace)
+    # API_BASE_URL: "http://vision-ai-platform-backend:8000"
+
     # Database
     DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/vision_ai"
     # Redis
