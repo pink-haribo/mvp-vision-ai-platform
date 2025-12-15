@@ -2,8 +2,8 @@
 
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
-**총 진행률**: 100% (265/265 tasks)
-**최종 업데이트**: 2025-12-05 (Phase 13 완료 - Observability 확장성 구현 완료, Infrastructure 재정비)
+**총 진행률**: 100% (271/271 tasks)
+**최종 업데이트**: 2025-12-10 (Phase 14 완료 - MVP 폴더 완전 제거 및 코드베이스 정리)
 
 ---
 
@@ -25,6 +25,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 11. Microservice Separation | 🔄 75% | Tier 1-2 완료, Phase 11.5 Dataset Integration 완료 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
 | 12. Temporal Orchestration & Backend Modernization | 🔄 88% | Temporal, TrainingManager, ClearML 완전 전환, Dataset Optimization 완료 | [Phase 12 Details](#phase-12-temporal-orchestration--backend-modernization-88) |
 | 13. Observability 확장성 | ✅ 100% | Adapter Pattern, ObservabilityManager, WebSocket 통합, Database 차트 구현 완료 | [Phase 13 Details](#phase-13-observability-확장성-구현-100) |
+| 14. Codebase Cleanup | ✅ 100% | MVP 폴더 제거, 코드 디펜던시 정리 완료 | [Phase 14 Details](#phase-14-codebase-cleanup-100) |
 
 ---
 
@@ -3239,6 +3240,125 @@ const chartData = metrics.map(m => ({
 - **MLflow 없이도 차트가 정상 표시되어 training 진행 상황을 시각적으로 확인 가능**
 - 실시간 WebSocket 업데이트로 사용자 경험 향상 (polling delay 제거)
 - 새로운 관측 도구 추가 시 Adapter 구현만으로 확장 가능 (OCP 준수)
+
+---
+
+## Phase 14: Codebase Cleanup (100%)
+
+**목표**: MVP 프로토타입 폴더 제거 및 코드베이스 정리
+
+**배경**:
+- `mvp/` 폴더는 초기 프로토타입으로 더 이상 사용되지 않음 (CLAUDE.md 명시)
+- `platform/` 폴더가 production-ready 구현으로 완전히 전환됨
+- MVP 폴더가 남아있어 코드베이스가 혼란스럽고 유지보수 부담 발생
+- 일부 주석 및 문서에 MVP 참조가 남아있어 정리 필요
+
+**예상 소요 시간**: 0.5일
+
+---
+
+### 14.1 의존성 분석 ✅
+
+**태스크**:
+- [x] `platform/` 에서 `mvp/` import 확인 (없음 확인 완료)
+- [x] `platform/` 에서 `mvp/` 경로 참조 확인
+- [x] 문서 파일에서 MVP 참조 위치 파악
+
+**결과**:
+- ✅ platform 코드에서 mvp 모듈 import 없음
+- ✅ 7개 파일에 mvp 경로 참조 발견 (대부분 문서/주석)
+
+---
+
+### 14.2 MVP 폴더 제거 ✅
+
+**태스크**:
+- [x] `mvp/` 폴더 전체 삭제 (556 files)
+- [x] `.gitignore`에서 mvp 관련 항목 정리 (필요시)
+
+**파일 구조**:
+```
+mvp/
+├── backend/         # FastAPI 프로토타입
+├── frontend/        # Next.js 프로토타입
+├── training/        # 학습 스크립트 프로토타입
+├── charts/          # Helm charts (K8s 배포용)
+└── README.md
+```
+
+---
+
+### 14.3 코드 주석 정리 ✅
+
+**태스크**:
+- [x] `platform/backend/app/core/config.py` 주석 수정
+  - 현재: `# __file__ = mvp/backend/app/core/config.py`
+  - 변경: `# __file__ = platform/backend/app/core/config.py` ✅
+  - 현재: `# parent x3 = mvp/backend -> mvp/`
+  - 변경: `# parent x3 = platform/backend -> platform/` ✅
+
+**영향받는 파일**:
+```
+platform/backend/app/core/config.py:77-78
+```
+
+---
+
+### 14.4 문서 업데이트 ✅
+
+**태스크**:
+- [x] `README.md` - MVP 폴더 참조 제거, Platform 중심으로 완전 재구성
+- [x] Quick Start 섹션 업데이트 (Tier 0 Docker Compose)
+- [x] 프로젝트 구조 섹션 간소화
+- [x] 기술 스택 및 문서 링크 업데이트
+
+**영향받는 파일**:
+```
+platform/README.md
+platform/backend/Dockerfile
+platform/docs/reviews/FINAL_DESIGN_REVIEW_2025-01-11.md
+platform/docs/frontend/DESIGN_SYSTEM.md
+platform/docs/development/IMPLEMENTATION_PLAN.md
+platform/docs/README.md
+```
+
+---
+
+### 14.5 CLAUDE.md 업데이트 ✅
+
+**태스크**:
+- [x] "Active Development" 섹션 업데이트 ✅
+  - 현재: "Use `platform/` for all new work. The `mvp/` folder is maintained for reference only."
+  - 변경: "`platform/` is the only active codebase."
+- [x] MVP 관련 섹션 제거 (Development Commands)
+- [x] 프로젝트 구조 설명 간소화
+- [x] 모든 예시 경로 mvp/ → platform/ 업데이트
+
+---
+
+### 14.6 테스트 및 검증 ✅
+
+**태스크**:
+- [x] Configuration loading 테스트 통과 ✅
+- [x] PostgreSQL 연결 확인
+- [x] 모든 변경사항 staged 및 committed
+
+---
+
+**Success Criteria**:
+- [x] `mvp/` 폴더가 완전히 제거됨 (556 files)
+- [x] platform 코드에 mvp 참조 없음 (검증 완료)
+- [x] 문서에 mvp 참조 제거 (README.md, CLAUDE.md)
+- [x] Configuration loading 테스트 통과
+- [x] CLAUDE.md가 현재 구조 반영
+
+**Commit**: `c90a7e5` - refactor: remove MVP folder and clean up all references
+
+**Expected Outcomes**:
+- 코드베이스 단순화로 유지보수 부담 감소
+- 새 개발자 온보딩 시 혼란 제거
+- 프로젝트 구조 명확화
+- 디스크 사용량 감소
 
 ---
 

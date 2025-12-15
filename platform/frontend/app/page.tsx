@@ -253,16 +253,36 @@ export default function Home() {
     setTrainingJobId(null)
   }
 
-  const handleOpenDatasets = () => {
-    setShowDatasets(true)
-    setShowImageTools(false)
-    setShowAdminProjects(false)
-    setShowAdminUsers(false)
-    setShowAdminDatasets(false)
-    setSelectedProjectId(null)
-    setIsCreatingProject(false)
-    setIsCreatingTraining(false)
-    setTrainingJobId(null)
+  const handleOpenDatasets = async () => {
+    // Platform → Labeler SSO flow (Phase 11.5.6)
+    try {
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        console.error('No access token found')
+        return
+      }
+
+      // Get service token for SSO
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/labeler-token`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      if (!response.ok) {
+        console.error('Failed to get labeler token:', response.status)
+        return
+      }
+
+      const data = await response.json()
+      const labelerUrl = process.env.NEXT_PUBLIC_LABELER_URL || 'http://localhost:8011'
+
+      // Redirect to Labeler with service token (full API path)
+      window.location.href = `${labelerUrl}/api/v1/auth/sso?token=${data.service_token}`
+    } catch (error) {
+      console.error('Failed to redirect to Labeler:', error)
+    }
   }
 
   const handleLogout = () => {
