@@ -1,0 +1,136 @@
+# Helm Chart Publish to JFrog
+#
+# This workflow packages and publishes the Helm chart to JFrog Artifactory.
+# Designed for internal Git mirror with scheduled sync from GitHub.
+#
+# Required Secrets:
+#   JFROG_URL: JFrog Artifactory URL (e.g., https://your-company.jfrog.io/artifactory)
+#   JFROG_HELM_REPO: Helm repository name (e.g., helm-local)
+#   JFROG_USERNAME: JFrog username (optional if using token)
+#   JFROG_TOKEN: JFrog API token or password
+#
+# Triggers:
+#   - Push to main/master branch (chart changes)
+#   - Manual dispatch with version override
+#   - Scheduled (for cron-synced mirrors)
+
+name: Helm Publish
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'platform/infrastructure/helm/vision-ai-platform/**'
+
+  workflow_dispatch:
+    inputs:
+      version_override:
+        description: 'Override chart version (leave empty to use Chart.yaml version)'
+        required: false
+        type: string
+      force_publish:
+        description: 'Force publish even if version exists'
+        required: false
+        type: boolean
+        default: false
+
+  # For cron-synced internal mirrors
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM
+
+env:
+  CHART_PATH: platform/infrastructure/helm/vision-ai-platform
+  CHART_NAME: vision-ai-platform
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.13.0'
+
+      - name: Get Chart Version
+        id: chart_version
+        run: |
+          if [ -n "${{ github.event.inputs.version_override }}" ]; then
+            VERSION="${{ github.event.inputs.version_override }}"
+            echo "Using override version: $VERSION"
+          else
+            VERSION=$(grep '^version:' ${{ env.CHART_PATH }}/Chart.yaml | awk '{print $2}' | tr -d '"')
+            echo "Using Chart.yaml version: $VERSION"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Lint Chart
+        run: |
+          helm lint ${{ env.CHART_PATH }}
+
+      - name: Package Chart
+        run: |
+          helm package ${{ env.CHART_PATH }} \
+            --version ${{ steps.chart_version.outputs.version }} \
+            --destination ./dist
+
+      - name: Check if Version Exists
+        id: version_check
+        if: ${{ github.event.inputs.force_publish != 'true' }}
+        continue-on-error: true
+        run: |
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -u "${{ secrets.JFROG_USERNAME }}:${{ secrets.JFROG_TOKEN }}" \
+            "${{ secrets.JFROG_URL }}/${{ secrets.JFROG_HELM_REPO }}/${{ env.CHART_NAME }}-${{ steps.chart_version.outputs.version }}.tgz")
+
+          if [ "$RESPONSE" = "200" ]; then
+            echo "Version ${{ steps.chart_version.outputs.version }} already exists"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Version ${{ steps.chart_version.outputs.version }} does not exist"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Push to JFrog
+        if: ${{ steps.version_check.outputs.exists != 'true' || github.event.inputs.force_publish == 'true' }}
+        run: |
+          CHART_FILE="./dist/${{ env.CHART_NAME }}-${{ steps.chart_version.outputs.version }}.tgz"
+
+          echo "Uploading $CHART_FILE to JFrog..."
+
+          curl -f -u "${{ secrets.JFROG_USERNAME }}:${{ secrets.JFROG_TOKEN }}" \
+            -T "$CHART_FILE" \
+            "${{ secrets.JFROG_URL }}/${{ secrets.JFROG_HELM_REPO }}/${{ env.CHART_NAME }}-${{ steps.chart_version.outputs.version }}.tgz"
+
+          echo "Successfully published ${{ env.CHART_NAME }}:${{ steps.chart_version.outputs.version }}"
+
+      - name: Skip Publish (Version Exists)
+        if: ${{ steps.version_check.outputs.exists == 'true' && github.event.inputs.force_publish != 'true' }}
+        run: |
+          echo "::warning::Skipping publish - version ${{ steps.chart_version.outputs.version }} already exists in JFrog"
+          echo "Use 'force_publish: true' to override"
+
+      - name: Update Helm Repo Index (Optional)
+        if: ${{ steps.version_check.outputs.exists != 'true' || github.event.inputs.force_publish == 'true' }}
+        continue-on-error: true
+        run: |
+          # Trigger JFrog to recalculate index.yaml (if using virtual repo)
+          curl -X POST \
+            -u "${{ secrets.JFROG_USERNAME }}:${{ secrets.JFROG_TOKEN }}" \
+            "${{ secrets.JFROG_URL }}/api/helm/${{ secrets.JFROG_HELM_REPO }}/reindex"
+
+      - name: Summary
+        run: |
+          echo "## Helm Chart Publish Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Chart | ${{ env.CHART_NAME }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | ${{ steps.chart_version.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Repository | ${{ secrets.JFROG_HELM_REPO }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
