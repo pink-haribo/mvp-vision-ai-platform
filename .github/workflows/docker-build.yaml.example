@@ -1,0 +1,295 @@
+# Docker Image Build & Push
+#
+# This workflow builds and pushes Docker images with CalVer tagging.
+# Designed for internal Git mirror with scheduled sync from GitHub.
+#
+# CalVer Format: YYYY.MM.DD-<short-sha>
+# Example: 2025.12.15-abc1234
+#
+# Required Secrets:
+#   DOCKER_REGISTRY: Docker registry URL (e.g., your-company.jfrog.io)
+#   DOCKER_USERNAME: Registry username
+#   DOCKER_PASSWORD: Registry password or token
+#
+# Required Variables:
+#   ENABLE_DOCKER_BUILD: Set to "true" to enable (internal mirror only)
+#
+# Triggers:
+#   - Push to main/master branch (source changes)
+#   - Manual dispatch with component selection
+
+name: Docker Build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'platform/backend/**'
+      - 'platform/frontend/**'
+      - 'platform/trainers/**'
+
+  workflow_dispatch:
+    inputs:
+      components:
+        description: 'Components to build (comma-separated: backend,frontend,trainers)'
+        required: false
+        default: 'all'
+        type: string
+      tag_override:
+        description: 'Override image tag (leave empty for CalVer)'
+        required: false
+        type: string
+
+env:
+  REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
+
+jobs:
+  # Guard: Only run in internal mirror repository
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Check if internal mirror
+        id: check
+        run: |
+          if [ "${{ vars.ENABLE_DOCKER_BUILD }}" = "true" ]; then
+            echo "Running in internal mirror repository"
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "::warning::Skipping - ENABLE_DOCKER_BUILD is not set to 'true'"
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Detect which components changed
+  detect-changes:
+    needs: guard
+    if: needs.guard.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.changes.outputs.backend }}
+      frontend: ${{ steps.changes.outputs.frontend }}
+      trainers: ${{ steps.changes.outputs.trainers }}
+      trainer_list: ${{ steps.trainers.outputs.list }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            COMPONENTS="${{ github.event.inputs.components }}"
+            if [ "$COMPONENTS" = "all" ] || echo "$COMPONENTS" | grep -q "backend"; then
+              echo "backend=true" >> $GITHUB_OUTPUT
+            else
+              echo "backend=false" >> $GITHUB_OUTPUT
+            fi
+            if [ "$COMPONENTS" = "all" ] || echo "$COMPONENTS" | grep -q "frontend"; then
+              echo "frontend=true" >> $GITHUB_OUTPUT
+            else
+              echo "frontend=false" >> $GITHUB_OUTPUT
+            fi
+            if [ "$COMPONENTS" = "all" ] || echo "$COMPONENTS" | grep -q "trainers"; then
+              echo "trainers=true" >> $GITHUB_OUTPUT
+            else
+              echo "trainers=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            # Check git diff for changes
+            if git diff --name-only HEAD~1 HEAD | grep -q "^platform/backend/"; then
+              echo "backend=true" >> $GITHUB_OUTPUT
+            else
+              echo "backend=false" >> $GITHUB_OUTPUT
+            fi
+            if git diff --name-only HEAD~1 HEAD | grep -q "^platform/frontend/"; then
+              echo "frontend=true" >> $GITHUB_OUTPUT
+            else
+              echo "frontend=false" >> $GITHUB_OUTPUT
+            fi
+            if git diff --name-only HEAD~1 HEAD | grep -q "^platform/trainers/"; then
+              echo "trainers=true" >> $GITHUB_OUTPUT
+            else
+              echo "trainers=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: List trainers
+        id: trainers
+        run: |
+          # Find all trainer directories with Dockerfile
+          TRAINERS=$(find platform/trainers -maxdepth 2 -name "Dockerfile" -exec dirname {} \; | xargs -I{} basename {} | tr '\n' ',' | sed 's/,$//')
+          echo "list=$TRAINERS" >> $GITHUB_OUTPUT
+          echo "Found trainers: $TRAINERS"
+
+  # Generate CalVer tag
+  generate-tag:
+    needs: [guard, detect-changes]
+    if: needs.guard.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      date: ${{ steps.tag.outputs.date }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate CalVer tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag_override }}" ]; then
+            TAG="${{ github.event.inputs.tag_override }}"
+          else
+            DATE=$(date +'%Y.%m.%d')
+            SHORT_SHA=$(git rev-parse --short=7 HEAD)
+            TAG="${DATE}-${SHORT_SHA}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "date=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
+          echo "Generated tag: $TAG"
+
+  # Build Backend
+  build-backend:
+    needs: [detect-changes, generate-tag]
+    if: needs.detect-changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and Push Backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./platform/backend
+          file: ./platform/backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/vision-ai-backend:${{ needs.generate-tag.outputs.tag }}
+            ${{ env.REGISTRY }}/vision-ai-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ needs.generate-tag.outputs.date }}
+            VERSION=${{ needs.generate-tag.outputs.tag }}
+
+  # Build Frontend
+  build-frontend:
+    needs: [detect-changes, generate-tag]
+    if: needs.detect-changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and Push Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./platform/frontend
+          file: ./platform/frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/vision-ai-frontend:${{ needs.generate-tag.outputs.tag }}
+            ${{ env.REGISTRY }}/vision-ai-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ needs.generate-tag.outputs.date }}
+            VERSION=${{ needs.generate-tag.outputs.tag }}
+
+  # Build Trainers (matrix)
+  build-trainers:
+    needs: [detect-changes, generate-tag]
+    if: needs.detect-changes.outputs.trainers == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        trainer: [ultralytics, huggingface, timm]
+      fail-fast: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check if trainer exists
+        id: check
+        run: |
+          if [ -f "platform/trainers/${{ matrix.trainer }}/Dockerfile" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "::warning::Trainer ${{ matrix.trainer }} does not have a Dockerfile"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.check.outputs.exists == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Registry
+        if: steps.check.outputs.exists == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and Push Trainer
+        if: steps.check.outputs.exists == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./platform/trainers/${{ matrix.trainer }}
+          file: ./platform/trainers/${{ matrix.trainer }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/trainer-${{ matrix.trainer }}:${{ needs.generate-tag.outputs.tag }}
+            ${{ env.REGISTRY }}/trainer-${{ matrix.trainer }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ needs.generate-tag.outputs.date }}
+            VERSION=${{ needs.generate-tag.outputs.tag }}
+
+  # Summary
+  summary:
+    needs: [generate-tag, build-backend, build-frontend, build-trainers]
+    if: always() && needs.generate-tag.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "## Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | \`${{ needs.generate-tag.outputs.tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Registry | \`${{ env.REGISTRY }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend | ${{ needs.build-backend.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend | ${{ needs.build-frontend.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trainers | ${{ needs.build-trainers.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY

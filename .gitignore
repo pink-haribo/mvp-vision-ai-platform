@@ -168,3 +168,5 @@ test_output.txt
 # GitHub Actions (internal mirror only)
 .github/workflows/helm-publish.yaml
 !.github/workflows/helm-publish.yaml.example
+.github/workflows/docker-build.yaml
+!.github/workflows/docker-build.yaml.example
