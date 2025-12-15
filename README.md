@@ -2,6 +2,8 @@
 
 > 자연어로 Vision 모델을 학습하는 AI 플랫폼
 
+**Repository**: [pink-haribo/mvp-vision-ai-platform](https://github.com/pink-haribo/mvp-vision-ai-platform)
+
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Node](https://img.shields.io/badge/node-20.x-green.svg)](https://nodejs.org/)
@@ -75,7 +77,7 @@ npm install -g pnpm
 **Tier 0: Docker Compose (Recommended for local dev)**
 ```bash
 # 1. Clone repository
-git clone https://github.com/your-org/mvp-vision-ai-platform.git
+git clone https://github.com/pink-haribo/mvp-vision-ai-platform.git
 cd mvp-vision-ai-platform/platform
 
 # 2. Start infrastructure
