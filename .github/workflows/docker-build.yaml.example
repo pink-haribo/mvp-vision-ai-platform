@@ -41,9 +41,9 @@ on:
   workflow_dispatch:
     inputs:
       components:
-        description: 'Components to build (comma-separated: backend,frontend,trainers)'
+        description: 'Components to build (auto, all, or comma-separated: backend,frontend,trainers)'
         required: false
-        default: 'all'
+        default: 'auto'
         type: string
       tag_override:
         description: 'Override image tag (leave empty for CalVer)'
@@ -91,45 +91,140 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0  # Full history for accurate diff
 
       - name: Detect changes
         id: changes
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            COMPONENTS="${{ github.event.inputs.components }}"
-            if [ "$COMPONENTS" = "all" ] || echo "$COMPONENTS" | grep -q "backend"; then
+          set -e
+          COMPONENTS="${{ github.event.inputs.components }}"
+
+          # Get the base branch (main or master)
+          BASE_BRANCH=""
+          if git rev-parse --verify origin/main >/dev/null 2>&1; then
+            BASE_BRANCH="origin/main"
+          elif git rev-parse --verify origin/master >/dev/null 2>&1; then
+            BASE_BRANCH="origin/master"
+          fi
+
+          # Function to detect changes from git diff (for push events)
+          detect_from_push() {
+            # Use github.event.before and github.event.after for accurate push diff
+            BEFORE="${{ github.event.before }}"
+            AFTER="${{ github.event.after }}"
+
+            # Handle initial push (before is all zeros)
+            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              # Initial push: compare with base branch or build all
+              if [ -n "$BASE_BRANCH" ]; then
+                DIFF_TARGET="$BASE_BRANCH...$AFTER"
+              else
+                echo "Initial push without base branch, building all"
+                echo "backend=true" >> $GITHUB_OUTPUT
+                echo "frontend=true" >> $GITHUB_OUTPUT
+                echo "trainers=true" >> $GITHUB_OUTPUT
+                return
+              fi
+            else
+              DIFF_TARGET="$BEFORE...$AFTER"
+            fi
+
+            echo "Comparing: $DIFF_TARGET"
+            CHANGED_FILES=$(git diff --name-only $DIFF_TARGET 2>/dev/null || echo "")
+
+            if echo "$CHANGED_FILES" | grep -q "^platform/backend/"; then
               echo "backend=true" >> $GITHUB_OUTPUT
             else
               echo "backend=false" >> $GITHUB_OUTPUT
             fi
-            if [ "$COMPONENTS" = "all" ] || echo "$COMPONENTS" | grep -q "frontend"; then
+            if echo "$CHANGED_FILES" | grep -q "^platform/frontend/"; then
               echo "frontend=true" >> $GITHUB_OUTPUT
             else
               echo "frontend=false" >> $GITHUB_OUTPUT
             fi
-            if [ "$COMPONENTS" = "all" ] || echo "$COMPONENTS" | grep -q "trainers"; then
+            if echo "$CHANGED_FILES" | grep -q "^platform/trainers/"; then
               echo "trainers=true" >> $GITHUB_OUTPUT
             else
               echo "trainers=false" >> $GITHUB_OUTPUT
+            fi
+          }
+
+          # Function to detect changes vs base branch (for workflow_dispatch auto mode)
+          detect_from_base_branch() {
+            if [ -z "$BASE_BRANCH" ]; then
+              echo "::warning::No base branch found, building nothing in auto mode"
+              echo "backend=false" >> $GITHUB_OUTPUT
+              echo "frontend=false" >> $GITHUB_OUTPUT
+              echo "trainers=false" >> $GITHUB_OUTPUT
+              return
+            fi
+
+            echo "Comparing HEAD with $BASE_BRANCH"
+            CHANGED_FILES=$(git diff --name-only $BASE_BRANCH...HEAD 2>/dev/null || echo "")
+
+            if [ -z "$CHANGED_FILES" ]; then
+              echo "No changes detected vs $BASE_BRANCH"
+              echo "backend=false" >> $GITHUB_OUTPUT
+              echo "frontend=false" >> $GITHUB_OUTPUT
+              echo "trainers=false" >> $GITHUB_OUTPUT
+              return
+            fi
+
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+
+            if echo "$CHANGED_FILES" | grep -q "^platform/backend/"; then
+              echo "backend=true" >> $GITHUB_OUTPUT
+            else
+              echo "backend=false" >> $GITHUB_OUTPUT
+            fi
+            if echo "$CHANGED_FILES" | grep -q "^platform/frontend/"; then
+              echo "frontend=true" >> $GITHUB_OUTPUT
+            else
+              echo "frontend=false" >> $GITHUB_OUTPUT
+            fi
+            if echo "$CHANGED_FILES" | grep -q "^platform/trainers/"; then
+              echo "trainers=true" >> $GITHUB_OUTPUT
+            else
+              echo "trainers=false" >> $GITHUB_OUTPUT
+            fi
+          }
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # workflow_dispatch: check input value
+            if [ "$COMPONENTS" = "auto" ] || [ -z "$COMPONENTS" ]; then
+              # auto: compare with base branch (main/master)
+              echo "Auto mode: detecting changes vs base branch"
+              detect_from_base_branch
+            elif [ "$COMPONENTS" = "all" ]; then
+              # all: build everything
+              echo "Building all components"
+              echo "backend=true" >> $GITHUB_OUTPUT
+              echo "frontend=true" >> $GITHUB_OUTPUT
+              echo "trainers=true" >> $GITHUB_OUTPUT
+            else
+              # specific components: parse comma-separated list
+              echo "Building specified components: $COMPONENTS"
+              if echo "$COMPONENTS" | grep -q "backend"; then
+                echo "backend=true" >> $GITHUB_OUTPUT
+              else
+                echo "backend=false" >> $GITHUB_OUTPUT
+              fi
+              if echo "$COMPONENTS" | grep -q "frontend"; then
+                echo "frontend=true" >> $GITHUB_OUTPUT
+              else
+                echo "frontend=false" >> $GITHUB_OUTPUT
+              fi
+              if echo "$COMPONENTS" | grep -q "trainers"; then
+                echo "trainers=true" >> $GITHUB_OUTPUT
+              else
+                echo "trainers=false" >> $GITHUB_OUTPUT
+              fi
             fi
           else
-            # Check git diff for changes
-            if git diff --name-only HEAD~1 HEAD | grep -q "^platform/backend/"; then
-              echo "backend=true" >> $GITHUB_OUTPUT
-            else
-              echo "backend=false" >> $GITHUB_OUTPUT
-            fi
-            if git diff --name-only HEAD~1 HEAD | grep -q "^platform/frontend/"; then
-              echo "frontend=true" >> $GITHUB_OUTPUT
-            else
-              echo "frontend=false" >> $GITHUB_OUTPUT
-            fi
-            if git diff --name-only HEAD~1 HEAD | grep -q "^platform/trainers/"; then
-              echo "trainers=true" >> $GITHUB_OUTPUT
-            else
-              echo "trainers=false" >> $GITHUB_OUTPUT
-            fi
+            # push event: use before/after commits
+            echo "Push event: detecting changes from push"
+            detect_from_push
           fi
 
       - name: List trainers
@@ -168,8 +263,10 @@ jobs:
 
   # Build Backend
   build-backend:
-    needs: [detect-changes, generate-tag]
-    if: needs.detect-changes.outputs.backend == 'true'
+    needs: [guard, detect-changes, generate-tag]
+    if: |
+      needs.guard.outputs.should_run == 'true' &&
+      needs.detect-changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -202,8 +299,10 @@ jobs:
 
   # Build Frontend
   build-frontend:
-    needs: [detect-changes, generate-tag]
-    if: needs.detect-changes.outputs.frontend == 'true'
+    needs: [guard, detect-changes, generate-tag]
+    if: |
+      needs.guard.outputs.should_run == 'true' &&
+      needs.detect-changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -236,8 +335,10 @@ jobs:
 
   # Build Trainers (matrix)
   build-trainers:
-    needs: [detect-changes, generate-tag]
-    if: needs.detect-changes.outputs.trainers == 'true'
+    needs: [guard, detect-changes, generate-tag]
+    if: |
+      needs.guard.outputs.should_run == 'true' &&
+      needs.detect-changes.outputs.trainers == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -287,9 +388,10 @@ jobs:
 
   # ArgoCD Sync - Update image tags and sync
   argocd-sync:
-    needs: [generate-tag, detect-changes, build-backend, build-frontend, build-trainers]
+    needs: [guard, generate-tag, detect-changes, build-backend, build-frontend, build-trainers]
     if: |
       always() &&
+      needs.guard.outputs.should_run == 'true' &&
       needs.generate-tag.result == 'success' &&
       github.event.inputs.skip_sync != 'true' &&
       (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
@@ -346,8 +448,11 @@ jobs:
 
   # Summary
   summary:
-    needs: [generate-tag, build-backend, build-frontend, build-trainers, argocd-sync]
-    if: always() && needs.generate-tag.result == 'success'
+    needs: [guard, generate-tag, build-backend, build-frontend, build-trainers, argocd-sync]
+    if: |
+      always() &&
+      needs.guard.outputs.should_run == 'true' &&
+      needs.generate-tag.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Summary
