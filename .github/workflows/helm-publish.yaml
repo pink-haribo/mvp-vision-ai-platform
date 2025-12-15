@@ -61,7 +61,28 @@ env:
   CHART_NAME: vision-ai-platform
 
 jobs:
+  # Guard: Only run in internal mirror repository
+  # Set repository variable ENABLE_HELM_PUBLISH=true in internal mirror
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Check if internal mirror
+        id: check
+        run: |
+          if [ "${{ vars.ENABLE_HELM_PUBLISH }}" = "true" ]; then
+            echo "Running in internal mirror repository"
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "::warning::Skipping - ENABLE_HELM_PUBLISH is not set to 'true'"
+            echo "::warning::Set repository variable ENABLE_HELM_PUBLISH=true in internal mirror"
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
   publish:
+    needs: guard
+    if: needs.guard.outputs.should_run == 'true'
     runs-on: ubuntu-latest
 
     steps:
