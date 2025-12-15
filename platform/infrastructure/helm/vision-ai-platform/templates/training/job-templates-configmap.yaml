@@ -26,9 +26,9 @@ data:
         job-type: "{{"{{ job_type }}"}}"
         framework: "{{"{{ framework }}"}}"
     spec:
-      backoffLimit: {{"{{ backoff_limit | default("}}{{ .Values.training.job.backoffLimit }}{{"") }}"}}
-      ttlSecondsAfterFinished: {{"{{ ttl_seconds | default("}}{{ .Values.training.job.ttlSecondsAfterFinished }}{{"") }}"}}
-      activeDeadlineSeconds: {{"{{ active_deadline | default("}}{{ .Values.training.job.activeDeadlineSeconds }}{{"") }}"}}
+      backoffLimit: {{"{{ backoff_limit | default('"}}{{ .Values.training.job.backoffLimit }}{{"') }}"}}
+      ttlSecondsAfterFinished: {{"{{ ttl_seconds | default('"}}{{ .Values.training.job.ttlSecondsAfterFinished }}{{"') }}"}}
+      activeDeadlineSeconds: {{"{{ active_deadline | default('"}}{{ .Values.training.job.activeDeadlineSeconds }}{{"') }}"}}
       template:
         metadata:
           labels:
