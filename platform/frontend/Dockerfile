@@ -1,7 +1,8 @@
 # Frontend Dockerfile for Development
 # Uses npm run dev with hot reload
 
-FROM node:20-alpine
+ARG REGISTRY_MIRROR=
+FROM ${REGISTRY_MIRROR}node:20-alpine
 
 WORKDIR /app
 
