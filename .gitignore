@@ -165,6 +165,3 @@ test_output.txt
 **/argocd/secret.yaml
 !**/argocd/secret.yaml.example
 
-# GitHub Actions (internal mirror only)
-.github/workflows/docker-build.yaml
-!.github/workflows/docker-build.yaml.example
