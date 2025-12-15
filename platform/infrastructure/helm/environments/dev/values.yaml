@@ -1,0 +1,153 @@
+# Development environment values for Vision AI Platform
+# This file overrides the default values.yaml for dev environment
+
+# =============================================================================
+# Backend Configuration
+# =============================================================================
+backend:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: vision-ai-backend
+    tag: "dev"
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  autoscaling:
+    enabled: false
+
+  ingress:
+    enabled: true
+    className: "nginx"
+    hosts:
+      - host: api.vision-ai.dev.local
+        paths:
+          - path: /
+            pathType: Prefix
+
+  env:
+    ENVIRONMENT: "development"
+    DEBUG: "true"
+    LOG_LEVEL: "DEBUG"
+    DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/vision_ai_dev"
+    REDIS_URL: "redis://redis:6379/0"
+    S3_ENDPOINT: "http://minio:9000"
+    S3_BUCKET: "vision-ai-dev"
+    MLFLOW_TRACKING_URI: "http://mlflow:5000"
+    TEMPORAL_HOST: "temporal:7233"
+    TEMPORAL_NAMESPACE: "default"
+    CORS_ORIGINS: "*"
+
+# =============================================================================
+# Frontend Configuration
+# =============================================================================
+frontend:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: vision-ai-frontend
+    tag: "dev"
+
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+  autoscaling:
+    enabled: false
+
+  ingress:
+    enabled: true
+    className: "nginx"
+    hosts:
+      - host: vision-ai.dev.local
+        paths:
+          - path: /
+            pathType: Prefix
+
+  env:
+    NEXT_PUBLIC_API_URL: "http://api.vision-ai.dev.local/api/v1"
+    NEXT_PUBLIC_WS_URL: "ws://api.vision-ai.dev.local/ws"
+    NEXT_PUBLIC_ENVIRONMENT: "development"
+
+# =============================================================================
+# Training Infrastructure Configuration
+# =============================================================================
+training:
+  enabled: true
+  namespace: vision-ai-training-dev
+
+  registry:
+    url: ghcr.io/dengol66
+    defaultTag: dev
+    pullSecret: ""
+
+  job:
+    backoffLimit: 1
+    ttlSecondsAfterFinished: 1800  # 30 minutes for dev
+    activeDeadlineSeconds: 3600    # 1 hour for dev
+
+  resources:
+    defaults:
+      cpu:
+        request: "1"
+        limit: "2"
+      memory:
+        request: 4Gi
+        limit: 8Gi
+      gpu:
+        limit: "0"  # No GPU in dev by default
+
+  # Disable GPU scheduling in dev
+  gpu:
+    nodeSelector: {}
+    tolerations: []
+
+  s3:
+    enabled: true
+    secretName: training-s3-credentials
+    endpoint: "http://minio:9000"
+    bucket: "vision-ai-dev"
+
+  frameworks:
+    ultralytics:
+      enabled: true
+      image_suffix: trainer-ultralytics
+      resources:
+        memory:
+          request: 4Gi
+          limit: 8Gi
+
+    huggingface:
+      enabled: true
+      image_suffix: trainer-huggingface
+      resources:
+        memory:
+          request: 8Gi
+          limit: 16Gi
+
+    timm:
+      enabled: true
+      image_suffix: trainer-timm
+      resources:
+        memory:
+          request: 4Gi
+          limit: 8Gi
+
+    custom:
+      enabled: true
+      resources:
+        memory:
+          request: 4Gi
+          limit: 8Gi

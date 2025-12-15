@@ -17,8 +17,6 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 
-from app.db import models
-
 logger = logging.getLogger(__name__)
 
 
@@ -37,18 +35,32 @@ class TrainingManager(ABC):
     @abstractmethod
     async def start_training(
         self,
-        job: models.TrainingJob,
-        callback_url: Optional[str] = None
+        job_id: int,
+        framework: str,
+        model_name: str,
+        dataset_s3_uri: str,
+        callback_url: str,
+        config: Dict[str, Any],
+        snapshot_id: Optional[str] = None,
+        dataset_version_hash: Optional[str] = None,
+        custom_docker_image: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Start a training job.
 
         Args:
-            job: TrainingJob model instance
-            callback_url: Optional URL for training callbacks (status updates)
+            job_id: TrainingJob ID
+            framework: Framework name (ultralytics, timm, huggingface)
+            model_name: Model name to train
+            dataset_s3_uri: S3 URI of dataset
+            callback_url: Backend API callback URL for status updates
+            config: Training configuration dictionary
+            snapshot_id: Dataset snapshot ID (for caching)
+            dataset_version_hash: Dataset version hash (for caching)
+            custom_docker_image: Custom Docker image URI (overrides default framework image)
 
         Returns:
-            Dict containing execution metadata (process_id, job_id, status, etc.)
+            Dict containing execution metadata (k8s_job_name, status, etc.)
 
         Raises:
             RuntimeError: If training fails to start
@@ -84,11 +96,8 @@ class TrainingManager(ABC):
             {
                 "job_id": 123,
                 "status": "running",  # pending, running, completed, failed
-                "process_id": "12345",
+                "k8s_job_name": "training-123-abc123",
                 "started_at": "2025-01-27T10:00:00Z",
-                "runtime_seconds": 3600,
-                "current_epoch": 25,
-                "total_epochs": 50
             }
         """
         pass
@@ -96,20 +105,28 @@ class TrainingManager(ABC):
     @abstractmethod
     async def start_evaluation(
         self,
-        job_id: int,
-        checkpoint_path: str,
-        dataset_path: str
+        test_run_id: int,
+        training_job_id: Optional[int],
+        framework: str,
+        checkpoint_s3_uri: str,
+        dataset_s3_uri: str,
+        callback_url: str,
+        config: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
         Start model evaluation.
 
         Args:
-            job_id: TrainingJob ID (for logging context)
-            checkpoint_path: Path to model checkpoint
-            dataset_path: Path to evaluation dataset
+            test_run_id: Test run ID
+            training_job_id: Original training job ID (optional)
+            framework: Framework name (ultralytics, timm, huggingface)
+            checkpoint_s3_uri: S3 URI to model checkpoint
+            dataset_s3_uri: S3 URI to test dataset
+            callback_url: Backend API callback URL
+            config: Evaluation configuration dictionary
 
         Returns:
-            Dict containing evaluation results
+            Dict containing execution metadata
 
         Raises:
             RuntimeError: If evaluation fails to start
@@ -119,48 +136,62 @@ class TrainingManager(ABC):
     @abstractmethod
     async def start_inference(
         self,
-        job_id: int,
-        checkpoint_path: str,
-        input_data: Any
+        inference_job_id: int,
+        training_job_id: Optional[int],
+        framework: str,
+        checkpoint_s3_uri: str,
+        images_s3_uri: str,
+        callback_url: str,
+        config: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
         Run inference with trained model.
 
         Args:
-            job_id: TrainingJob ID (for logging context)
-            checkpoint_path: Path to model checkpoint
-            input_data: Input data for inference
+            inference_job_id: Inference job ID
+            training_job_id: Original training job ID (optional)
+            framework: Framework name (ultralytics, timm, huggingface)
+            checkpoint_s3_uri: S3 URI to model checkpoint
+            images_s3_uri: S3 URI to input images
+            callback_url: Backend API callback URL
+            config: Inference configuration dictionary
 
         Returns:
-            Dict containing inference results
+            Dict containing execution metadata
 
         Raises:
-            RuntimeError: If inference fails
+            RuntimeError: If inference fails to start
         """
         pass
 
     @abstractmethod
     async def start_export(
         self,
-        job_id: int,
-        checkpoint_path: str,
+        export_job_id: int,
+        training_job_id: int,
+        framework: str,
+        checkpoint_s3_uri: str,
         export_format: str,
-        export_config: Optional[Dict[str, Any]] = None
+        callback_url: str,
+        config: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
         Export trained model to different format.
 
         Args:
-            job_id: TrainingJob ID (for logging context)
-            checkpoint_path: Path to model checkpoint
-            export_format: Target format (onnx, tensorrt, coreml, etc.)
-            export_config: Optional export configuration
+            export_job_id: Export job ID
+            training_job_id: Original training job ID
+            framework: Framework name (ultralytics, timm, huggingface)
+            checkpoint_s3_uri: S3 URI to model checkpoint
+            export_format: Target format (onnx, tensorrt, coreml, tflite, etc.)
+            callback_url: Backend API callback URL
+            config: Export configuration dictionary
 
         Returns:
-            Dict containing export results (output_path, metadata, etc.)
+            Dict containing execution metadata
 
         Raises:
-            RuntimeError: If export fails
+            RuntimeError: If export fails to start
         """
         pass
 

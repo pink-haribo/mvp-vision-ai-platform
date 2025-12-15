@@ -16,6 +16,7 @@ Usage:
 
 Environment Variables (alternative to CLI args):
     EXPORT_JOB_ID, TRAINING_JOB_ID, CHECKPOINT_S3_URI, EXPORT_FORMAT, CALLBACK_URL, CONFIG
+    WORKSPACE_DIR: Working directory for export (default: /workspace, useful for local testing)
 
 Exit Codes:
     0 = Success
@@ -35,9 +36,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from dotenv import load_dotenv
 from ultralytics import YOLO
 
 from trainer_sdk import ErrorType, TrainerSDK
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -159,14 +164,24 @@ def export_model(
 
     logger.info(f"[EXPORT] Export completed in {export_time:.2f}s")
 
-    exported_file = Path(export_result)
-    file_size_bytes = exported_file.stat().st_size
+    exported_path = Path(export_result)
+
+    # Calculate size (handle both file and directory exports)
+    # OpenVINO and CoreML export as directories, others as files
+    if exported_path.is_dir():
+        # Sum up all files in directory
+        file_size_bytes = sum(f.stat().st_size for f in exported_path.rglob('*') if f.is_file())
+        logger.info(f"[EXPORT] Exported directory: {exported_path}")
+    else:
+        file_size_bytes = exported_path.stat().st_size
+        logger.info(f"[EXPORT] Exported file: {exported_path}")
+
     file_size_mb = file_size_bytes / (1024 * 1024)
 
-    logger.info(f"[EXPORT] Exported file size: {file_size_mb:.2f} MB")
+    logger.info(f"[EXPORT] Exported size: {file_size_mb:.2f} MB")
 
     return {
-        'exported_file': exported_file,
+        'exported_file': exported_path,
         'file_size_bytes': file_size_bytes,
         'file_size_mb': file_size_mb,
         'export_time_seconds': export_time
@@ -292,9 +307,15 @@ def create_export_package(
     package_dir = output_dir / f"export_{export_job_id}"
     package_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy exported model
+    # Copy exported model (handle both file and directory exports)
+    # OpenVINO and CoreML export as directories, others as files
     model_dest = package_dir / exported_file.name
-    shutil.copy2(exported_file, model_dest)
+    if exported_file.is_dir():
+        shutil.copytree(exported_file, model_dest)
+        logger.info(f"[EXPORT] Copied directory: {exported_file} -> {model_dest}")
+    else:
+        shutil.copy2(exported_file, model_dest)
+        logger.info(f"[EXPORT] Copied file: {exported_file} -> {model_dest}")
 
     # Write metadata.json
     metadata_path = package_dir / 'metadata.json'
@@ -345,8 +366,8 @@ def run_export(
         # Report started
         sdk.report_started('export')
 
-        # Create workspace
-        workspace = Path('/workspace')
+        # Create workspace (configurable via env var for local testing)
+        workspace = Path(os.getenv('WORKSPACE_DIR', '/workspace'))
         workspace.mkdir(parents=True, exist_ok=True)
 
         # Download checkpoint

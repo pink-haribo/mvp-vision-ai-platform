@@ -4,25 +4,27 @@ Test and Inference API endpoints.
 Provides endpoints for:
 - Test: Running tests on labeled datasets with metrics
 - Inference: Running predictions on unlabeled data
+
+Uses TrainingManager abstraction for both subprocess (Tier 0) and Kubernetes (Tier 1+) modes.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import asyncio
 import json
 import logging
 import shutil
 import uuid
 import os
-import subprocess
 from pathlib import Path
 from datetime import datetime
 
 from app.db.database import get_db
 from app.db import models
-from app.schemas import inference as ti_schemas
-from app.utils.test_inference_runner import TestRunner, InferenceRunner
+from app.schemas import test_inference as ti_schemas
+from app.core.training_manager import get_training_manager
 
 logger = logging.getLogger(__name__)
 
@@ -32,27 +34,113 @@ router = APIRouter(prefix="/test_inference", tags=["test_inference"])
 
 # Background task functions
 def run_test_task(test_run_id: int):
-    """Background task to run test."""
+    """
+    Background task to run test/evaluation using TrainingManager.
+
+    Uses TrainingManager.start_evaluation() which works for both:
+    - subprocess mode (Tier 0): Runs evaluate.py directly
+    - kubernetes mode (Tier 1+): Creates K8s Job for evaluation
+    """
+    # Run async code in sync context
+    asyncio.run(_run_test_task_async(test_run_id))
+
+
+async def _run_test_task_async(test_run_id: int):
+    """Async implementation of test task."""
     from app.db.database import SessionLocal
+    from app.core.config import settings
+
     db = SessionLocal()
     try:
-        runner = TestRunner(db)
-        runner.run_test(test_run_id)
+        # Get test run
+        test_run = db.query(models.TestRun).filter(
+            models.TestRun.id == test_run_id
+        ).first()
+
+        if not test_run:
+            logger.error(f"[TEST] Test run {test_run_id} not found")
+            return
+
+        # Get training job for framework info
+        training_job = db.query(models.TrainingJob).filter(
+            models.TrainingJob.id == test_run.training_job_id
+        ).first()
+
+        if not training_job:
+            logger.error(f"[TEST] Training job {test_run.training_job_id} not found")
+            test_run.status = "failed"
+            test_run.error_message = "Training job not found"
+            db.commit()
+            return
+
+        # Update status to running
+        test_run.status = "running"
+        test_run.started_at = datetime.utcnow()
+        db.commit()
+
+        logger.info(f"[TEST] Starting test run {test_run_id}")
+        logger.info(f"[TEST] Framework: {training_job.framework}, Checkpoint: {test_run.checkpoint_path}")
+
+        # Get TrainingManager (works for both subprocess and kubernetes)
+        manager = get_training_manager()
+
+        # Build evaluation config
+        eval_config = {
+            "task_type": test_run.task_type or training_job.task_type,
+            "dataset_split": test_run.dataset_split or "test",
+            "batch_size": 16,
+            "device": "cpu",
+        }
+
+        # Build callback URL
+        callback_url = f"{settings.API_BASE_URL}/api/v1"
+
+        # Start evaluation via TrainingManager
+        await manager.start_evaluation(
+            test_run_id=test_run_id,
+            training_job_id=test_run.training_job_id,
+            framework=training_job.framework,
+            checkpoint_s3_uri=test_run.checkpoint_path,
+            dataset_s3_uri=test_run.dataset_path,
+            callback_url=callback_url,
+            config=eval_config
+        )
+
+        logger.info(f"[TEST] Evaluation started for test run {test_run_id}")
+        # Status will be updated by callback from evaluate.py
+
+    except Exception as e:
+        logger.error(f"[TEST] Test run {test_run_id} error: {e}")
+        import traceback
+        traceback.print_exc()
+
+        try:
+            test_run.status = "failed"
+            test_run.error_message = str(e)
+            test_run.completed_at = datetime.utcnow()
+            db.commit()
+        except:
+            pass
     finally:
         db.close()
 
 
 def run_inference_task(inference_job_id: int):
     """
-    Background task to run inference using subprocess (K8s Job compatible).
+    Background task to run inference using TrainingManager.
 
-    Executes predict.py via subprocess with environment variable injection,
-    following the same pattern as Training/Validation.
+    Uses TrainingManager.start_inference() which works for both:
+    - subprocess mode (Tier 0): Runs predict.py directly
+    - kubernetes mode (Tier 1+): Creates K8s Job for inference
     """
+    # Run async code in sync context
+    asyncio.run(_run_inference_task_async(inference_job_id))
+
+
+async def _run_inference_task_async(inference_job_id: int):
+    """Async implementation of inference task."""
     from app.db.database import SessionLocal
     from app.core.config import settings
-    import subprocess
-    import tempfile
 
     db = SessionLocal()
     try:
@@ -65,7 +153,7 @@ def run_inference_task(inference_job_id: int):
             logger.error(f"[INFERENCE] Job {inference_job_id} not found")
             return
 
-        # Get training job
+        # Get training job for framework info
         training_job = db.query(models.TrainingJob).filter(
             models.TrainingJob.id == inference_job.training_job_id
         ).first()
@@ -73,7 +161,7 @@ def run_inference_task(inference_job_id: int):
         if not training_job:
             logger.error(f"[INFERENCE] Training job {inference_job.training_job_id} not found")
             inference_job.status = "failed"
-            inference_job.error_message = f"Training job not found"
+            inference_job.error_message = "Training job not found"
             db.commit()
             return
 
@@ -85,85 +173,45 @@ def run_inference_task(inference_job_id: int):
         logger.info(f"[INFERENCE] Starting job {inference_job_id}")
         logger.info(f"[INFERENCE] Framework: {training_job.framework}, Model: {training_job.model_name}")
 
-        # Determine trainer paths
-        backend_dir = Path(__file__).parent.parent.parent
-        trainers_dir = backend_dir.parent / "trainers"
-
-        if training_job.framework == "ultralytics":
-            trainer_dir = trainers_dir / "ultralytics"
-            trainer_python = trainer_dir / "venv" / "Scripts" / "python.exe"
-            predict_script = trainer_dir / "predict.py"
-        else:
-            raise ValueError(f"Unsupported framework: {training_job.framework}")
-
-        if not trainer_python.exists():
-            raise FileNotFoundError(f"Trainer Python not found: {trainer_python}")
-
-        if not predict_script.exists():
-            raise FileNotFoundError(f"predict.py not found: {predict_script}")
+        # Get TrainingManager (works for both subprocess and kubernetes)
+        manager = get_training_manager()
 
         # Parse input_data
         input_data = json.loads(inference_job.input_data) if isinstance(inference_job.input_data, str) else inference_job.input_data or {}
 
-        # Build environment variables (matching predict.py expectations)
-        env = os.environ.copy()
-
-        # Build config JSON for predict.py
+        # Build inference config
         inference_config = {
-            'conf': input_data.get('confidence_threshold', 0.25),
-            'iou': input_data.get('iou_threshold', 0.45),
-            'max_det': input_data.get('max_detections', 100),
-            'imgsz': input_data.get('image_size', 640),
-            'device': input_data.get('device', 'cpu'),
-            'save_txt': input_data.get('save_txt', True),
-            'save_conf': input_data.get('save_conf', True),
-            'save_crop': input_data.get('save_crop', False),
+            "task_type": inference_job.task_type or training_job.task_type,
+            "model_name": training_job.model_name,
+            "conf": input_data.get('confidence_threshold', 0.25),
+            "iou": input_data.get('iou_threshold', 0.45),
+            "max_det": input_data.get('max_detections', 100),
+            "imgsz": input_data.get('image_size', 640),
+            "device": input_data.get('device', 'cpu'),
+            "save_txt": input_data.get('save_txt', True),
+            "save_conf": input_data.get('save_conf', True),
+            "save_crop": input_data.get('save_crop', False),
         }
 
-        env.update({
-            'INFERENCE_JOB_ID': str(inference_job_id),
-            'TRAINING_JOB_ID': str(inference_job.training_job_id),
-            'MODEL_NAME': training_job.model_name,  # For pretrained weight loading
-            'CALLBACK_URL': f"{getattr(settings, 'API_BASE_URL', 'http://localhost:8000')}/api/v1/test_inference",
-            'IMAGES_S3_URI': input_data.get('image_paths_s3', ''),  # S3 directory path
-            'CHECKPOINT_S3_URI': inference_job.checkpoint_path,
-            'CONFIG': json.dumps(inference_config),
-            'LOKI_URL': os.getenv('LOKI_URL', 'http://localhost:3100'),
-            # S3 credentials (from environment, same as DualStorageClient)
-            'AWS_ACCESS_KEY_ID': os.getenv('INTERNAL_STORAGE_ACCESS_KEY', 'minioadmin'),
-            'AWS_SECRET_ACCESS_KEY': os.getenv('INTERNAL_STORAGE_SECRET_KEY', 'minioadmin'),
-            'S3_ENDPOINT': os.getenv('INTERNAL_STORAGE_ENDPOINT', 'http://localhost:9002'),
-        })
+        # Build callback URL
+        callback_url = f"{settings.API_BASE_URL}/api/v1"
 
-        # Execute predict.py subprocess
-        logger.info(f"[INFERENCE] Executing: {trainer_python} {predict_script}")
-        logger.info(f"[INFERENCE] IMAGES_S3_URI: {env['IMAGES_S3_URI']}")
-        logger.info(f"[INFERENCE] CHECKPOINT_S3_URI: {env['CHECKPOINT_S3_URI']}")
+        # Get images S3 URI from input_data
+        images_s3_uri = input_data.get('image_paths_s3', '')
 
-        process = subprocess.Popen(
-            [str(trainer_python), str(predict_script)],
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1
+        # Start inference via TrainingManager
+        await manager.start_inference(
+            inference_job_id=inference_job_id,
+            training_job_id=inference_job.training_job_id,
+            framework=training_job.framework,
+            checkpoint_s3_uri=inference_job.checkpoint_path,
+            images_s3_uri=images_s3_uri,
+            callback_url=callback_url,
+            config=inference_config
         )
 
-        # Stream output
-        for line in iter(process.stdout.readline, ''):
-            if line:
-                logger.info(f"[INFERENCE JOB {inference_job_id}] {line.rstrip()}")
-
-        # Wait for completion
-        return_code = process.wait()
-
-        if return_code != 0:
-            logger.error(f"[INFERENCE] Job {inference_job_id} failed with exit code {return_code}")
-            # Don't update status here - callback will handle it
-            # If callback never arrives, status remains 'running' (timeout monitoring needed)
-        else:
-            logger.info(f"[INFERENCE] Job {inference_job_id} process completed successfully")
-            # Status will be updated by callback
+        logger.info(f"[INFERENCE] Inference started for job {inference_job_id}")
+        # Status will be updated by callback from predict.py
 
     except Exception as e:
         logger.error(f"[INFERENCE] Job {inference_job_id} error: {e}")

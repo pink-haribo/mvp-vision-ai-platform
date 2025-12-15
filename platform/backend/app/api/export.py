@@ -19,7 +19,7 @@ from app.db.database import get_db
 from app.db import models
 import asyncio
 from app.schemas import export as export_schemas
-from app.core.training_managers.subprocess_manager import get_training_subprocess_manager
+from app.core.training_manager import get_training_manager
 from app.utils.dual_storage import dual_storage
 from app.services.websocket_manager import get_websocket_manager
 
@@ -108,6 +108,46 @@ EXPORT_CAPABILITIES = {
     },
     "timm": {
         "image_classification": {
+            "supported_formats": [
+                {
+                    "format": "onnx",
+                    "supported": True,
+                    "native_support": False,
+                    "requires_conversion": True,
+                    "optimization_options": ["dynamic_quantization"]
+                },
+                {
+                    "format": "torchscript",
+                    "supported": True,
+                    "native_support": False,
+                    "requires_conversion": True,
+                    "optimization_options": []
+                }
+            ],
+            "default_format": "onnx"
+        }
+    },
+    "huggingface": {
+        "image_classification": {
+            "supported_formats": [
+                {
+                    "format": "onnx",
+                    "supported": True,
+                    "native_support": False,
+                    "requires_conversion": True,
+                    "optimization_options": ["dynamic_quantization", "dynamic_axes"]
+                },
+                {
+                    "format": "torchscript",
+                    "supported": True,
+                    "native_support": False,
+                    "requires_conversion": True,
+                    "optimization_options": []
+                }
+            ],
+            "default_format": "onnx"
+        },
+        "semantic_segmentation": {
             "supported_formats": [
                 {
                     "format": "onnx",
@@ -340,8 +380,8 @@ async def create_export_job(
             job.started_at = datetime.utcnow()
             db_session.commit()
 
-            # Get training subprocess manager
-            manager = get_training_subprocess_manager()
+            # Get training manager (works for both subprocess and kubernetes)
+            manager = get_training_manager()
 
             # Prepare export config
             export_config = job.export_config or {}
@@ -472,6 +512,59 @@ async def get_export_job(
     return export_schemas.ExportJobResponse.model_validate(export_job)
 
 
+@router.delete("/jobs/{export_job_id}", status_code=204)
+async def delete_export_job(
+    export_job_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete an export job.
+
+    Only allows deletion of jobs that are not currently running.
+    Associated S3 files are NOT deleted (manual cleanup required).
+
+    Args:
+        export_job_id: Export job ID
+        db: Database session
+
+    Returns:
+        204 No Content on success
+    """
+    export_job = db.query(models.ExportJob).filter(
+        models.ExportJob.id == export_job_id
+    ).first()
+
+    if not export_job:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Export job {export_job_id} not found"
+        )
+
+    # Prevent deletion of running jobs
+    if export_job.status == models.ExportJobStatus.RUNNING:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete export job {export_job_id} while it is running"
+        )
+
+    # Check if any deployments reference this export job
+    deployment_count = db.query(models.DeploymentTarget).filter(
+        models.DeploymentTarget.export_job_id == export_job_id
+    ).count()
+
+    if deployment_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete export job {export_job_id}: {deployment_count} deployment(s) reference it"
+        )
+
+    # Delete the export job
+    db.delete(export_job)
+    db.commit()
+
+    logger.info(f"Deleted export job {export_job_id}")
+
+    return None
 
 
 @router.get("/{export_job_id}/download")
@@ -582,12 +675,19 @@ async def create_deployment(
             detail=f"Export job {request.export_job_id} is not completed (status: {export_job.status})"
         )
 
+    # Auto-generate deployment name if not provided
+    deployment_name = request.deployment_name
+    if not deployment_name:
+        # Format: {model_name}-{deployment_type}-{export_job_id}
+        model_name = export_job.model_name or "model"
+        deployment_name = f"{model_name}-{request.deployment_type}-{request.export_job_id}"
+
     # Create deployment record
     deployment = models.DeploymentTarget(
         export_job_id=request.export_job_id,
         training_job_id=export_job.training_job_id,
         deployment_type=request.deployment_type,
-        deployment_name=request.deployment_name,
+        deployment_name=deployment_name,
         deployment_config=request.deployment_config.model_dump() if request.deployment_config else None,
         cpu_limit=request.cpu_limit,
         memory_limit=request.memory_limit,
@@ -691,6 +791,49 @@ async def get_deployment(
         )
 
     return export_schemas.DeploymentResponse.model_validate(deployment)
+
+
+@router.delete("/deployments/{deployment_id}", status_code=204)
+async def delete_deployment(
+    deployment_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a deployment.
+
+    Only allows deletion of deployments that are not currently active.
+
+    Args:
+        deployment_id: Deployment ID
+        db: Database session
+
+    Returns:
+        204 No Content on success
+    """
+    deployment = db.query(models.DeploymentTarget).filter(
+        models.DeploymentTarget.id == deployment_id
+    ).first()
+
+    if not deployment:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Deployment {deployment_id} not found"
+        )
+
+    # Prevent deletion of active deployments
+    if deployment.status == models.DeploymentStatus.ACTIVE:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete deployment {deployment_id} while it is active. Deactivate it first."
+        )
+
+    # Delete the deployment
+    db.delete(deployment)
+    db.commit()
+
+    logger.info(f"Deleted deployment {deployment_id}")
+
+    return None
 
 
 # ========== Export Callback Endpoint ==========

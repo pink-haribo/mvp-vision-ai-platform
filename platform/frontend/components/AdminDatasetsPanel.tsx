@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils/cn'
 import { Dataset } from '@/types/dataset'
 import { getAvatarColorStyle } from '@/lib/utils/avatarColors'
 
-type SortField = 'name' | 'labeled' | 'num_items' | 'source' | 'visibility'
+type SortField = 'name' | 'labeled' | 'num_images' | 'source' | 'visibility'
 type SortDirection = 'asc' | 'desc' | null
 
 const formatNames: Record<string, string> = {
@@ -254,11 +254,11 @@ export default function AdminDatasetsPanel() {
               </th>
               <th className="px-6 py-3 text-left">
                 <button
-                  onClick={() => handleSort('num_items')}
+                  onClick={() => handleSort('num_images')}
                   className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wider hover:text-indigo-600"
                 >
                   Images
-                  <SortIcon field="num_items" />
+                  <SortIcon field="num_images" />
                 </button>
               </th>
               <th className="px-6 py-3 text-left">
@@ -327,7 +327,7 @@ export default function AdminDatasetsPanel() {
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-sm font-medium text-gray-900">
-                        {dataset.num_items.toLocaleString()}
+                        {(dataset.num_images ?? 0).toLocaleString()}
                       </span>
                     </td>
                     <td className="px-6 py-4">
@@ -378,7 +378,7 @@ export default function AdminDatasetsPanel() {
             <div>
               Total Images:{' '}
               <span className="font-medium text-gray-900">
-                {filteredDatasets.reduce((sum, d) => sum + d.num_items, 0).toLocaleString()}
+                {filteredDatasets.reduce((sum, d) => sum + (d.num_images ?? 0), 0).toLocaleString()}
               </span>
             </div>
           </div>

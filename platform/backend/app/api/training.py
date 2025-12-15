@@ -298,6 +298,7 @@ async def create_training_job(
         model_name=job_request.config.model_name,
         task_type=job_request.config.task_type,
         num_classes=job_request.config.num_classes,
+        custom_docker_image=job_request.config.custom_docker_image,  # Custom Docker image for new frameworks
         dataset_id=dataset_id,  # Store dataset ID if from DB
         dataset_path=dataset_path,  # Use resolved path
         dataset_format=dataset_format,  # Use format from DB or config
@@ -651,7 +652,7 @@ async def cancel_training_job(job_id: int, db: Session = Depends(get_db)):
     """
     Cancel a running training job.
     """
-    from app.core.training_managers.subprocess_manager import get_training_subprocess_manager
+    from app.core.training_manager import get_training_manager
 
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
     if not job:
@@ -663,8 +664,8 @@ async def cancel_training_job(job_id: int, db: Session = Depends(get_db)):
             detail=f"Cannot cancel job with status '{job.status}'",
         )
 
-    # Stop training subprocess
-    manager = get_training_subprocess_manager()
+    # Stop training (works for both subprocess and kubernetes)
+    manager = get_training_manager()
     if manager.stop_training(job_id):
         job.status = "cancelled"
         job.completed_at = datetime.utcnow()
@@ -1562,9 +1563,9 @@ async def stop_training_job(
 
         logger.info(f"[stop-training] Stopping job {job_id} (status: {job.status})")
 
-        # Stop training subprocess
-        from app.core.training_managers.subprocess_manager import get_training_subprocess_manager
-        manager = get_training_subprocess_manager()
+        # Stop training (works for both subprocess and kubernetes)
+        from app.core.training_manager import get_training_manager
+        manager = get_training_manager()
 
         # Stop the training job
         success = manager.stop_training(job_id)

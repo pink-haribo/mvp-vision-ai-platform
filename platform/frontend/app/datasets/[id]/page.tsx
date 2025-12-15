@@ -14,7 +14,7 @@ interface Dataset {
   description: string
   format: string
   labeled: boolean
-  num_items: number
+  num_images: number
   source: string
 }
 
@@ -158,7 +158,7 @@ export default function DatasetDetailPage() {
             </div>
             <div>
               <span className="text-gray-600">Total Images:</span>
-              <p className="font-medium text-gray-900">{dataset.num_items.toLocaleString()}</p>
+              <p className="font-medium text-gray-900">{(dataset.num_images ?? 0).toLocaleString()}</p>
             </div>
             <div>
               <span className="text-gray-600">Source:</span>

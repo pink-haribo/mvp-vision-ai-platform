@@ -57,8 +57,16 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
 
   // Session ID for image uploads (generated once per component mount)
   const [sessionId] = useState<string>(() => {
-    // Generate UUID v4
-    return crypto.randomUUID()
+    // Generate UUID v4 with fallback for non-secure contexts (HTTP) or older browsers
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID()
+    }
+    // Fallback: generate UUID-like string using Math.random
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0
+      const v = c === 'x' ? r : (r & 0x3) | 0x8
+      return v.toString(16)
+    })
   })
 
   // Inference settings

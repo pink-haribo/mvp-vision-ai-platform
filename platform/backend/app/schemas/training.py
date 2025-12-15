@@ -64,6 +64,14 @@ class TrainingConfig(BaseModel):
         description="Prompt mode for open-vocabulary models: 'offline' (pre-computed embeddings) or 'dynamic' (runtime encoding)"
     )
 
+    # Custom Docker Image (for new/custom training frameworks)
+    custom_docker_image: Optional[str] = Field(
+        None,
+        description="Custom Docker image for training. When set, uses this image instead of default framework image. "
+                    "Image must follow TrainerSDK convention (see docs/CUSTOM_TRAINER_SDK.md). "
+                    "Example: 'myregistry.io/custom-trainer:v1.0'"
+    )
+
     class Config:
         protected_namespaces = ()  # Allow model_name field
 
@@ -101,6 +109,7 @@ class TrainingJobResponse(BaseModel):
     model_name: str
     task_type: str
     num_classes: Optional[int] = None
+    custom_docker_image: Optional[str] = None  # Custom training image (for new frameworks)
     dataset_path: str
     dataset_format: str
     output_dir: str

@@ -25,6 +25,7 @@ interface TrainingConfig {
   epochs?: number
   batch_size?: number
   learning_rate?: number
+  custom_docker_image?: string  // Custom Docker image for new frameworks
 }
 
 export default function Home() {

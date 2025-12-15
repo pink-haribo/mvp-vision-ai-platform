@@ -32,9 +32,13 @@ import traceback
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+from dotenv import load_dotenv
 from ultralytics import YOLO
 
 from utils import DualStorageClient, CallbackClient, convert_diceformat_to_yolo
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(

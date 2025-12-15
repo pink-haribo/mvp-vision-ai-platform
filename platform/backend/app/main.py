@@ -22,9 +22,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.core.config import settings
-from app.api import auth, chat, training, projects, debug, datasets, admin, validation, models, image_tools, internal, invitations, export, inference, websocket
-# test_inference temporarily disabled due to missing dependencies
-# Temporarily disabled: datasets_images, datasets_folder (Phase 11.5 Dataset model cleanup)
+from app.api import auth, chat, training, projects, debug, datasets, admin, validation, test_inference, models, image_tools, internal, invitations, export, inference, websocket, datasets_images
+# Temporarily disabled: datasets_folder (Phase 11.5 Dataset model cleanup)
 
 # Redis integration (Phase 5)
 from app.services.redis_manager import RedisManager
@@ -140,6 +139,18 @@ async def startup_event():
                 print("[MIGRATION] dataset_version column added successfully")
             else:
                 print("[MIGRATION] dataset_version column already exists, skipping")
+
+            # Add custom_docker_image if missing (for custom training frameworks)
+            if 'custom_docker_image' not in columns:
+                print("[MIGRATION] Adding custom_docker_image column to training_jobs...")
+                with engine.begin() as conn:
+                    if db_url.startswith("sqlite"):
+                        conn.execute(text("ALTER TABLE training_jobs ADD COLUMN custom_docker_image TEXT"))
+                    else:
+                        conn.execute(text("ALTER TABLE training_jobs ADD COLUMN custom_docker_image VARCHAR(500)"))
+                print("[MIGRATION] custom_docker_image column added successfully")
+            else:
+                print("[MIGRATION] custom_docker_image column already exists, skipping")
         else:
             print("[MIGRATION] training_jobs table not found, skipping migration")
     except Exception as e:
@@ -175,14 +186,14 @@ app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["
 app.include_router(chat.router, prefix=f"{settings.API_V1_PREFIX}/chat", tags=["chat"])
 app.include_router(training.router, prefix=f"{settings.API_V1_PREFIX}/training", tags=["training"])
 app.include_router(validation.router, prefix=f"{settings.API_V1_PREFIX}", tags=["validation"])
-# app.include_router(test_inference.router, prefix=f"{settings.API_V1_PREFIX}", tags=["test_inference"])  # Temporarily disabled
+app.include_router(test_inference.router, prefix=f"{settings.API_V1_PREFIX}", tags=["test_inference"])
 app.include_router(image_tools.router, prefix=f"{settings.API_V1_PREFIX}", tags=["image_tools"])  # Image tools
 app.include_router(projects.router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["projects"])
 # experiments.router removed - MLflow experiments replaced by ClearML Projects (Phase 12.2)
 app.include_router(invitations.router, prefix=f"{settings.API_V1_PREFIX}", tags=["invitations"])
 app.include_router(datasets.router, prefix=f"{settings.API_V1_PREFIX}/datasets", tags=["datasets"])
+app.include_router(datasets_images.router, prefix=f"{settings.API_V1_PREFIX}/datasets", tags=["datasets-images"])
 # Phase 11.5: Temporarily disabled until Dataset model cleanup complete
-# app.include_router(datasets_images.router, prefix=f"{settings.API_V1_PREFIX}/datasets", tags=["datasets-images"])
 # app.include_router(datasets_folder.router, prefix=f"{settings.API_V1_PREFIX}/datasets", tags=["datasets-folder"])
 app.include_router(admin.router, prefix=f"{settings.API_V1_PREFIX}/admin", tags=["admin"])
 app.include_router(debug.router, prefix=f"{settings.API_V1_PREFIX}/debug", tags=["debug"])

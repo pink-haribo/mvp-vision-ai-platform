@@ -225,7 +225,7 @@ class DeploymentRequest(BaseModel):
     """Request to deploy an exported model."""
     export_job_id: int = Field(..., description="Export job ID")
     deployment_type: str = Field(..., description="Deployment type (download, platform_endpoint, edge_package, container)")
-    deployment_name: str = Field(..., max_length=200, description="User-friendly deployment name")
+    deployment_name: Optional[str] = Field(None, max_length=200, description="User-friendly deployment name (auto-generated if not provided)")
     deployment_config: Optional[DeploymentConfig] = Field(None, description="Type-specific deployment configuration")
 
     # Resource configuration (platform endpoint)
