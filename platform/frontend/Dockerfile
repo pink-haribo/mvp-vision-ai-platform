@@ -13,6 +13,14 @@ RUN npm ci
 FROM node:20-alpine AS builder
 WORKDIR /app
 
+# Build-time environment variables for Next.js
+# These are inlined into the bundle at build time
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_STORAGE_ENDPOINT
+
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_STORAGE_ENDPOINT=${NEXT_PUBLIC_STORAGE_ENDPOINT}
+
 # Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -36,7 +44,8 @@ RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
 # Copy necessary files from builder
-COPY --from=builder /app/public ./public
+# Note: public folder must exist (even if empty with .gitkeep)
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
