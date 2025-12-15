@@ -37,28 +37,18 @@ spec:
             # Storage (S3/MinIO)
             S3_ENDPOINT: "https://s3.your-company.com"
             S3_BUCKET: "vision-ai-prod"
+            AWS_ACCESS_KEY_ID: "your-access-key"
+            AWS_SECRET_ACCESS_KEY: "your-secret-key"
             # Temporal
             TEMPORAL_HOST: "temporal-host:7233"
             TEMPORAL_NAMESPACE: "default"
+            # LLM
+            OPENAI_API_KEY: "sk-..."
             # Application
             ENVIRONMENT: "production"
             LOG_LEVEL: "INFO"
             CORS_ORIGINS: "https://vision-ai.your-company.com"
-
-          # Secrets from K8s Secret (create separately)
-          secretEnv:
-            - name: AWS_ACCESS_KEY_ID
-              secretName: vision-ai-secrets
-              secretKey: aws-access-key
-            - name: AWS_SECRET_ACCESS_KEY
-              secretName: vision-ai-secrets
-              secretKey: aws-secret-key
-            - name: OPENAI_API_KEY
-              secretName: vision-ai-secrets
-              secretKey: openai-api-key
-            - name: JWT_SECRET
-              secretName: vision-ai-secrets
-              secretKey: jwt-secret
+            JWT_SECRET: "your-jwt-secret"
 
         # ===========================================
         # Frontend Configuration
