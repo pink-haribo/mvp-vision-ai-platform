@@ -41,9 +41,9 @@ on:
   workflow_dispatch:
     inputs:
       components:
-        description: 'Components to build (comma-separated: backend,frontend,trainers)'
+        description: 'Components to build (auto, all, or comma-separated: backend,frontend,trainers)'
         required: false
-        default: 'all'
+        default: 'auto'
         type: string
       tag_override:
         description: 'Override image tag (leave empty for CalVer)'
@@ -96,25 +96,10 @@ jobs:
       - name: Detect changes
         id: changes
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            COMPONENTS="${{ github.event.inputs.components }}"
-            if [ "$COMPONENTS" = "all" ] || echo "$COMPONENTS" | grep -q "backend"; then
-              echo "backend=true" >> $GITHUB_OUTPUT
-            else
-              echo "backend=false" >> $GITHUB_OUTPUT
-            fi
-            if [ "$COMPONENTS" = "all" ] || echo "$COMPONENTS" | grep -q "frontend"; then
-              echo "frontend=true" >> $GITHUB_OUTPUT
-            else
-              echo "frontend=false" >> $GITHUB_OUTPUT
-            fi
-            if [ "$COMPONENTS" = "all" ] || echo "$COMPONENTS" | grep -q "trainers"; then
-              echo "trainers=true" >> $GITHUB_OUTPUT
-            else
-              echo "trainers=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            # Check git diff for changes
+          COMPONENTS="${{ github.event.inputs.components }}"
+
+          # Function to detect changes from git diff
+          detect_from_git() {
             if git diff --name-only HEAD~1 HEAD | grep -q "^platform/backend/"; then
               echo "backend=true" >> $GITHUB_OUTPUT
             else
@@ -130,6 +115,42 @@ jobs:
             else
               echo "trainers=false" >> $GITHUB_OUTPUT
             fi
+          }
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # workflow_dispatch: check input value
+            if [ "$COMPONENTS" = "auto" ] || [ -z "$COMPONENTS" ]; then
+              # auto or empty: use git diff detection
+              echo "Using git diff to detect changes (auto mode)"
+              detect_from_git
+            elif [ "$COMPONENTS" = "all" ]; then
+              # all: build everything
+              echo "Building all components"
+              echo "backend=true" >> $GITHUB_OUTPUT
+              echo "frontend=true" >> $GITHUB_OUTPUT
+              echo "trainers=true" >> $GITHUB_OUTPUT
+            else
+              # specific components: parse comma-separated list
+              echo "Building specified components: $COMPONENTS"
+              if echo "$COMPONENTS" | grep -q "backend"; then
+                echo "backend=true" >> $GITHUB_OUTPUT
+              else
+                echo "backend=false" >> $GITHUB_OUTPUT
+              fi
+              if echo "$COMPONENTS" | grep -q "frontend"; then
+                echo "frontend=true" >> $GITHUB_OUTPUT
+              else
+                echo "frontend=false" >> $GITHUB_OUTPUT
+              fi
+              if echo "$COMPONENTS" | grep -q "trainers"; then
+                echo "trainers=true" >> $GITHUB_OUTPUT
+              else
+                echo "trainers=false" >> $GITHUB_OUTPUT
+              fi
+            fi
+          else
+            # push event: always use git diff
+            detect_from_git
           fi
 
       - name: List trainers
