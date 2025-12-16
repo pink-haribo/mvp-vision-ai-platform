@@ -45,9 +45,6 @@ spec:
             runAsNonRoot: true
             runAsUser: 1001
             allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
           volumeMounts:
             - name: app-data
               mountPath: /app-data
