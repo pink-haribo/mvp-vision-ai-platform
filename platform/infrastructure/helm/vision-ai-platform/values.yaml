@@ -208,14 +208,6 @@ frontend:
     NEXT_PUBLIC_WS_URL: "ws://backend:8000/ws"
     NEXT_PUBLIC_ENVIRONMENT: "production"
 
-  # Health check configuration
-  healthCheck:
-    path: /api/health
-    initialDelaySeconds: 10
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 3
-
 # =============================================================================
 # Training Infrastructure Configuration
 # =============================================================================
