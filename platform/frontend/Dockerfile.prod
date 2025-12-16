@@ -51,6 +51,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Ensure /app is writable for nextjs user (for .next/cache, etc.)
+RUN chmod -R 755 /app && chmod -R 777 /app/.next
+
 USER nextjs
 
 EXPOSE 3000
