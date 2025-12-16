@@ -28,26 +28,6 @@ spec:
       serviceAccountName: {{ include "vision-ai.frontend.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.frontend.podSecurityContext | nindent 8 }}
-      # InitContainer copies app files to writable emptyDir volume
-      # This pattern ensures /app is writable even with readOnlyRootFilesystem
-      initContainers:
-        - name: copy-app
-          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
-          command:
-            - sh
-            - -c
-            - |
-              echo "Copying app files to writable volume..."
-              cp -a /app/. /app-data/
-              echo "Copy completed. File count: $(find /app-data -type f | wc -l)"
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 1001
-            allowPrivilegeEscalation: false
-          volumeMounts:
-            - name: app-data
-              mountPath: /app-data
       containers:
         - name: frontend
           securityContext:
@@ -72,13 +52,9 @@ spec:
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
           volumeMounts:
-            - name: app-data
-              mountPath: /app
             - name: tmp
               mountPath: /tmp
       volumes:
-        - name: app-data
-          emptyDir: {}
         - name: tmp
           emptyDir: {}
       {{- with .Values.frontend.nodeSelector }}
