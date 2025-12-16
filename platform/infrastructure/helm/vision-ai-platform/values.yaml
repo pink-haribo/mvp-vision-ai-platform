@@ -35,7 +35,9 @@ backend:
   service:
     type: ClusterIP
     port: 8000
+    targetPort: 8000
     mlflowPort: 5000
+    mlflowTargetPort: 5000
 
   ingress:
     enabled: false
@@ -170,6 +172,7 @@ frontend:
   service:
     type: ClusterIP
     port: 3000
+    targetPort: 3000
 
   ingress:
     enabled: true
