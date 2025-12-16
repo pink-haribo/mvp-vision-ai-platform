@@ -17,8 +17,8 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Set ownership for all files
-RUN chown -R 1001:1001 /app
+# Set ownership and permissions for all files
+RUN chown -R 1001:1001 /app && chmod -R 755 /app
 
 # Switch to non-root user
 USER nextjs
