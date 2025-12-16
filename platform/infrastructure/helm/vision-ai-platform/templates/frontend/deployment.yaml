@@ -39,7 +39,7 @@ spec:
             - -c
             - |
               echo "Copying app files to writable volume..."
-              cp -r /app/. /app-data/
+              cp -a /app/. /app-data/
               echo "Copy completed. File count: $(find /app-data -type f | wc -l)"
           securityContext:
             runAsNonRoot: true
