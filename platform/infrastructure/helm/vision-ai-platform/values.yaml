@@ -17,6 +17,13 @@ backend:
     pullPolicy: IfNotPresent
     tag: "latest"
 
+  # Override container command and args
+  # Example:
+  #   command: ["python", "-m", "uvicorn"]
+  #   args: ["app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+  command: []
+  args: []
+
   imagePullSecrets: []
 
   serviceAccount:
@@ -147,6 +154,13 @@ frontend:
     repository: vision-ai-frontend
     pullPolicy: IfNotPresent
     tag: "latest"
+
+  # Override container command and args
+  # Example:
+  #   command: ["node"]
+  #   args: ["server.js"]
+  command: []
+  args: []
 
   imagePullSecrets: []
 
