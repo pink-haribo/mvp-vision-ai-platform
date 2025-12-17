@@ -1023,6 +1023,7 @@ class TrainerSDK:
         Matches SnapshotService logic:
         - Only hash metadata files (.json, .yaml, .txt)
         - Skip images for performance
+        - Sort by relative path for deterministic ordering
 
         Args:
             cache_dir: Cache directory path
@@ -1034,11 +1035,15 @@ class TrainerSDK:
         try:
             hasher = hashlib.sha256()
 
-            # Find all metadata files
-            metadata_files = sorted([
+            # Find all metadata files and sort by RELATIVE path
+            # This ensures consistent ordering regardless of mount path
+            metadata_files = [
                 f for f in cache_dir.rglob('*')
                 if f.is_file() and f.suffix in ['.json', '.yaml', '.yml', '.txt']
-            ])
+            ]
+
+            # Sort by relative path (matches Backend's S3 key sorting)
+            metadata_files = sorted(metadata_files, key=lambda f: str(f.relative_to(cache_dir)))
 
             if not metadata_files:
                 logger.warning(f"No metadata files found in {cache_dir}")
