@@ -32,12 +32,23 @@ from pathlib import Path
 from typing import Any, Dict
 
 from dotenv import load_dotenv
-from ultralytics import YOLO
+from ultralytics import YOLO, settings as ultralytics_settings
 
 from trainer_sdk import ErrorType, TrainerSDK
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Disable Ultralytics' built-in MLflow/integrations
+# All observability (MLflow, Loki, Prometheus) is handled by Backend via callbacks
+# See: https://github.com/ultralytics/ultralytics/issues/2224
+ultralytics_settings.update({
+    'mlflow': False,
+    'tensorboard': False,
+    'wandb': False,
+    'comet': False,
+    'clearml': False,  # We use our own ClearML integration via Backend
+})
 
 # Configure logging
 logging.basicConfig(
