@@ -45,6 +45,7 @@ data:
           {{"{% endif %}"}}
           securityContext:
             fsGroup: {{ .Values.training.podSecurityContext.fsGroup }}
+            fsGroupChangePolicy: "OnRootMismatch"
           containers:
             - name: trainer
               image: "{{"{{ image }}"}}"
@@ -54,6 +55,7 @@ data:
               securityContext:
                 runAsNonRoot: {{ .Values.training.securityContext.runAsNonRoot }}
                 runAsUser: {{ .Values.training.securityContext.runAsUser }}
+                runAsGroup: {{ .Values.training.podSecurityContext.fsGroup }}
                 allowPrivilegeEscalation: {{ .Values.training.securityContext.allowPrivilegeEscalation }}
               env:
                 {{"{% for key, value in env_vars.items() %}"}}
