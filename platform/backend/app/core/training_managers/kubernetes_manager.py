@@ -72,6 +72,33 @@ spec:
       securityContext:
         fsGroup: 1000
         fsGroupChangePolicy: "OnRootMismatch"
+      {% if extra_volume_mounts %}
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              {% for vm in extra_volume_mounts %}
+              {% if not vm.readOnly %}
+              echo "Fixing permissions for {{ vm.mountPath }}"
+              chown -R 1000:1000 "{{ vm.mountPath }}"
+              chmod -R 775 "{{ vm.mountPath }}"
+              {% endif %}
+              {% endfor %}
+              echo "Permissions fixed"
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            {% for vm in extra_volume_mounts %}
+            {% if not vm.readOnly %}
+            - name: "{{ vm.name }}"
+              mountPath: "{{ vm.mountPath }}"
+            {% endif %}
+            {% endfor %}
+      {% endif %}
       containers:
         - name: trainer
           image: "{{ image }}"
