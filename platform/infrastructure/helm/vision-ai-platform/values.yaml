@@ -31,6 +31,11 @@ backend:
     annotations: {}
     name: ""
 
+  # RBAC for Backend to manage training jobs in training namespace
+  # Required when TRAINING_MODE=kubernetes
+  rbac:
+    create: true
+
   podAnnotations: {}
   podSecurityContext: {}
 
