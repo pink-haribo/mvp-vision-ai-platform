@@ -1,0 +1,77 @@
+{{- if .Values.training.enabled -}}
+# =============================================================================
+# Training Storage PVCs
+# =============================================================================
+# PVCs for shared storage across training jobs.
+# RWX (ReadWriteMany) access mode recommended for multi-job access.
+#
+# Usage:
+#   helm install ... \
+#     --set training.storage.datasets.enabled=true \
+#     --set training.storage.datasets.storageClass=nfs-client
+# =============================================================================
+
+{{- if and .Values.training.storage.datasets.enabled .Values.training.storage.datasets.create }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.training.storage.datasets.pvcName }}
+  namespace: {{ include "vision-ai.training.namespace" . }}
+  labels:
+    {{- include "vision-ai.training.labels" . | nindent 4 }}
+    storage-type: datasets-cache
+spec:
+  accessModes:
+    {{- toYaml .Values.training.storage.datasets.accessModes | nindent 4 }}
+  {{- if .Values.training.storage.datasets.storageClass }}
+  storageClassName: {{ .Values.training.storage.datasets.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.training.storage.datasets.size }}
+{{- end }}
+
+{{- if and .Values.training.storage.outputs.enabled .Values.training.storage.outputs.create }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.training.storage.outputs.pvcName }}
+  namespace: {{ include "vision-ai.training.namespace" . }}
+  labels:
+    {{- include "vision-ai.training.labels" . | nindent 4 }}
+    storage-type: training-outputs
+spec:
+  accessModes:
+    {{- toYaml .Values.training.storage.outputs.accessModes | nindent 4 }}
+  {{- if .Values.training.storage.outputs.storageClass }}
+  storageClassName: {{ .Values.training.storage.outputs.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.training.storage.outputs.size }}
+{{- end }}
+
+{{- if and .Values.training.storage.checkpoints.enabled .Values.training.storage.checkpoints.create }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.training.storage.checkpoints.pvcName }}
+  namespace: {{ include "vision-ai.training.namespace" . }}
+  labels:
+    {{- include "vision-ai.training.labels" . | nindent 4 }}
+    storage-type: checkpoints
+spec:
+  accessModes:
+    {{- toYaml .Values.training.storage.checkpoints.accessModes | nindent 4 }}
+  {{- if .Values.training.storage.checkpoints.storageClass }}
+  storageClassName: {{ .Values.training.storage.checkpoints.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.training.storage.checkpoints.size }}
+{{- end }}
+
+{{- end }}
