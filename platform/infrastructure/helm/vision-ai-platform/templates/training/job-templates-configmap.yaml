@@ -243,20 +243,14 @@ data:
       {{- if $config.extra_env }}
       extra_env:
         {{- toYaml $config.extra_env | nindent 8 }}
-      {{- else }}
-      extra_env: []
       {{- end }}
       {{- if $config.extra_volumes }}
       extra_volumes:
         {{- toYaml $config.extra_volumes | nindent 8 }}
-      {{- else }}
-      extra_volumes: []
       {{- end }}
       {{- if $config.extra_volume_mounts }}
       extra_volume_mounts:
         {{- toYaml $config.extra_volume_mounts | nindent 8 }}
-      {{- else }}
-      extra_volume_mounts: []
       {{- end }}
     {{- end }}
     {{- end }}
