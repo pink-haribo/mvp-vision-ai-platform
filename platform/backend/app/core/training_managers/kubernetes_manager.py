@@ -78,12 +78,12 @@ spec:
           env:
             {% for key, value in env_vars.items() %}
             - name: "{{ key }}"
-              value: "{{ value }}"
+              value: {{ value | tojson }}
             {% endfor %}
             {% for env in extra_env %}
             - name: "{{ env.name }}"
               {% if env.value is defined %}
-              value: "{{ env.value }}"
+              value: {{ env.value | tojson }}
               {% endif %}
             {% endfor %}
           resources:
