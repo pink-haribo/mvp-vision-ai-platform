@@ -1647,13 +1647,19 @@ class TrainerSDK:
 
         # Create labels directory
         # YOLO expects labels by replacing 'images' with 'labels' in the image path
-        # Image path: images/images/wood/scratch/000.png
-        # Label path: images/labels/wood/scratch/000.txt
-        # So we create labels under local_image_root (e.g., "images/") not at dataset root
-        if local_image_root:
-            labels_base_dir = dataset_dir / local_image_root.rstrip('/') / "labels"
-        else:
-            labels_base_dir = dataset_dir / "labels"
+        # Since images/ is a symlink to cache, we must create labels/ at dataset root level
+        # NOT under images/ (which would write to shared cache)
+        #
+        # Structure:
+        #   dataset_dir/
+        #   ├── images/  (symlink to cache)
+        #   └── labels/  (real directory for this job)
+        #
+        # For YOLO to find labels correctly, train.txt must use paths like:
+        #   /tmp/training/92/dataset/images/abc.jpg
+        # Then YOLO will look for:
+        #   /tmp/training/92/dataset/labels/abc.txt
+        labels_base_dir = dataset_dir / "labels"
         labels_base_dir.mkdir(parents=True, exist_ok=True)
 
         # Convert annotations to YOLO format
@@ -1787,11 +1793,15 @@ class TrainerSDK:
                     f"Please verify annotation format with Labeler team."
                 )
 
-            # Use ABSOLUTE path for YOLO
+            # Use ABSOLUTE path for YOLO (but DO NOT resolve symlinks!)
             # YOLO has issues with relative paths when running from different working directories
             # Using absolute paths ensures images are found regardless of where YOLO is executed from
-            # Labels will still be found automatically by replacing 'images' with 'labels' in the path
-            image_path = str(image_file.resolve()).replace('\\', '/')
+            #
+            # CRITICAL: Do NOT use resolve() here!
+            # - images/ is a symlink to shared cache (e.g., /data/datasets/{hash}/images)
+            # - If we resolve(), YOLO will look for labels at /data/datasets/{hash}/labels (wrong!)
+            # - By keeping the symlink path, YOLO looks for labels at /tmp/training/92/dataset/labels (correct!)
+            image_path = str(Path(image_file).absolute()).replace('\\', '/')
 
             split = splits.get(image_id, 'train')
             if split == 'train':
