@@ -390,6 +390,13 @@ training:
       extra_volumes: []
       extra_volume_mounts: []
 
+  # Debug pod for troubleshooting storage and training issues
+  # Access via: kubectl exec -it -n training debug-pod -- /bin/sh
+  debugPod:
+    enabled: false
+    image: python
+    tag: "3.11-slim"
+
   # Pod security context for training jobs
   podSecurityContext:
     fsGroup: 1000
