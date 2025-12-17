@@ -88,6 +88,8 @@ data:
                   mountPath: /tmp
                 - name: workspace
                   mountPath: /workspace
+                - name: dshm
+                  mountPath: /dev/shm
                 {{"{% for vm in extra_volume_mounts %}"}}
                 - name: "{{"{{ vm.name }}"}}"
                   mountPath: "{{"{{ vm.mountPath }}"}}"
@@ -100,6 +102,10 @@ data:
               emptyDir: {}
             - name: workspace
               emptyDir: {}
+            - name: dshm
+              emptyDir:
+                medium: Memory
+                sizeLimit: "{{"{{ shm_size | default('"}}{{ .Values.training.resources.defaults.shm.size }}{{"') }}"}}"
             {{"{% for vol in extra_volumes %}"}}
             - name: "{{"{{ vol.name }}"}}"
               {{"{% if vol.emptyDir is defined %}"}}

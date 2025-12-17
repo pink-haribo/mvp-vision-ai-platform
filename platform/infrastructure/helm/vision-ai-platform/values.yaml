@@ -271,6 +271,10 @@ training:
         limit: 16Gi
       gpu:
         limit: "1"
+      # Shared memory for PyTorch DataLoader workers
+      # Increase this if you see "DataLoader worker killed by signal: Bus error"
+      shm:
+        size: 8Gi
 
   # GPU node configuration
   gpu:
