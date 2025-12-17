@@ -147,10 +147,14 @@ class SnapshotService:
         """
         Calculate SHA256 hash of dataset for collision detection.
 
-        Strategy: Hash annotations.json and metadata.json only (not images)
+        Strategy: Hash ONLY annotation files (annotations_*.json)
         - Fast computation (no need to hash GBs of images)
         - Sufficient for detecting dataset changes
-        - Images rarely change; annotations/metadata are what matter
+        - Ensures consistency with Trainer SDK's hash verification
+        - Annotation files define the dataset; other metadata files are secondary
+
+        IMPORTANT: This must match Trainer SDK's _verify_cache_integrity() logic
+        Both systems must hash the same set of files for cache validation to work.
 
         Args:
             dataset_path: Dataset folder prefix in R2 (e.g., "datasets/ds_abc123/")
@@ -176,34 +180,35 @@ class SnapshotService:
             if not objects:
                 raise ValueError(f"Dataset folder is empty: {dataset_path}")
 
-            # Filter metadata files only (annotations.json, metadata.json, data.yaml, etc.)
-            metadata_files = []
+            # Filter ONLY annotation files (annotations_*.json)
+            # This ensures consistency with Trainer SDK which only downloads annotation files
+            # Other metadata files (data.yaml, train.txt, etc.) may not be downloaded by Trainer
+            annotation_files = []
             for obj in objects:
                 key = obj['Key']
                 filename = key.split('/')[-1]
 
-                # Include only metadata files (not images)
-                if filename.endswith(('.json', '.yaml', '.yml', '.txt')):
-                    metadata_files.append(key)
+                # Include only annotation files (annotations_detection.json, etc.)
+                if filename.startswith('annotations') and filename.endswith('.json'):
+                    annotation_files.append(key)
 
-            if not metadata_files:
-                logger.warning(
-                    f"[SnapshotService] No metadata files found in {dataset_path}, "
-                    f"using all files for hash calculation"
+            if not annotation_files:
+                raise ValueError(
+                    f"No annotation files found in {dataset_path}. "
+                    f"Expected files like 'annotations_detection.json'"
                 )
-                # Fallback: use all files (but limit to first 100 to avoid timeout)
-                metadata_files = [obj['Key'] for obj in objects[:100]]
 
             logger.info(
-                f"[SnapshotService] Hashing {len(metadata_files)} files: "
-                f"{', '.join([f.split('/')[-1] for f in metadata_files[:5]])}..."
+                f"[SnapshotService] Hashing {len(annotation_files)} annotation files: "
+                f"{', '.join([f.split('/')[-1] for f in annotation_files])}"
             )
 
             # Calculate combined hash
             hasher = hashlib.sha256()
 
-            # Sort files for deterministic hash
-            for file_key in sorted(metadata_files):
+            # Sort files by filename only (not full path) for deterministic hash
+            # This matches Trainer SDK's sorting by relative path
+            for file_key in sorted(annotation_files, key=lambda k: k.split('/')[-1]):
                 # Get file content
                 file_obj = dual_storage.external_client.get_object(
                     Bucket=dual_storage.external_bucket_datasets,
@@ -218,7 +223,7 @@ class SnapshotService:
 
             logger.info(
                 f"[SnapshotService] Dataset hash calculated: {dataset_hash[:16]}... "
-                f"({len(metadata_files)} files)"
+                f"({len(annotation_files)} annotation files)"
             )
 
             return dataset_hash

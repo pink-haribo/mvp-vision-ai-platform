@@ -1079,14 +1079,17 @@ class TrainerSDK:
         """
         Verify cache integrity by recalculating hash.
 
-        Matches SnapshotService logic:
-        - Only hash metadata files (.json, .yaml, .txt)
-        - Skip images for performance
-        - Sort by relative path for deterministic ordering
+        IMPORTANT: Must match Backend's SnapshotService._calculate_dataset_hash() logic
+        Both systems must hash the same set of files for cache validation to work.
+
+        Strategy: Hash ONLY annotation files (annotations_*.json)
+        - Only annotation files are downloaded by download_dataset_selective()
+        - Other metadata files (data.yaml, train.txt) are generated locally by convert_dataset()
+        - Sorting by filename ensures consistency with Backend
 
         Args:
             cache_dir: Cache directory path
-            expected_hash: Expected SHA256 hash
+            expected_hash: Expected SHA256 hash from Backend
 
         Returns:
             True if hash matches, False otherwise
@@ -1094,21 +1097,28 @@ class TrainerSDK:
         try:
             hasher = hashlib.sha256()
 
-            # Find all metadata files and sort by RELATIVE path
-            # This ensures consistent ordering regardless of mount path
-            metadata_files = [
+            # Find ONLY annotation files (annotations_*.json)
+            # This matches Backend's SnapshotService which only hashes annotation files
+            annotation_files = [
                 f for f in cache_dir.rglob('*')
-                if f.is_file() and f.suffix in ['.json', '.yaml', '.yml', '.txt']
+                if f.is_file()
+                and f.name.startswith('annotations')
+                and f.name.endswith('.json')
             ]
 
-            # Sort by relative path (matches Backend's S3 key sorting)
-            metadata_files = sorted(metadata_files, key=lambda f: str(f.relative_to(cache_dir)))
+            # Sort by filename only (not full path) to match Backend's sorting
+            annotation_files = sorted(annotation_files, key=lambda f: f.name)
 
-            if not metadata_files:
-                logger.warning(f"No metadata files found in {cache_dir}")
+            if not annotation_files:
+                logger.warning(f"No annotation files found in {cache_dir}")
                 return False
 
-            for file_path in metadata_files:
+            logger.info(
+                f"Verifying cache integrity with {len(annotation_files)} annotation files: "
+                f"{', '.join([f.name for f in annotation_files])}"
+            )
+
+            for file_path in annotation_files:
                 with open(file_path, 'rb') as f:
                     hasher.update(f.read())
 
@@ -1118,10 +1128,12 @@ class TrainerSDK:
                 logger.error(
                     f"Cache integrity check failed:\n"
                     f"  Expected: {expected_hash}\n"
-                    f"  Calculated: {calculated_hash}"
+                    f"  Calculated: {calculated_hash}\n"
+                    f"  Files hashed: {[f.name for f in annotation_files]}"
                 )
                 return False
 
+            logger.info(f"Cache integrity verified: {calculated_hash[:16]}...")
             return True
 
         except Exception as e:
