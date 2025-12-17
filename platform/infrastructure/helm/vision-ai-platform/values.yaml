@@ -244,6 +244,11 @@ training:
     defaultTag: latest
     pullSecret: ""
 
+  # Init container image (for fixing PVC permissions)
+  initContainer:
+    image: busybox
+    tag: "1.36"
+
   # Service Account for training jobs
   serviceAccount:
     create: true

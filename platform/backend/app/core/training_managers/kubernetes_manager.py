@@ -75,7 +75,7 @@ spec:
       {% if extra_volume_mounts %}
       initContainers:
         - name: fix-permissions
-          image: busybox:1.36
+          image: "{{ init_container_image }}"
           command:
             - sh
             - -c
@@ -204,6 +204,7 @@ DEFAULT_FRAMEWORKS_CONFIG = {
         "memory_request": "8Gi",
         "memory_limit": "16Gi",
         "shm_size": "8Gi",  # Shared memory for PyTorch DataLoader workers
+        "init_container_image": "ghcr.io/vision-ai/busybox:1.36",  # For fixing PVC permissions
         "node_selector": {},
         "tolerations": [
             {
@@ -300,6 +301,7 @@ class KubernetesTrainingManager(TrainingManager):
             "registry": os.getenv("DOCKER_REGISTRY"),
             "default_tag": os.getenv("TRAINER_IMAGE_TAG"),
             "image_pull_secret": os.getenv("IMAGE_PULL_SECRET"),
+            "init_container_image": os.getenv("INIT_CONTAINER_IMAGE"),
             "gpu_limit": os.getenv("TRAINER_GPU_LIMIT"),
             "cpu_request": os.getenv("TRAINER_CPU_REQUEST"),
             "cpu_limit": os.getenv("TRAINER_CPU_LIMIT"),
@@ -548,6 +550,9 @@ class KubernetesTrainingManager(TrainingManager):
             # Infrastructure
             "service_account": fw_config.get("service_account", "default"),
             "image_pull_secret": fw_config.get("image_pull_secret", ""),
+            "init_container_image": fw_config.get(
+                "init_container_image", "ghcr.io/vision-ai/busybox:1.36"
+            ),
             "node_selector": fw_config.get("node_selector"),
             "tolerations": fw_config.get("tolerations", []),
             # Job settings
