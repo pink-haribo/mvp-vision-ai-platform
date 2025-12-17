@@ -119,10 +119,17 @@ data:
                 secretName: "{{"{{ vol.secret.secretName }}"}}"
               {{"{% endif %}"}}
             {{"{% endfor %}"}}
-          {{- with .Values.training.gpu.tolerations }}
+          {{"{% if tolerations %}"}}
           tolerations:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{"{% for t in tolerations %}"}}
+            - key: "{{"{{ t.key }}"}}"
+              operator: "{{"{{ t.operator | default('Equal') }}"}}"
+              {{"{% if t.value is defined %}"}}
+              value: "{{"{{ t.value }}"}}"
+              {{"{% endif %}"}}
+              effect: "{{"{{ t.effect | default('NoSchedule') }}"}}"
+            {{"{% endfor %}"}}
+          {{"{% endif %}"}}
           {{"{% if node_selector %}"}}
           nodeSelector: {{"{{ node_selector | tojson }}"}}
           {{"{% endif %}"}}
@@ -146,6 +153,10 @@ data:
       {{- if .Values.training.gpu.nodeSelector }}
       node_selector:
         {{- toYaml .Values.training.gpu.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.training.gpu.tolerations }}
+      tolerations:
+        {{- toYaml .Values.training.gpu.tolerations | nindent 8 }}
       {{- end }}
       # Dataset cache configuration (Phase 12.9)
       {{- if .Values.training.storage.datasets.enabled }}

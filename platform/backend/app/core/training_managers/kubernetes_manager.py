@@ -139,10 +139,17 @@ spec:
             secretName: "{{ vol.secret.secretName }}"
           {% endif %}
         {% endfor %}
+      {% if tolerations %}
       tolerations:
-        - key: "nvidia.com/gpu"
-          operator: "Exists"
-          effect: "NoSchedule"
+        {% for t in tolerations %}
+        - key: "{{ t.key }}"
+          operator: "{{ t.operator | default('Equal') }}"
+          {% if t.value is defined %}
+          value: "{{ t.value }}"
+          {% endif %}
+          effect: "{{ t.effect | default('NoSchedule') }}"
+        {% endfor %}
+      {% endif %}
       {% if node_selector %}
       nodeSelector: {{ node_selector | tojson }}
       {% endif %}
@@ -160,6 +167,14 @@ DEFAULT_FRAMEWORKS_CONFIG = {
         "cpu_limit": "4",
         "memory_request": "8Gi",
         "memory_limit": "16Gi",
+        "node_selector": {},
+        "tolerations": [
+            {
+                "key": "nvidia.com/gpu",
+                "operator": "Exists",
+                "effect": "NoSchedule",
+            }
+        ],
     },
     "ultralytics": {
         "image_suffix": "trainer-ultralytics",
@@ -370,6 +385,8 @@ class KubernetesTrainingManager(TrainingManager):
         merged.setdefault("extra_env", [])
         merged.setdefault("extra_volumes", [])
         merged.setdefault("extra_volume_mounts", [])
+        merged.setdefault("tolerations", [])
+        merged.setdefault("node_selector", {})
 
         return merged
 
@@ -494,6 +511,7 @@ class KubernetesTrainingManager(TrainingManager):
             "service_account": fw_config.get("service_account", "default"),
             "image_pull_secret": fw_config.get("image_pull_secret", ""),
             "node_selector": fw_config.get("node_selector"),
+            "tolerations": fw_config.get("tolerations", []),
             # Job settings
             "backoff_limit": self.job_backoff_limit,
             "ttl_seconds": self.job_ttl_seconds,
