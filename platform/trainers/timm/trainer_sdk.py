@@ -920,10 +920,13 @@ class TrainerSDK:
         Download only images listed in annotations (Phase 12.9.2).
 
         Flow:
-        1. Download annotations_detection.json first
-        2. Parse and extract image file_name list
+        1. Download ALL annotation files (annotations_*.json) for hash consistency
+        2. Parse primary annotation and extract image file_name list
         3. Download only those images (parallel)
         4. Return dataset directory
+
+        IMPORTANT: Must download ALL annotation files to match Backend's hash calculation.
+        Backend hashes all annotations_*.json files, so we must have them locally.
 
         Args:
             dataset_id: Dataset ID
@@ -934,19 +937,59 @@ class TrainerSDK:
         """
         from pathlib import Path
 
-        # Step 1: Download annotation file
-        annotation_key = f"datasets/{dataset_id}/annotations_detection.json"
-        annotation_local_path = Path(dest_dir) / "annotations_detection.json"
-        annotation_local_path.parent.mkdir(parents=True, exist_ok=True)
+        dest_path = Path(dest_dir)
+        dest_path.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Downloading annotation file: {annotation_key}")
-        self.external_storage.download_file(
-            annotation_key,
-            str(annotation_local_path)
-        )
+        # Step 1: List and download ALL annotation files from S3
+        # This ensures hash consistency with Backend's _calculate_dataset_hash()
+        dataset_prefix = f"datasets/{dataset_id}/"
+        logger.info(f"Listing annotation files in S3: {dataset_prefix}")
 
-        # Step 2: Parse annotation
-        with open(annotation_local_path) as f:
+        try:
+            response = self.external_storage.client.list_objects_v2(
+                Bucket=self.external_storage.bucket,
+                Prefix=dataset_prefix
+            )
+            objects = response.get('Contents', [])
+        except Exception as e:
+            logger.error(f"Failed to list S3 objects: {e}")
+            raise
+
+        # Filter annotation files (annotations_*.json)
+        annotation_keys = [
+            obj['Key'] for obj in objects
+            if obj['Key'].split('/')[-1].startswith('annotations')
+            and obj['Key'].endswith('.json')
+        ]
+
+        if not annotation_keys:
+            raise ValueError(
+                f"No annotation files found in {dataset_prefix}. "
+                f"Expected files like 'annotations_detection.json'"
+            )
+
+        logger.info(f"Found {len(annotation_keys)} annotation files: {[k.split('/')[-1] for k in annotation_keys]}")
+
+        # Download all annotation files
+        primary_annotation_path = None
+        for annotation_key in annotation_keys:
+            filename = annotation_key.split('/')[-1]
+            local_path = dest_path / filename
+
+            logger.info(f"Downloading annotation: {filename}")
+            self.external_storage.download_file(annotation_key, str(local_path))
+
+            # Track primary annotation file for image list extraction
+            if 'detection' in filename:
+                primary_annotation_path = local_path
+            elif primary_annotation_path is None:
+                primary_annotation_path = local_path  # Fallback to first file
+
+        if primary_annotation_path is None:
+            raise ValueError("No annotation file downloaded")
+
+        # Step 2: Parse primary annotation for image list
+        with open(primary_annotation_path) as f:
             data = json.load(f)
 
         images_to_download = []
