@@ -281,9 +281,10 @@ training:
         operator: "Exists"
         effect: "NoSchedule"
 
-  # Storage configuration
+  # Storage configuration (PVC-based caching for training jobs)
   storage:
-    # Shared dataset cache (RWX PVC recommended for multi-job access)
+    # Dataset cache: Stores downloaded datasets to avoid re-downloading from S3
+    # RWX PVC recommended for multi-job concurrent access
     datasets:
       enabled: false
       create: true  # Create PVC via Helm (set false to use existing PVC)
@@ -295,26 +296,18 @@ training:
       mountPath: /data/datasets
       readOnly: false  # Must be false for cache writes
       cacheMaxSizeGB: 100  # Max cache size in GB (LRU eviction)
-    outputs:
+
+    # Models cache: Stores pre-trained model weights (HuggingFace, PyTorch, YOLO, etc.)
+    # Shared across jobs to avoid re-downloading from model hubs
+    modelsCache:
       enabled: false
       create: true
-      pvcName: training-outputs-pvc
+      pvcName: models-cache-pvc
       storageClass: ""
       size: 50Gi
       accessModes:
         - ReadWriteMany
-      mountPath: /data/outputs
-      readOnly: false
-    checkpoints:
-      enabled: false
-      create: true
-      pvcName: checkpoints-pvc
-      storageClass: ""
-      size: 100Gi
-      accessModes:
-        - ReadWriteMany
-      mountPath: /data/checkpoints
-      readOnly: false
+      mountPath: /data/models
 
   # S3/MinIO configuration
   s3:
@@ -352,6 +345,8 @@ training:
         memory:
           request: 16Gi
           limit: 32Gi
+      # When modelsCache is enabled, HF_HOME/TRANSFORMERS_CACHE are set via _defaults
+      # pointing to shared PVC. The values below are fallback for emptyDir cache.
       extra_env:
         - name: HF_HOME
           value: /tmp/huggingface

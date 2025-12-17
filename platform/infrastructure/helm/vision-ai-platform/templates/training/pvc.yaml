@@ -32,46 +32,25 @@ spec:
       storage: {{ .Values.training.storage.datasets.size }}
 {{- end }}
 
-{{- if and .Values.training.storage.outputs.enabled .Values.training.storage.outputs.create }}
+{{- if and .Values.training.storage.modelsCache.enabled .Values.training.storage.modelsCache.create }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ .Values.training.storage.outputs.pvcName }}
+  name: {{ .Values.training.storage.modelsCache.pvcName }}
   namespace: {{ include "vision-ai.training.namespace" . }}
   labels:
     {{- include "vision-ai.training.labels" . | nindent 4 }}
-    storage-type: training-outputs
+    storage-type: models-cache
 spec:
   accessModes:
-    {{- toYaml .Values.training.storage.outputs.accessModes | nindent 4 }}
-  {{- if .Values.training.storage.outputs.storageClass }}
-  storageClassName: {{ .Values.training.storage.outputs.storageClass | quote }}
+    {{- toYaml .Values.training.storage.modelsCache.accessModes | nindent 4 }}
+  {{- if .Values.training.storage.modelsCache.storageClass }}
+  storageClassName: {{ .Values.training.storage.modelsCache.storageClass | quote }}
   {{- end }}
   resources:
     requests:
-      storage: {{ .Values.training.storage.outputs.size }}
-{{- end }}
-
-{{- if and .Values.training.storage.checkpoints.enabled .Values.training.storage.checkpoints.create }}
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ .Values.training.storage.checkpoints.pvcName }}
-  namespace: {{ include "vision-ai.training.namespace" . }}
-  labels:
-    {{- include "vision-ai.training.labels" . | nindent 4 }}
-    storage-type: checkpoints
-spec:
-  accessModes:
-    {{- toYaml .Values.training.storage.checkpoints.accessModes | nindent 4 }}
-  {{- if .Values.training.storage.checkpoints.storageClass }}
-  storageClassName: {{ .Values.training.storage.checkpoints.storageClass | quote }}
-  {{- end }}
-  resources:
-    requests:
-      storage: {{ .Values.training.storage.checkpoints.size }}
+      storage: {{ .Values.training.storage.modelsCache.size }}
 {{- end }}
 
 {{- end }}
