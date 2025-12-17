@@ -16,13 +16,23 @@ import logging
 import os
 from pathlib import Path
 
-from clearml import Task, Model, OutputModel
 from sqlalchemy.orm import Session
 
 from app.db import models
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Optional ClearML import
+try:
+    from clearml import Task, Model, OutputModel
+    CLEARML_AVAILABLE = True
+except ImportError:
+    Task = None
+    Model = None
+    OutputModel = None
+    CLEARML_AVAILABLE = False
+    logger.warning("ClearML not installed. ClearML features will be disabled.")
 
 
 class ClearMLService:
