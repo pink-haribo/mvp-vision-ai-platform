@@ -109,6 +109,8 @@ spec:
               mountPath: /tmp
             - name: workspace
               mountPath: /workspace
+            - name: dshm
+              mountPath: /dev/shm
             {% for vm in extra_volume_mounts %}
             - name: "{{ vm.name }}"
               mountPath: "{{ vm.mountPath }}"
@@ -121,6 +123,10 @@ spec:
           emptyDir: {}
         - name: workspace
           emptyDir: {}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: "{{ shm_size | default('8Gi') }}"
         {% for vol in extra_volumes %}
         - name: "{{ vol.name }}"
           {% if vol.emptyDir is defined %}
@@ -170,6 +176,7 @@ DEFAULT_FRAMEWORKS_CONFIG = {
         "cpu_limit": "4",
         "memory_request": "8Gi",
         "memory_limit": "16Gi",
+        "shm_size": "8Gi",  # Shared memory for PyTorch DataLoader workers
         "node_selector": {},
         "tolerations": [
             {
@@ -506,6 +513,7 @@ class KubernetesTrainingManager(TrainingManager):
             "memory_request": fw_config.get("memory_request", "8Gi"),
             "memory_limit": fw_config.get("memory_limit", "16Gi"),
             "gpu_limit": fw_config.get("gpu_limit", "1"),
+            "shm_size": fw_config.get("shm_size", "8Gi"),
             # Framework-specific
             "extra_env": fw_config.get("extra_env", []),
             "extra_volumes": fw_config.get("extra_volumes", []),
