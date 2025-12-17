@@ -43,6 +43,7 @@ import os
 import random
 import re
 import shutil
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -194,11 +195,24 @@ class TrainerSDK:
         # Track operation type for proper callback routing
         self._operation_type = 'training'
 
-        # HTTP client with retry and timeout
+        # HTTP client with extended timeout for K8s environments
+        # - connect: 15s (DNS resolution + connection establishment)
+        # - read: 60s (wait for backend response)
+        # - write: 30s (send request body)
+        # - pool: 10s (wait for connection from pool)
         self.http_client = httpx.Client(
-            timeout=httpx.Timeout(30.0, connect=10.0),
+            timeout=httpx.Timeout(
+                connect=15.0,
+                read=60.0,
+                write=30.0,
+                pool=10.0
+            ),
             follow_redirects=True
         )
+
+        # Retry configuration
+        self._max_retries = int(os.getenv('CALLBACK_MAX_RETRIES', '3'))
+        self._retry_base_delay = float(os.getenv('CALLBACK_RETRY_DELAY', '2.0'))
 
         # Initialize storage clients
         self._init_storage_clients()
@@ -383,20 +397,65 @@ class TrainerSDK:
         return datetime.now(timezone.utc).isoformat()
 
     def _send_callback(self, endpoint: str, data: Dict[str, Any]) -> None:
-        """Send callback to Backend with retry"""
-        url = f"{self.callback_url.rstrip('/')}/{endpoint.lstrip('/')}"
+        """
+        Send callback to Backend with retry and exponential backoff.
 
-        try:
-            response = self.http_client.post(url, json=data)
-            response.raise_for_status()
-            logger.debug(f"Callback sent: {endpoint} -> {response.status_code}")
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Callback failed ({e.response.status_code}): {url}")
-            logger.error(f"Response: {e.response.text}")
-            raise
-        except httpx.RequestError as e:
-            logger.error(f"Callback request failed: {e}")
-            raise
+        Retry strategy:
+        - Max retries: 3 (configurable via CALLBACK_MAX_RETRIES)
+        - Base delay: 2s (configurable via CALLBACK_RETRY_DELAY)
+        - Exponential backoff: 2s, 4s, 8s
+        - Retries on: TimeoutException, ConnectError, NetworkError
+        - No retry on: HTTP 4xx errors (client errors)
+        """
+        url = f"{self.callback_url.rstrip('/')}/{endpoint.lstrip('/')}"
+        last_exception = None
+
+        for attempt in range(self._max_retries + 1):
+            try:
+                response = self.http_client.post(url, json=data)
+                response.raise_for_status()
+                logger.debug(f"Callback sent: {endpoint} -> {response.status_code}")
+                return  # Success
+
+            except httpx.HTTPStatusError as e:
+                # Don't retry on 4xx client errors (bad request, not found, etc.)
+                if 400 <= e.response.status_code < 500:
+                    logger.error(f"Callback failed ({e.response.status_code}): {url}")
+                    logger.error(f"Response: {e.response.text}")
+                    raise
+
+                # Retry on 5xx server errors
+                last_exception = e
+                logger.warning(
+                    f"Callback failed ({e.response.status_code}), "
+                    f"attempt {attempt + 1}/{self._max_retries + 1}: {url}"
+                )
+
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+                last_exception = e
+                logger.warning(
+                    f"Callback request failed ({type(e).__name__}), "
+                    f"attempt {attempt + 1}/{self._max_retries + 1}: {url}"
+                )
+
+            except httpx.RequestError as e:
+                last_exception = e
+                logger.warning(
+                    f"Callback request error ({type(e).__name__}), "
+                    f"attempt {attempt + 1}/{self._max_retries + 1}: {url}"
+                )
+
+            # Wait before retry (exponential backoff)
+            if attempt < self._max_retries:
+                delay = self._retry_base_delay * (2 ** attempt)
+                logger.info(f"Retrying in {delay:.1f}s...")
+                time.sleep(delay)
+
+        # All retries exhausted
+        logger.error(
+            f"Callback failed after {self._max_retries + 1} attempts: {url}"
+        )
+        raise last_exception
 
     # =========================================================================
     # Lifecycle Functions (4)
