@@ -69,6 +69,9 @@ spec:
       imagePullSecrets:
         - name: "{{ image_pull_secret }}"
       {% endif %}
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
       containers:
         - name: trainer
           image: "{{ image }}"
