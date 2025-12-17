@@ -9,9 +9,14 @@ import logging
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
-from clearml import Task
 from .base import ObservabilityAdapter, MetricsResult
-from app.services.clearml_service import ClearMLService
+from app.services.clearml_service import ClearMLService, CLEARML_AVAILABLE
+
+# Optional ClearML import
+try:
+    from clearml import Task
+except ImportError:
+    Task = None
 
 
 logger = logging.getLogger(__name__)
