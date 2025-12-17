@@ -147,6 +147,22 @@ data:
       node_selector:
         {{- toYaml .Values.training.gpu.nodeSelector | nindent 8 }}
       {{- end }}
+      # Dataset cache configuration (Phase 12.9)
+      {{- if .Values.training.storage.datasets.enabled }}
+      extra_env:
+        - name: DATASET_CACHE_DIR
+          value: "{{ .Values.training.storage.datasets.mountPath }}"
+        - name: DATASET_CACHE_MAX_GB
+          value: "{{ .Values.training.storage.datasets.cacheMaxSizeGB }}"
+      extra_volumes:
+        - name: datasets-cache
+          persistentVolumeClaim:
+            claimName: "{{ .Values.training.storage.datasets.pvcName }}"
+      extra_volume_mounts:
+        - name: datasets-cache
+          mountPath: "{{ .Values.training.storage.datasets.mountPath }}"
+          readOnly: {{ .Values.training.storage.datasets.readOnly }}
+      {{- end }}
 
     # Framework-specific configurations
     {{- range $name, $config := .Values.training.frameworks }}

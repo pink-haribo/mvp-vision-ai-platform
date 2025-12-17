@@ -283,11 +283,13 @@ training:
 
   # Storage configuration
   storage:
+    # Shared dataset cache (RWX PVC recommended for multi-job access)
     datasets:
       enabled: false
-      pvcName: datasets-pvc
+      pvcName: datasets-cache-pvc
       mountPath: /data/datasets
-      readOnly: true
+      readOnly: false  # Must be false for cache writes
+      cacheMaxSizeGB: 100  # Max cache size in GB (LRU eviction)
     outputs:
       enabled: false
       pvcName: training-outputs-pvc
