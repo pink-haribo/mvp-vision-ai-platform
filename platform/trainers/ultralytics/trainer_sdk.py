@@ -1142,20 +1142,27 @@ class TrainerSDK:
 
     def _link_to_cache(self, cache_dir: Path, dest_dir: str) -> str:
         """
-        Create symlink from job directory to cache (with Windows fallback).
+        Setup job dataset directory from cache.
 
-        /tmp/training/92/dataset -> /tmp/datasets/snap_2b2fca921e88_1bb25f37
+        Strategy: Symlink ONLY images directory, copy annotation files.
+        This allows labels to be generated in job directory without polluting cache.
+
+        Structure after setup:
+        /tmp/training/92/dataset/
+        ├── annotations_detection.json  (copied from cache)
+        ├── images/                      (symlink to cache/images)
+        └── labels/                      (created later by convert_dataset)
 
         Args:
             cache_dir: Cache directory path
             dest_dir: Job working directory
 
         Returns:
-            Symlink path (or copied directory path on Windows)
+            Job dataset directory path
         """
         job_dataset_dir = Path(dest_dir) / "dataset"
 
-        # Ensure parent directory exists (fixes "no such file or directory" error)
+        # Ensure parent directory exists
         job_dataset_dir.parent.mkdir(parents=True, exist_ok=True)
 
         # Remove existing dataset if present
@@ -1165,17 +1172,32 @@ class TrainerSDK:
             else:
                 shutil.rmtree(job_dataset_dir)
 
-        # Try symlink first (Linux/Mac/Windows with Developer Mode)
-        try:
-            job_dataset_dir.symlink_to(cache_dir, target_is_directory=True)
-            logger.info(f"📎 Linked (symlink): {job_dataset_dir} -> {cache_dir}")
-            return str(job_dataset_dir)
-        except (OSError, NotImplementedError) as e:
-            # Windows symlink permission error (1314) or not supported
-            logger.warning(f"Symlink failed ({e}), falling back to directory copy")
-            shutil.copytree(cache_dir, job_dataset_dir, symlinks=True)
-            logger.info(f"📋 Copied from cache: {cache_dir} -> {job_dataset_dir}")
-            return str(job_dataset_dir)
+        # Create job dataset directory (real directory, not symlink)
+        job_dataset_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Copy annotation files (small, needed for hash verification)
+        for ann_file in cache_dir.glob("annotations*.json"):
+            shutil.copy2(ann_file, job_dataset_dir / ann_file.name)
+            logger.debug(f"Copied annotation: {ann_file.name}")
+
+        # 2. Symlink images directory (large, avoid duplication)
+        cache_images_dir = cache_dir / "images"
+        job_images_dir = job_dataset_dir / "images"
+
+        if cache_images_dir.exists():
+            try:
+                job_images_dir.symlink_to(cache_images_dir, target_is_directory=True)
+                logger.info(f"📎 Linked images: {job_images_dir} -> {cache_images_dir}")
+            except (OSError, NotImplementedError) as e:
+                # Windows symlink permission error - fallback to copy
+                logger.warning(f"Symlink failed ({e}), copying images directory")
+                shutil.copytree(cache_images_dir, job_images_dir)
+                logger.info(f"📋 Copied images from cache")
+        else:
+            logger.warning(f"No images directory in cache: {cache_images_dir}")
+
+        logger.info(f"📂 Dataset setup complete: {job_dataset_dir}")
+        return str(job_dataset_dir)
 
     def _update_cache_metadata(self, cache_key: str, metadata: dict):
         """
