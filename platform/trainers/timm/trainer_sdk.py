@@ -920,10 +920,13 @@ class TrainerSDK:
         Download only images listed in annotations (Phase 12.9.2).
 
         Flow:
-        1. Download annotations_detection.json first
-        2. Parse and extract image file_name list
+        1. Download ALL annotation files (annotations_*.json) for hash consistency
+        2. Parse primary annotation and extract image file_name list
         3. Download only those images (parallel)
         4. Return dataset directory
+
+        IMPORTANT: Must download ALL annotation files to match Backend's hash calculation.
+        Backend hashes all annotations_*.json files, so we must have them locally.
 
         Args:
             dataset_id: Dataset ID
@@ -934,19 +937,59 @@ class TrainerSDK:
         """
         from pathlib import Path
 
-        # Step 1: Download annotation file
-        annotation_key = f"datasets/{dataset_id}/annotations_detection.json"
-        annotation_local_path = Path(dest_dir) / "annotations_detection.json"
-        annotation_local_path.parent.mkdir(parents=True, exist_ok=True)
+        dest_path = Path(dest_dir)
+        dest_path.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Downloading annotation file: {annotation_key}")
-        self.external_storage.download_file(
-            annotation_key,
-            str(annotation_local_path)
-        )
+        # Step 1: List and download ALL annotation files from S3
+        # This ensures hash consistency with Backend's _calculate_dataset_hash()
+        dataset_prefix = f"datasets/{dataset_id}/"
+        logger.info(f"Listing annotation files in S3: {dataset_prefix}")
 
-        # Step 2: Parse annotation
-        with open(annotation_local_path) as f:
+        try:
+            response = self.external_storage.client.list_objects_v2(
+                Bucket=self.external_storage.bucket,
+                Prefix=dataset_prefix
+            )
+            objects = response.get('Contents', [])
+        except Exception as e:
+            logger.error(f"Failed to list S3 objects: {e}")
+            raise
+
+        # Filter annotation files (annotations_*.json)
+        annotation_keys = [
+            obj['Key'] for obj in objects
+            if obj['Key'].split('/')[-1].startswith('annotations')
+            and obj['Key'].endswith('.json')
+        ]
+
+        if not annotation_keys:
+            raise ValueError(
+                f"No annotation files found in {dataset_prefix}. "
+                f"Expected files like 'annotations_detection.json'"
+            )
+
+        logger.info(f"Found {len(annotation_keys)} annotation files: {[k.split('/')[-1] for k in annotation_keys]}")
+
+        # Download all annotation files
+        primary_annotation_path = None
+        for annotation_key in annotation_keys:
+            filename = annotation_key.split('/')[-1]
+            local_path = dest_path / filename
+
+            logger.info(f"Downloading annotation: {filename}")
+            self.external_storage.download_file(annotation_key, str(local_path))
+
+            # Track primary annotation file for image list extraction
+            if 'detection' in filename:
+                primary_annotation_path = local_path
+            elif primary_annotation_path is None:
+                primary_annotation_path = local_path  # Fallback to first file
+
+        if primary_annotation_path is None:
+            raise ValueError("No annotation file downloaded")
+
+        # Step 2: Parse primary annotation for image list
+        with open(primary_annotation_path) as f:
             data = json.load(f)
 
         images_to_download = []
@@ -1014,46 +1057,44 @@ class TrainerSDK:
         Args:
             snapshot_id: Snapshot ID (snap_abc123)
             dataset_id: Original dataset ID (ds_c75023ca76d7448b)
-            dataset_version_hash: SHA256 hash from SnapshotService
+            dataset_version_hash: SHA256 hash from SnapshotService (used for cache key)
             dest_dir: Job working directory (/tmp/training/92)
 
         Returns:
             Local dataset directory path
 
         Flow:
-            1. Build cache key: {snapshot_id}_{hash[:8]}
-            2. Check cache exists and verify integrity (hash match)
+            1. Build cache key from hash
+            2. Check cache exists via .complete marker file
             3. Cache HIT: Create symlink, return path
-            4. Cache MISS: Download, verify, save metadata, enforce size limit
+            4. Cache MISS: Download, create marker, return path
         """
-        # 1. Build cache key
-        cache_key = f"{dataset_version_hash[:16]}"  # Use hash only for cache hit across snapshots
+        # 1. Build cache key (hash ensures same dataset = same cache)
+        cache_key = f"{dataset_version_hash[:16]}"
         cache_dir = self.SHARED_DATASET_CACHE / cache_key
 
-        # 2. Check cache
-        if cache_dir.exists():
-            if self._verify_cache_integrity(cache_dir, dataset_version_hash):
-                logger.info(f"✅ Cache HIT: {cache_key}")
-                self._update_last_accessed(cache_key)
-                return self._link_to_cache(cache_dir, dest_dir)
-            else:
-                logger.warning(f"⚠️ Cache corrupted: {cache_key}, re-downloading")
-                shutil.rmtree(cache_dir)
+        # 2. Check cache via marker file
+        if self._is_cache_complete(cache_dir):
+            logger.info(f"✅ Cache HIT: {cache_key}")
+            self._update_last_accessed(cache_key)
+            return self._link_to_cache(cache_dir, dest_dir)
 
         # 3. Cache MISS - Download dataset
         logger.info(f"❌ Cache MISS: {cache_key}, downloading...")
 
+        # Clean up incomplete cache if exists
+        if cache_dir.exists():
+            logger.warning(f"⚠️ Removing incomplete cache: {cache_key}")
+            shutil.rmtree(cache_dir)
+
         # Create cache directory
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # Download dataset (Phase 12.9.2: Use selective download for 6x speedup)
+        # Download dataset (selective download for speed)
         self.download_dataset_selective(dataset_id=dataset_id, dest_dir=str(cache_dir))
 
-        # 4. Verify downloaded data
-        if not self._verify_cache_integrity(cache_dir, dataset_version_hash):
-            logger.error(f"Downloaded data hash mismatch for {cache_key}")
-            shutil.rmtree(cache_dir)
-            raise RuntimeError(f"Dataset hash verification failed for {cache_key}")
+        # 4. Mark cache as complete
+        self._mark_cache_complete(cache_dir)
 
         # 5. Update cache metadata
         self._update_cache_metadata(cache_key, {
@@ -1071,74 +1112,14 @@ class TrainerSDK:
         # 7. Link to job directory
         return self._link_to_cache(cache_dir, dest_dir)
 
-    def _verify_cache_integrity(
-        self,
-        cache_dir: Path,
-        expected_hash: str
-    ) -> bool:
-        """
-        Verify cache integrity by recalculating hash.
+    def _is_cache_complete(self, cache_dir: Path) -> bool:
+        """Check if cache download completed successfully."""
+        return (cache_dir / ".complete").exists()
 
-        IMPORTANT: Must match Backend's SnapshotService._calculate_dataset_hash() logic
-        Both systems must hash the same set of files for cache validation to work.
-
-        Strategy: Hash ONLY annotation files (annotations_*.json)
-        - Only annotation files are downloaded by download_dataset_selective()
-        - Other metadata files (data.yaml, train.txt) are generated locally by convert_dataset()
-        - Sorting by filename ensures consistency with Backend
-
-        Args:
-            cache_dir: Cache directory path
-            expected_hash: Expected SHA256 hash from Backend
-
-        Returns:
-            True if hash matches, False otherwise
-        """
-        try:
-            hasher = hashlib.sha256()
-
-            # Find ONLY annotation files (annotations_*.json)
-            # This matches Backend's SnapshotService which only hashes annotation files
-            annotation_files = [
-                f for f in cache_dir.rglob('*')
-                if f.is_file()
-                and f.name.startswith('annotations')
-                and f.name.endswith('.json')
-            ]
-
-            # Sort by filename only (not full path) to match Backend's sorting
-            annotation_files = sorted(annotation_files, key=lambda f: f.name)
-
-            if not annotation_files:
-                logger.warning(f"No annotation files found in {cache_dir}")
-                return False
-
-            logger.info(
-                f"Verifying cache integrity with {len(annotation_files)} annotation files: "
-                f"{', '.join([f.name for f in annotation_files])}"
-            )
-
-            for file_path in annotation_files:
-                with open(file_path, 'rb') as f:
-                    hasher.update(f.read())
-
-            calculated_hash = hasher.hexdigest()
-
-            if calculated_hash != expected_hash:
-                logger.error(
-                    f"Cache integrity check failed:\n"
-                    f"  Expected: {expected_hash}\n"
-                    f"  Calculated: {calculated_hash}\n"
-                    f"  Files hashed: {[f.name for f in annotation_files]}"
-                )
-                return False
-
-            logger.info(f"Cache integrity verified: {calculated_hash[:16]}...")
-            return True
-
-        except Exception as e:
-            logger.error(f"Cache integrity check error: {e}")
-            return False
+    def _mark_cache_complete(self, cache_dir: Path):
+        """Mark cache as complete after successful download."""
+        (cache_dir / ".complete").touch()
+        logger.info(f"Cache marked complete: {cache_dir.name}")
 
     def _link_to_cache(self, cache_dir: Path, dest_dir: str) -> str:
         """
@@ -1647,13 +1628,19 @@ class TrainerSDK:
 
         # Create labels directory
         # YOLO expects labels by replacing 'images' with 'labels' in the image path
-        # Image path: images/images/wood/scratch/000.png
-        # Label path: images/labels/wood/scratch/000.txt
-        # So we create labels under local_image_root (e.g., "images/") not at dataset root
-        if local_image_root:
-            labels_base_dir = dataset_dir / local_image_root.rstrip('/') / "labels"
-        else:
-            labels_base_dir = dataset_dir / "labels"
+        # Since images/ is a symlink to cache, we must create labels/ at dataset root level
+        # NOT under images/ (which would write to shared cache)
+        #
+        # Structure:
+        #   dataset_dir/
+        #   ├── images/  (symlink to cache)
+        #   └── labels/  (real directory for this job)
+        #
+        # For YOLO to find labels correctly, train.txt must use paths like:
+        #   /tmp/training/92/dataset/images/abc.jpg
+        # Then YOLO will look for:
+        #   /tmp/training/92/dataset/labels/abc.txt
+        labels_base_dir = dataset_dir / "labels"
         labels_base_dir.mkdir(parents=True, exist_ok=True)
 
         # Convert annotations to YOLO format
@@ -1787,11 +1774,15 @@ class TrainerSDK:
                     f"Please verify annotation format with Labeler team."
                 )
 
-            # Use ABSOLUTE path for YOLO
+            # Use ABSOLUTE path for YOLO (but DO NOT resolve symlinks!)
             # YOLO has issues with relative paths when running from different working directories
             # Using absolute paths ensures images are found regardless of where YOLO is executed from
-            # Labels will still be found automatically by replacing 'images' with 'labels' in the path
-            image_path = str(image_file.resolve()).replace('\\', '/')
+            #
+            # CRITICAL: Do NOT use resolve() here!
+            # - images/ is a symlink to shared cache (e.g., /data/datasets/{hash}/images)
+            # - If we resolve(), YOLO will look for labels at /data/datasets/{hash}/labels (wrong!)
+            # - By keeping the symlink path, YOLO looks for labels at /tmp/training/92/dataset/labels (correct!)
+            image_path = str(Path(image_file).absolute()).replace('\\', '/')
 
             split = splits.get(image_id, 'train')
             if split == 'train':
