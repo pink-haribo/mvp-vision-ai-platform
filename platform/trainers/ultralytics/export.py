@@ -52,6 +52,41 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class TrainerSDKLogHandler(logging.Handler):
+    """
+    Custom logging handler that forwards logs to Backend via TrainerSDK.
+
+    This allows existing logger.info() calls to automatically send logs
+    to Backend → WebSocket → Frontend without code changes.
+    """
+
+    def __init__(self, sdk: TrainerSDK):
+        super().__init__()
+        self.sdk = sdk
+        self._enabled = True
+
+    def emit(self, record: logging.LogRecord):
+        if not self._enabled:
+            return
+        try:
+            level_map = {
+                logging.DEBUG: 'DEBUG',
+                logging.INFO: 'INFO',
+                logging.WARNING: 'WARNING',
+                logging.ERROR: 'ERROR',
+                logging.CRITICAL: 'ERROR',
+            }
+            level = level_map.get(record.levelno, 'INFO')
+            message = self.format(record)
+            self.sdk.log(message, level=level, source='export')
+        except Exception:
+            pass
+
+    def disable(self):
+        """Disable the handler (used during shutdown)"""
+        self._enabled = False
+
+
 def parse_args():
     """Parse command-line arguments"""
     parser = argparse.ArgumentParser(description='Ultralytics YOLO Exporter')
@@ -352,6 +387,11 @@ def run_export(
     """Main export function"""
     sdk = TrainerSDK()
 
+    # Add SDK log handler to forward logs to Backend
+    sdk_handler = TrainerSDKLogHandler(sdk)
+    sdk_handler.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(sdk_handler)
+
     try:
         logger.info("=" * 80)
         logger.info("ULTRALYTICS YOLO EXPORT")
@@ -427,6 +467,11 @@ def run_export(
         logger.info(f"Package: {package_s3_uri}")
         logger.info("=" * 80)
 
+        # Flush remaining logs and cleanup handler
+        sdk.flush_logs()
+        sdk_handler.disable()
+        logger.removeHandler(sdk_handler)
+
         sdk.close()
         return 0
 
@@ -456,6 +501,11 @@ def run_export(
             )
         except Exception as cb_error:
             logger.error(f"[CALLBACK ERROR] Failed to send failure callback: {cb_error}")
+
+        # Flush remaining logs and cleanup handler
+        sdk.flush_logs()
+        sdk_handler.disable()
+        logger.removeHandler(sdk_handler)
 
         sdk.close()
         return 1

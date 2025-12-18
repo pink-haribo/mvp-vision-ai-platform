@@ -55,6 +55,41 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class TrainerSDKLogHandler(logging.Handler):
+    """
+    Custom logging handler that forwards logs to Backend via TrainerSDK.
+
+    This allows existing logger.info() calls to automatically send logs
+    to Backend → WebSocket → Frontend without code changes.
+    """
+
+    def __init__(self, sdk: TrainerSDK):
+        super().__init__()
+        self.sdk = sdk
+        self._enabled = True
+
+    def emit(self, record: logging.LogRecord):
+        if not self._enabled:
+            return
+        try:
+            level_map = {
+                logging.DEBUG: 'DEBUG',
+                logging.INFO: 'INFO',
+                logging.WARNING: 'WARNING',
+                logging.ERROR: 'ERROR',
+                logging.CRITICAL: 'ERROR',
+            }
+            level = level_map.get(record.levelno, 'INFO')
+            message = self.format(record)
+            self.sdk.log(message, level=level, source='trainer')
+        except Exception:
+            pass
+
+    def disable(self):
+        """Disable the handler (used during shutdown)"""
+        self._enabled = False
+
+
 def parse_args():
     """Parse command-line arguments"""
     parser = argparse.ArgumentParser(description='HuggingFace Transformers Trainer')
@@ -192,6 +227,11 @@ def main():
 
         # Initialize SDK
         sdk = TrainerSDK()
+
+        # Add SDK log handler to forward logs to Backend
+        sdk_handler = TrainerSDKLogHandler(sdk)
+        sdk_handler.setFormatter(logging.Formatter('%(message)s'))
+        logger.addHandler(sdk_handler)
 
         sdk.report_started(
             model_name=model_name,
@@ -336,19 +376,37 @@ def main():
         )
 
         logger.info(f"Training completed! Accuracy: {final_metrics['accuracy']:.2f}%")
+
+        # Flush remaining logs and cleanup handler
+        sdk.flush_logs()
+        sdk_handler.disable()
+        logger.removeHandler(sdk_handler)
+
+        sdk.close()
         return 0
 
     except Exception as e:
         logger.error(f"Training failed: {e}")
         logger.error(traceback.format_exc())
 
+        # Cleanup handler if it exists
         try:
-            sdk = TrainerSDK()
-            sdk.report_failed(
+            if 'sdk_handler' in dir() and sdk_handler is not None:
+                sdk.flush_logs()
+                sdk_handler.disable()
+                logger.removeHandler(sdk_handler)
+                sdk.close()
+        except Exception:
+            pass
+
+        try:
+            error_sdk = TrainerSDK()
+            error_sdk.report_failed(
                 error_type=ErrorType.TRAINING_ERROR,
                 error_message=str(e),
                 error_traceback=traceback.format_exc()
             )
+            error_sdk.close()
         except Exception as callback_error:
             logger.error(f"Failed to report error: {callback_error}")
             return 2

@@ -39,6 +39,45 @@ from trainer_sdk import ErrorType, TrainerSDK
 # Load environment variables from .env file
 load_dotenv()
 
+
+class TrainerSDKLogHandler(logging.Handler):
+    """
+    Custom logging handler that forwards logs to Backend via TrainerSDK.
+
+    This allows existing logger.info() calls to automatically send logs
+    to Backend → WebSocket → Frontend without code changes.
+    """
+
+    def __init__(self, sdk: TrainerSDK):
+        super().__init__()
+        self.sdk = sdk
+        self._enabled = True
+
+    def emit(self, record: logging.LogRecord):
+        if not self._enabled:
+            return
+        try:
+            # Map Python log levels to SDK levels
+            level_map = {
+                logging.DEBUG: 'DEBUG',
+                logging.INFO: 'INFO',
+                logging.WARNING: 'WARNING',
+                logging.ERROR: 'ERROR',
+                logging.CRITICAL: 'ERROR',
+            }
+            level = level_map.get(record.levelno, 'INFO')
+            message = self.format(record)
+
+            # Send to SDK (will be buffered and sent to Backend)
+            self.sdk.log(message, level=level, source='trainer')
+        except Exception:
+            # Don't fail training if logging fails
+            pass
+
+    def disable(self):
+        """Disable the handler (used during shutdown)"""
+        self._enabled = False
+
 # Disable Ultralytics' built-in MLflow/integrations
 # All observability (MLflow, Loki, Prometheus) is handled by Backend via callbacks
 # See: https://github.com/ultralytics/ultralytics/issues/2224
@@ -164,6 +203,11 @@ def train_model(
 
     # Initialize SDK
     sdk = TrainerSDK()
+
+    # Add SDK log handler to forward logs to Backend
+    sdk_handler = TrainerSDKLogHandler(sdk)
+    sdk_handler.setFormatter(logging.Formatter('%(message)s'))  # Simple format for Frontend display
+    logger.addHandler(sdk_handler)
 
     try:
         logger.info("=" * 80)
@@ -460,6 +504,12 @@ def train_model(
         )
 
         logger.info("Training completed successfully")
+
+        # Flush remaining logs and cleanup handler
+        sdk.flush_logs()
+        sdk_handler.disable()
+        logger.removeHandler(sdk_handler)
+
         sdk.close()
         return 0
 
@@ -487,6 +537,11 @@ def train_model(
             )
         except Exception as cb_error:
             logger.error(f"Failed to send error callback: {cb_error}")
+
+        # Flush remaining logs and cleanup handler
+        sdk.flush_logs()
+        sdk_handler.disable()
+        logger.removeHandler(sdk_handler)
 
         sdk.close()
         return 1
