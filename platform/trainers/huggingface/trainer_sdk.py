@@ -480,7 +480,7 @@ class TrainerSDK:
                 'operation_type': operation_type,
                 'timestamp': self._get_timestamp()
             }
-            endpoint = f'/inference/jobs/{self.job_id}/callback/started'
+            endpoint = f'/test_inference/inference/jobs/{self.job_id}/callback/started'
         elif operation_type == 'export':
             data = {
                 'type': 'started',
@@ -697,7 +697,7 @@ class TrainerSDK:
 
         # Use appropriate endpoint based on operation type
         if self._operation_type == 'inference':
-            endpoint = f'/inference/jobs/{self.job_id}/callback/completion'
+            endpoint = f'/test_inference/inference/jobs/{self.job_id}/callback/completion'
         elif self._operation_type == 'export':
             endpoint = f'/export/jobs/{self.job_id}/callback/completion'
         else:  # training
@@ -742,7 +742,7 @@ class TrainerSDK:
         if result_urls:
             data['result_urls'] = result_urls
 
-        self._send_callback(f'/inference/jobs/{self.job_id}/callback/completion', data)
+        self._send_callback(f'/test_inference/inference/jobs/{self.job_id}/callback/completion', data)
         logger.info(f"Reported inference completed: {total_images} images in {total_time_ms:.1f}ms")
 
     def report_export_completed(
