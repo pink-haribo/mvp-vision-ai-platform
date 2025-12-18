@@ -20,6 +20,7 @@ from app.db import models
 import asyncio
 from app.schemas import export as export_schemas
 from app.core.training_manager import get_training_manager
+from app.core.config import settings
 from app.utils.dual_storage import dual_storage
 from app.services.websocket_manager import get_websocket_manager
 
@@ -393,6 +394,9 @@ async def create_export_job(
             # Add task_type to config
             export_config['task_type'] = job.task_type
 
+            # Build callback URL using settings (same as training.py and test_inference.py)
+            callback_url = f"{settings.API_BASE_URL}/api/v1"
+
             # Start export subprocess
             await manager.start_export(
                 export_job_id=job.id,
@@ -400,7 +404,7 @@ async def create_export_job(
                 framework=job.framework,
                 checkpoint_s3_uri=job.checkpoint_path,
                 export_format=job.export_format.value,  # Enum to string
-                callback_url=f"{request.callback_url if hasattr(request, 'callback_url') else 'http://localhost:8000/api/v1'}",
+                callback_url=callback_url,
                 config=export_config
             )
 
