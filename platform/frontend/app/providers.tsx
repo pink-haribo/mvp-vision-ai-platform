@@ -5,7 +5,7 @@ import { AuthProvider } from '@/contexts/AuthContext'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <SessionProvider>
+    <SessionProvider basePath="/auth">
       <AuthProvider>
         {children}
       </AuthProvider>
