@@ -51,7 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (session?.error === 'RefreshAccessTokenError') {
       setError('세션이 만료되었습니다. 다시 로그인해주세요.')
       // 자동 로그아웃
-      signOut({ callbackUrl: '/login' })
+      signOut({ callbackUrl: '/' })
     }
   }, [session?.error])
 
@@ -93,8 +93,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function logout() {
     setError(null)
     setUser(null)
-    // NextAuth + Keycloak 로그아웃
-    await signOut({ callbackUrl: '/login' })
+    // NextAuth + Keycloak 로그아웃 → 미들웨어가 자동으로 Keycloak 리다이렉트
+    await signOut({ callbackUrl: '/' })
   }
 
   return (
