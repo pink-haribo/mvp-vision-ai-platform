@@ -70,16 +70,12 @@ class InvitationInfoResponse(BaseModel):
 # ==================== Invitation Acceptance ====================
 
 class AcceptInvitationRequest(BaseModel):
-    """Schema for accepting an invitation."""
+    """Schema for accepting an invitation.
+
+    Note: With Keycloak SSO, users must log in first (which creates their account
+    via JIT provisioning) before accepting invitations. No registration data needed.
+    """
     token: str = Field(..., description="Invitation token")
-
-    # User registration data (if not already registered)
-    full_name: Optional[str] = Field(None, description="User's full name")
-    password: Optional[str] = Field(None, min_length=8, description="Password for new account")
-
-    # Optional profile data
-    phone_number: Optional[str] = None
-    department: Optional[str] = None
 
 
 class DeclineInvitationRequest(BaseModel):

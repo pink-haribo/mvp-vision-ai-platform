@@ -19,7 +19,6 @@ from datetime import datetime
 from pathlib import Path
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
-from passlib.context import CryptContext
 
 # Load .env file for local development
 from dotenv import load_dotenv
@@ -35,8 +34,6 @@ from app.db.models import (
     InferenceJob, InferenceResult, ExportJob, DeploymentTarget, DeploymentHistory
 )
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def get_table_names(engine):
@@ -76,12 +73,10 @@ def create_admin_user(engine):
             print(f"   Role: {existing.system_role}")
             return
 
-        # Create admin user
-        hashed_password = pwd_context.hash("admin123")
-
+        # Create admin user (Keycloak SSO - no password needed)
         admin_user = User(
             email="admin@example.com",
-            hashed_password=hashed_password,
+            hashed_password=None,  # Keycloak handles authentication
             full_name="Admin User",
             system_role=UserRole.ADMIN,
             is_active=True,
@@ -96,7 +91,7 @@ def create_admin_user(engine):
 
         print("✅ Admin user created successfully!")
         print(f"   Email: admin@example.com")
-        print(f"   Password: admin123")
+        print(f"   Note: Authentication is handled by Keycloak SSO")
         print(f"   Role: {admin_user.system_role.value}")
         print(f"   User ID: {admin_user.id}")
 
