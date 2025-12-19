@@ -1,33 +1,57 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils/cn'
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login } = useAuth()
+  const searchParams = useSearchParams()
+  const { login, isAuthenticated, isLoading, error: authError } = useAuth()
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
+  const error = searchParams.get('error')
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setIsLoading(true)
-
-    try {
-      await login(email, password)
-      router.push('/') // Redirect to home after successful login
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
-    } finally {
-      setIsLoading(false)
+  // 이미 로그인되어 있으면 홈으로 리다이렉트
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push('/')
     }
+  }, [isAuthenticated, router])
+
+  const handleLogin = async () => {
+    await login()
+  }
+
+  // 에러 메시지 매핑
+  const getErrorMessage = (errorCode: string | null) => {
+    if (!errorCode) return null
+
+    const errorMessages: Record<string, string> = {
+      'OAuthSignin': 'Keycloak 로그인을 시작할 수 없습니다.',
+      'OAuthCallback': '인증 콜백 처리 중 오류가 발생했습니다.',
+      'OAuthCreateAccount': '계정 생성 중 오류가 발생했습니다.',
+      'EmailCreateAccount': '이메일 계정 생성 중 오류가 발생했습니다.',
+      'Callback': '인증 처리 중 오류가 발생했습니다.',
+      'OAuthAccountNotLinked': '이 이메일은 다른 로그인 방식으로 등록되어 있습니다.',
+      'EmailSignin': '이메일 전송에 실패했습니다.',
+      'CredentialsSignin': '로그인 정보가 올바르지 않습니다.',
+      'SessionRequired': '로그인이 필요합니다.',
+      'Default': '인증 중 오류가 발생했습니다.',
+    }
+
+    return errorMessages[errorCode] || errorMessages['Default']
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-indigo-100">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">로딩 중...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -44,86 +68,41 @@ export default function LoginPage() {
           </div>
 
           {/* Error Message */}
-          {error && (
+          {(error || authError) && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-800">{error}</p>
+              <p className="text-sm text-red-800 whitespace-pre-line">
+                {getErrorMessage(error) || authError}
+              </p>
             </div>
           )}
 
-          {/* Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                이메일
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className={cn(
-                  'w-full px-4 py-3 border border-gray-300 rounded-lg',
-                  'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
-                  'text-gray-900'
-                )}
-                placeholder="your@email.com"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                비밀번호
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className={cn(
-                  'w-full px-4 py-3 border border-gray-300 rounded-lg',
-                  'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
-                  'text-gray-900'
-                )}
-                placeholder="••••••••"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className={cn(
-                'w-full py-3 px-4 rounded-lg font-semibold',
-                'bg-violet-600 hover:bg-violet-700 text-white',
-                'transition-all duration-200',
-                'disabled:opacity-50 disabled:cursor-not-allowed',
-                'shadow-lg hover:shadow-xl'
-              )}
+          {/* SSO Login Button */}
+          <button
+            onClick={handleLogin}
+            className={cn(
+              'w-full py-4 px-4 rounded-lg font-semibold',
+              'bg-violet-600 hover:bg-violet-700 text-white',
+              'transition-all duration-200',
+              'shadow-lg hover:shadow-xl',
+              'flex items-center justify-center gap-3'
+            )}
+          >
+            <svg
+              className="w-5 h-5"
+              fill="currentColor"
+              viewBox="0 0 24 24"
             >
-              {isLoading ? '로그인 중...' : '로그인'}
-            </button>
-          </form>
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+            </svg>
+            SSO로 로그인
+          </button>
 
-          {/* Divider */}
-          <div className="mt-8 pt-8 border-t border-gray-200">
-            <p className="text-center text-sm text-gray-600">
-              계정이 없으신가요?{' '}
-              <Link
-                href="/register"
-                className="font-semibold text-violet-600 hover:text-violet-700"
-              >
-                회원가입
-              </Link>
-            </p>
-          </div>
-
-          {/* Demo Credentials */}
+          {/* Info */}
           <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-xs text-blue-800 font-medium mb-2">데모 계정:</p>
+            <p className="text-xs text-blue-800 font-medium mb-2">SSO 로그인 안내</p>
             <p className="text-xs text-blue-700">
-              이메일: admin@example.com<br />
-              비밀번호: admin123
+              Keycloak을 통한 통합 인증으로 로그인합니다.<br />
+              회사 계정으로 로그인해주세요.
             </p>
           </div>
         </div>
