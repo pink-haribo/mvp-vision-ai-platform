@@ -129,8 +129,17 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
+
+    # Keycloak SSO 연동
+    keycloak_id = Column(
+        String(36),  # Keycloak UUID 형식
+        unique=True,
+        nullable=True,  # Keycloak 전용이지만 마이그레이션 호환성 위해 nullable
+        index=True
+    )
+
     email = Column(String(255), unique=True, nullable=False, index=True)
-    hashed_password = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=True)  # Keycloak 사용 시 null
     full_name = Column(String(255), nullable=True)
 
     # Organization info
