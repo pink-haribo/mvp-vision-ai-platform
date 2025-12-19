@@ -8,8 +8,6 @@ import ProjectDetail from '@/components/ProjectDetail'
 import CreateProjectForm from '@/components/CreateProjectForm'
 import TrainingConfigPanel from '@/components/TrainingConfigPanel'
 import ImageToolsPanel from '@/components/ImageToolsPanel'
-import LoginModal from '@/components/LoginModal'
-import RegisterModal from '@/components/RegisterModal'
 import ProfileModal from '@/components/ProfileModal'
 import AdminProjectsPanel from '@/components/AdminProjectsPanel'
 import AdminUsersPanel from '@/components/AdminUsersPanel'
@@ -44,8 +42,6 @@ export default function Home() {
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Modal states
-  const [showLoginModal, setShowLoginModal] = useState(false)
-  const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
 
   // Admin panel states
@@ -308,8 +304,6 @@ export default function Home() {
         onCreateProject={handleCreateProject}
         onOpenImageTools={handleOpenImageTools}
         onOpenDatasets={handleOpenDatasets}
-        onOpenLogin={() => setShowLoginModal(true)}
-        onOpenRegister={() => setShowRegisterModal(true)}
         onOpenProfile={() => setShowProfileModal(true)}
         onOpenAdminProjects={handleOpenAdminProjects}
         onOpenAdminUsers={handleOpenAdminUsers}
@@ -428,24 +422,6 @@ export default function Home() {
       </main>
 
       {/* Modals */}
-      <LoginModal
-        isOpen={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-        onSwitchToRegister={() => {
-          setShowLoginModal(false)
-          setShowRegisterModal(true)
-        }}
-      />
-
-      <RegisterModal
-        isOpen={showRegisterModal}
-        onClose={() => setShowRegisterModal(false)}
-        onSwitchToLogin={() => {
-          setShowRegisterModal(false)
-          setShowLoginModal(true)
-        }}
-      />
-
       <ProfileModal
         isOpen={showProfileModal}
         onClose={() => setShowProfileModal(false)}

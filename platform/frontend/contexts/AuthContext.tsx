@@ -1,13 +1,14 @@
 'use client'
 
 import React, { createContext, useContext, useState, useEffect } from 'react'
+import { useSession, signIn, signOut } from 'next-auth/react'
 
 interface User {
   id: number
   email: string
   full_name: string | null
   is_active: boolean
-  system_role: string  // '''guest''' | '''standard_engineer''' | '''advanced_engineer''' | '''manager''' | '''admin'''
+  system_role: string
   badge_color?: string | null
   company?: string | null
   division?: string | null
@@ -16,245 +17,96 @@ interface User {
   bio?: string | null
 }
 
-interface RegisterData {
-  email: string
-  password: string
-  full_name?: string
-  company?: string
-  company_custom?: string
-  division?: string
-  division_custom?: string
-  department?: string
-  phone_number?: string
-  bio?: string
-}
-
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
   isLoading: boolean
-  login: (email: string, password: string) => Promise<void>
-  register: (data: RegisterData) => Promise<void>
-  logout: () => void
-  refreshToken: () => Promise<void>
+  accessToken: string | null
+  login: () => Promise<void>
+  logout: () => Promise<void>
+  error: string | null
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { data: session, status } = useSession()
   const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Check for existing token on mount
+  const isLoading = status === 'loading'
+  const accessToken = session?.accessToken ?? null
+
+  // 세션 변경 시 사용자 정보 가져오기
   useEffect(() => {
-    const checkAuth = async () => {
-      const token = localStorage.getItem('access_token')
-      if (token) {
-        try {
-          // Fetch current user info
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          })
-
-          if (response.ok) {
-            const userData = await response.json()
-            setUser(userData)
-          } else {
-            // Token invalid, clear it
-            localStorage.removeItem('access_token')
-            localStorage.removeItem('refresh_token')
-          }
-        } catch (error) {
-          console.error('Error checking auth:', error)
-          localStorage.removeItem('access_token')
-          localStorage.removeItem('refresh_token')
-        }
-      }
-      setIsLoading(false)
+    if (session?.accessToken) {
+      fetchUserInfo(session.accessToken)
+    } else if (status === 'unauthenticated') {
+      setUser(null)
     }
+  }, [session, status])
 
-    checkAuth()
-  }, [])
-
-  const login = async (email: string, password: string) => {
-    // OAuth2 format requires FormData with 'username' and 'password' fields
-    const formData = new FormData()
-    formData.append('username', email)  // OAuth2 uses 'username' field for email
-    formData.append('password', password)
-
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
-        method: 'POST',
-        body: formData
-      })
-
-      if (!response.ok) {
-        let errorMessage = 'Login failed'
-
-        try {
-          const error = await response.json()
-
-          // Customize error messages based on status code
-          if (response.status === 503) {
-            errorMessage = '🔌 데이터베이스 서버에 연결할 수 없습니다.\n\nPostgreSQL이 실행 중인지 확인해주세요 (포트 5433).'
-          } else if (response.status === 500) {
-            errorMessage = '⚠️ 서버 내부 오류가 발생했습니다.\n\n' + (error.detail || 'Backend 로그를 확인해주세요.')
-          } else if (response.status === 401) {
-            errorMessage = '🔒 이메일 또는 비밀번호가 올바르지 않습니다.'
-          } else if (response.status === 400) {
-            errorMessage = error.detail || 'Invalid request'
-          } else {
-            errorMessage = error.detail || `Server error (${response.status})`
-          }
-        } catch (e) {
-          // If response body is not JSON
-          errorMessage = `서버 오류 (${response.status}): ${response.statusText}`
-        }
-
-        throw new Error(errorMessage)
-      }
-
-      const data = await response.json()
-
-      // Store tokens
-      localStorage.setItem('access_token', data.access_token)
-      localStorage.setItem('refresh_token', data.refresh_token)
-
-      // Fetch user info
-      const userResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`, {
-        headers: {
-          'Authorization': `Bearer ${data.access_token}`
-        }
-      })
-
-      if (!userResponse.ok) {
-        // Clear tokens if user fetch fails
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('refresh_token')
-
-        let errorMessage = 'Failed to fetch user information'
-        try {
-          const error = await userResponse.json()
-          errorMessage = error.detail || errorMessage
-        } catch (e) {
-          // Ignore JSON parse error
-        }
-        throw new Error(`⚠️ 로그인은 성공했지만 사용자 정보를 가져올 수 없습니다.\n\n${errorMessage}`)
-      }
-
-      const userData = await userResponse.json()
-      setUser(userData)
-    } catch (error) {
-      // Network error (server not running, CORS, etc.)
-      if (error instanceof TypeError && error.message.includes('fetch')) {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
-        const baseUrl = apiUrl.replace('/api/v1', '');
-        throw new Error(`🌐 Backend 서버에 연결할 수 없습니다.\n\nBackend가 실행 중인지 확인해주세요 (${baseUrl}).`)
-      }
-
-      // Re-throw if it's already our custom error
-      throw error
+  // 세션 에러 처리 (토큰 갱신 실패 등)
+  useEffect(() => {
+    if (session?.error === 'RefreshAccessTokenError') {
+      setError('세션이 만료되었습니다. 다시 로그인해주세요.')
+      // 자동 로그아웃
+      signOut({ callbackUrl: '/' })
     }
-  }
+  }, [session?.error])
 
-  const register = async (data: RegisterData) => {
+  async function fetchUserInfo(token: string) {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
-        method: 'POST',
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`, {
         headers: {
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(data)
-      })
-
-      if (!response.ok) {
-        let errorMessage = 'Registration failed'
-
-        try {
-          const error = await response.json()
-
-          // Customize error messages based on status code
-          if (response.status === 503) {
-            errorMessage = '🔌 데이터베이스 서버에 연결할 수 없습니다.\n\nPostgreSQL이 실행 중인지 확인해주세요 (포트 5433).'
-          } else if (response.status === 500) {
-            errorMessage = '⚠️ 서버 내부 오류가 발생했습니다.\n\n' + (error.detail || 'Backend 로그를 확인해주세요.')
-          } else if (response.status === 400) {
-            errorMessage = error.detail || 'Invalid registration data'
-          } else if (response.status === 409) {
-            errorMessage = '이미 등록된 이메일입니다.'
-          } else {
-            errorMessage = error.detail || `Server error (${response.status})`
-          }
-        } catch (e) {
-          // If response body is not JSON
-          errorMessage = `서버 오류 (${response.status}): ${response.statusText}`
-        }
-
-        throw new Error(errorMessage)
-      }
-
-      // Auto-login after registration
-      await login(data.email, data.password)
-    } catch (error) {
-      // Network error (server not running, CORS, etc.)
-      if (error instanceof TypeError && error.message.includes('fetch')) {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
-        const baseUrl = apiUrl.replace('/api/v1', '');
-        throw new Error(`🌐 Backend 서버에 연결할 수 없습니다.\n\nBackend가 실행 중인지 확인해주세요 (${baseUrl}).`)
-      }
-
-      // Re-throw if it's already our custom error
-      throw error
-    }
-  }
-
-  const logout = () => {
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('refresh_token')
-    setUser(null)
-  }
-
-  const refreshToken = async () => {
-    const refresh = localStorage.getItem('refresh_token')
-    if (!refresh) {
-      logout()
-      return
-    }
-
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ refresh_token: refresh })
       })
 
       if (response.ok) {
-        const data = await response.json()
-        localStorage.setItem('access_token', data.access_token)
-        localStorage.setItem('refresh_token', data.refresh_token)
+        const userData = await response.json()
+        setUser(userData)
+        setError(null)
       } else {
-        logout()
+        // Backend에서 사용자 정보 가져오기 실패
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Failed to fetch user info:', errorData)
+        setUser(null)
+
+        if (response.status === 401) {
+          setError('인증이 만료되었습니다.')
+        }
       }
-    } catch (error) {
-      console.error('Error refreshing token:', error)
-      logout()
+    } catch (err) {
+      console.error('Error fetching user info:', err)
+      setUser(null)
+      setError('서버에 연결할 수 없습니다.')
     }
+  }
+
+  async function login() {
+    setError(null)
+    // Keycloak 로그인 페이지로 리다이렉트
+    await signIn('keycloak', { callbackUrl: '/' })
+  }
+
+  async function logout() {
+    setError(null)
+    setUser(null)
+    // NextAuth + Keycloak 로그아웃 → 미들웨어가 자동으로 Keycloak 리다이렉트
+    await signOut({ callbackUrl: '/' })
   }
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        isAuthenticated: !!user,
+        isAuthenticated: !!user && !!session,
         isLoading,
+        accessToken,
         login,
-        register,
         logout,
-        refreshToken
+        error,
       }}
     >
       {children}
