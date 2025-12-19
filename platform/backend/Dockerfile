@@ -1,29 +1,55 @@
-FROM python:3.11-slim
+# Vision AI Platform Backend
+# Build: docker build -t vision-backend:latest .
+# Run: docker run -p 8000:8000 --env-file .env vision-backend:latest
+
+ARG REGISTRY_MIRROR=
+
+FROM ${REGISTRY_MIRROR}python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies for building
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
-    postgresql-client \
     libpq-dev \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first (for better caching)
-# Note: Railway build context is at repository root
-COPY mvp/backend/requirements.txt .
+# Install uv (fast Python package manager)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Install Python dependencies (backend only - lightweight)
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Copy dependency files first (for better caching)
+COPY pyproject.toml .
+
+# Install dependencies using uv (much faster than pip)
+RUN uv pip install --system --no-cache -r pyproject.toml
+
+# ============================================
+# Production Stage
+# ============================================
+FROM ${REGISTRY_MIRROR}python:3.11-slim AS production
+
+WORKDIR /app
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-client \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
-COPY mvp/backend/ .
+COPY app/ ./app/
+COPY start.sh .
+COPY migrations/ ./migrations/
 
-# Copy sample datasets to /app/datasets (shared via volume in production)
-COPY mvp/backend/sample_datasets/ /app/datasets/
+# Copy sample datasets (shared via volume in production)
+COPY sample_datasets/ /app/datasets/
 
 # Note: Training code is NOT copied to Backend (proper dependency isolation)
 # Backend communicates with Training Services via HTTP API for all training-related operations:
@@ -32,19 +58,26 @@ COPY mvp/backend/sample_datasets/ /app/datasets/
 # - Training execution: POST /training/start
 # This maintains clean separation between Backend (API/DB) and Training (ML)
 
-# Create necessary directories (ignore if already exists)
-RUN mkdir -p /app/outputs /app/uploads /app/data/outputs /app/data/logs /app/mlruns || true
+# Create necessary directories
+RUN mkdir -p /app/outputs /app/uploads /app/data/outputs /app/data/logs /app/mlruns
 
 # Make start script executable
 RUN chmod +x start.sh
 
-# Expose ports (Railway will set PORT env var for FastAPI)
-EXPOSE ${PORT:-8000}
+# Create non-root user for security
+RUN groupadd --gid 1000 appuser && \
+    useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
+# Expose ports
+EXPOSE 8000
 EXPOSE 5000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:${PORT:-8000}/health')" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
 # Start both MLflow server and FastAPI application
 CMD ["./start.sh"]

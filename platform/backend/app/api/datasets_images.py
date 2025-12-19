@@ -1,20 +1,24 @@
 """
 Dataset Images API - Individual image management for datasets.
 
+Phase 11.5: Refactored to use Labeler API instead of Platform DB.
+- Labeler is Single Source of Truth for dataset metadata
+- Platform accesses R2 storage using storage_path from Labeler
+- Permission checking delegated to Labeler API
+
 This module provides APIs for:
-- Uploading individual images to datasets
-- Listing images in a dataset
-- Generating presigned URLs for image access
+- Listing images in a dataset (with presigned URLs)
+- Generating presigned URLs for individual images
+- Accessing dataset files (annotations.json, etc.)
 """
 
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Path as PathParam
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query
 from pydantic import BaseModel
 
-from app.db.database import get_db
-from app.db.models import Dataset, User
+from app.db.models import User
+from app.clients.labeler_client import labeler_client
 from app.utils.dual_storage import dual_storage
 from app.utils.dependencies import get_current_user
 
@@ -24,14 +28,6 @@ router = APIRouter()
 
 
 # ==================== Response Models ====================
-
-class ImageUploadResponse(BaseModel):
-    """Response model for image upload"""
-    status: str
-    message: str
-    image_path: Optional[str] = None
-    dataset_id: str
-
 
 class ImageInfo(BaseModel):
     """Information about a single image"""
@@ -56,120 +52,88 @@ class PresignedUrlResponse(BaseModel):
     expires_in: int  # seconds
 
 
-# ==================== API Endpoints ====================
+class FileContentResponse(BaseModel):
+    """Response model for file content"""
+    status: str
+    dataset_id: str
+    filename: str
+    content: dict  # JSON content
 
-@router.post("/{dataset_id}/images", response_model=ImageUploadResponse)
-async def upload_image_to_dataset(
-    dataset_id: str = PathParam(..., description="Dataset ID"),
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
+
+# ==================== Helper Functions ====================
+
+async def get_dataset_with_permission(
+    dataset_id: str,
+    user_id: int,
+    require_write: bool = False
+) -> dict:
     """
-    Upload an individual image to a dataset.
+    Get dataset metadata from Labeler and check permissions.
 
-    **Use Case:**
-    - Labeling tool: Upload unlabeled images
-    - Dataset augmentation: Add more images to existing dataset
+    Args:
+        dataset_id: Dataset ID (UUID)
+        user_id: User ID for permission check
+        require_write: If True, require owner permission
 
-    **Storage Structure:**
-    ```
-    datasets/{dataset_id}/
-    └── images/
-        ├── {filename}.jpg
-        ├── {filename}.png
-        └── ...
-    ```
+    Returns:
+        Dataset metadata dict with storage_path
 
-    **Request:**
-    - `file`: Image file (JPEG, PNG, etc.)
-
-    **Response:**
-    - `status`: "success" or "error"
-    - `message`: Description
-    - `image_path`: Relative path in R2 (e.g., "images/photo.jpg")
-    - `dataset_id`: Dataset identifier
+    Raises:
+        HTTPException: If dataset not found or permission denied
     """
+    import httpx
+
     try:
-        # 1. Verify dataset exists
-        dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-        if not dataset:
+        # Get dataset metadata from Labeler
+        dataset = await labeler_client.get_dataset(dataset_id, user_id=user_id)
+
+        # Check permission via Labeler
+        permission = await labeler_client.check_permission(dataset_id, user_id)
+
+        if require_write:
+            if not permission.get('is_owner'):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Permission denied: Only dataset owner can modify"
+                )
+        else:
+            if not permission.get('has_access'):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Permission denied: You don't have access to this dataset"
+                )
+
+        return dataset
+
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
             raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
-
-        # 2. Check ownership permission
-        if dataset.owner_id != current_user.id and dataset.visibility != 'public':
-            logger.warning(f"User {current_user.id} attempted to upload to dataset {dataset_id} owned by {dataset.owner_id}")
-            raise HTTPException(status_code=403, detail="Permission denied: You can only upload to your own datasets")
-
-        # 3. Validate file type
-        if not file.content_type or not file.content_type.startswith('image/'):
-            return ImageUploadResponse(
-                status="error",
-                message=f"Invalid file type: {file.content_type}. Only images are allowed.",
-                dataset_id=dataset_id
-            )
-
-        # 3. Generate safe filename
-        filename = file.filename or "image.jpg"
-        # TODO: Add unique suffix if filename already exists
-
-        # 4. Upload to R2
-        logger.info(f"Uploading image {filename} to dataset {dataset_id}")
-
-        file_content = await file.read()
-        from io import BytesIO
-        file_obj = BytesIO(file_content)
-
-        success = storage.upload_image(
-            file_obj=file_obj,
-            dataset_id=dataset_id,
-            image_filename=filename,
-            content_type=file.content_type
-        )
-
-        if not success:
-            return ImageUploadResponse(
-                status="error",
-                message="Failed to upload image to R2",
-                dataset_id=dataset_id
-            )
-
-        # 5. Update dataset metadata (num_images)
-        # TODO: Increment num_images count
-
-        logger.info(f"Successfully uploaded {filename} to dataset {dataset_id}")
-
-        return ImageUploadResponse(
-            status="success",
-            message=f"Image '{filename}' uploaded successfully",
-            image_path=f"images/{filename}",
-            dataset_id=dataset_id
-        )
-
+        elif e.response.status_code == 403:
+            raise HTTPException(status_code=403, detail="Access denied to dataset")
+        else:
+            logger.error(f"Labeler API error: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch dataset: {e.response.text}")
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error uploading image: {str(e)}", exc_info=True)
-        return ImageUploadResponse(
-            status="error",
-            message=f"Upload failed: {str(e)}",
-            dataset_id=dataset_id
-        )
+        logger.error(f"Error fetching dataset {dataset_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch dataset: {str(e)}")
 
+
+# ==================== API Endpoints ====================
 
 @router.get("/{dataset_id}/images", response_model=ImageListResponse)
 async def list_dataset_images(
     dataset_id: str = PathParam(..., description="Dataset ID"),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user)
 ):
     """
     List all images in a dataset with presigned URLs.
 
-    **Use Case:**
-    - Labeling tool: Display images for annotation
-    - Dataset preview: Show dataset contents
-    - Image gallery: Browse uploaded images
+    **Architecture:**
+    - Dataset metadata from Labeler API (Single Source of Truth)
+    - Images stored in R2/S3 at storage_path location
+    - Presigned URLs generated by Platform for direct browser access
 
     **Response:**
     - `status`: "success" or "error"
@@ -179,45 +143,53 @@ async def list_dataset_images(
 
     **Presigned URL:**
     - Valid for 1 hour (3600 seconds)
-    - Direct browser access to R2
+    - Direct browser access to R2/S3
     - No server load for image delivery
     """
     try:
-        # Get storage client
-        storage = dual_storage
+        # 1. Get dataset from Labeler (includes permission check)
+        dataset = await get_dataset_with_permission(dataset_id, current_user.id)
+        storage_path = dataset.get('storage_path', '')
 
-        # 1. Verify dataset exists
-        dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-        if not dataset:
-            raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+        logger.info(f"[IMAGES] Listing images for dataset {dataset_id}, storage_path: {storage_path}")
 
-        # 2. Check view permission (owner or public dataset)
-        if dataset.owner_id != current_user.id and dataset.visibility != 'public':
-            logger.warning(f"User {current_user.id} attempted to list images from dataset {dataset_id} owned by {dataset.owner_id}")
-            raise HTTPException(status_code=403, detail="Permission denied: You can only view your own datasets or public datasets")
+        # 2. List images from R2 using storage_path
+        # storage_path format: "datasets/{uuid}/" or "users/{id}/datasets/{name}/"
+        images_prefix = f"{storage_path}images/" if not storage_path.endswith('/') else f"{storage_path[:-1]}/images/"
+        if storage_path.endswith('/'):
+            images_prefix = f"{storage_path}images/"
+        else:
+            images_prefix = f"{storage_path}/images/"
 
-        # 3. List images from R2
-        logger.info(f"Listing images for dataset {dataset_id}")
-        image_keys = storage.list_images(dataset_id, prefix="images/")
+        logger.info(f"[IMAGES] Searching in prefix: {images_prefix}")
+
+        # List objects with prefix
+        image_keys = dual_storage.list_datasets(prefix=images_prefix)
+        logger.info(f"[IMAGES] Found {len(image_keys)} objects in {images_prefix}")
 
         # 3. Generate presigned URLs for each image
         images = []
         for image_key in image_keys:
+            # Skip directories (keys ending with /)
+            if image_key.endswith('/'):
+                continue
+
             # Generate presigned URL
-            presigned_url = storage.generate_presigned_url(
-                object_key=f"datasets/{dataset_id}/{image_key}",
+            presigned_url = dual_storage.generate_dataset_presigned_url(
+                dataset_key=image_key,
                 expiration=3600  # 1 hour
             )
 
             if presigned_url:
-                # Extract just the filename
-                filename = image_key.replace("images/", "")
-                images.append(ImageInfo(
-                    filename=filename,
-                    presigned_url=presigned_url
-                ))
+                # Extract just the filename from the full key
+                filename = image_key.split('/')[-1]
+                if filename:  # Skip empty filenames
+                    images.append(ImageInfo(
+                        filename=filename,
+                        presigned_url=presigned_url
+                    ))
 
-        logger.info(f"Found {len(images)} images in dataset {dataset_id}")
+        logger.info(f"[IMAGES] Generated presigned URLs for {len(images)} images in dataset {dataset_id}")
 
         return ImageListResponse(
             status="success",
@@ -229,7 +201,7 @@ async def list_dataset_images(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error listing images: {str(e)}", exc_info=True)
+        logger.error(f"[IMAGES] Error listing images: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to list images: {str(e)}")
 
 
@@ -237,9 +209,8 @@ async def list_dataset_images(
 async def get_image_presigned_url(
     dataset_id: str = PathParam(..., description="Dataset ID"),
     image_filename: str = PathParam(..., description="Image filename"),
-    expiration: int = 3600,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    expiration: int = Query(default=3600, description="URL expiration in seconds"),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Get a presigned URL for a specific image.
@@ -261,24 +232,21 @@ async def get_image_presigned_url(
     - `expires_in`: Expiration time in seconds
     """
     try:
-        # 1. Verify dataset exists
-        dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-        if not dataset:
-            raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+        # 1. Get dataset from Labeler (includes permission check)
+        dataset = await get_dataset_with_permission(dataset_id, current_user.id)
+        storage_path = dataset.get('storage_path', '')
 
-        # 2. Check view permission (owner or public dataset)
-        if dataset.owner_id != current_user.id and dataset.visibility != 'public':
-            logger.warning(f"User {current_user.id} attempted to access image from dataset {dataset_id} owned by {dataset.owner_id}")
-            raise HTTPException(status_code=403, detail="Permission denied: You can only access your own datasets or public datasets")
+        # 2. Construct full object key
+        if storage_path.endswith('/'):
+            object_key = f"{storage_path}images/{image_filename}"
+        else:
+            object_key = f"{storage_path}/images/{image_filename}"
+
+        logger.info(f"[IMAGES] Generating presigned URL for {object_key}")
 
         # 3. Generate presigned URL
-        image_path = f"images/{image_filename}"
-        object_key = f"datasets/{dataset_id}/{image_path}"
-
-        logger.info(f"Generating presigned URL for {object_key}")
-
-        presigned_url = storage.generate_presigned_url(
-            object_key=object_key,
+        presigned_url = dual_storage.generate_dataset_presigned_url(
+            dataset_key=object_key,
             expiration=expiration
         )
 
@@ -287,7 +255,7 @@ async def get_image_presigned_url(
 
         return PresignedUrlResponse(
             status="success",
-            image_path=image_path,
+            image_path=f"images/{image_filename}",
             presigned_url=presigned_url,
             expires_in=expiration
         )
@@ -295,5 +263,70 @@ async def get_image_presigned_url(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error generating presigned URL: {str(e)}", exc_info=True)
+        logger.error(f"[IMAGES] Error generating presigned URL: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to generate URL: {str(e)}")
+
+
+@router.get("/{dataset_id}/file/{filename:path}")
+async def get_dataset_file(
+    dataset_id: str = PathParam(..., description="Dataset ID"),
+    filename: str = PathParam(..., description="File path within dataset (e.g., annotations.json)"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get a file from the dataset (annotations.json, metadata, etc.).
+
+    **Use Case:**
+    - Load annotations.json for labeling information
+    - Access dataset metadata files
+    - Retrieve any JSON/text file from dataset storage
+
+    **Parameters:**
+    - `dataset_id`: Dataset identifier
+    - `filename`: File path within dataset (e.g., "annotations.json", "metadata/info.json")
+
+    **Response:**
+    - JSON content of the file
+    """
+    import json
+
+    try:
+        # 1. Get dataset from Labeler (includes permission check)
+        dataset = await get_dataset_with_permission(dataset_id, current_user.id)
+        storage_path = dataset.get('storage_path', '')
+
+        # 2. Construct full object key
+        if storage_path.endswith('/'):
+            object_key = f"{storage_path}{filename}"
+        else:
+            object_key = f"{storage_path}/{filename}"
+
+        logger.info(f"[FILE] Fetching file: {object_key}")
+
+        # 3. Get file content from R2
+        try:
+            response = dual_storage.external_client.get_object(
+                Bucket=dual_storage.external_bucket_datasets,
+                Key=object_key
+            )
+            content = response['Body'].read().decode('utf-8')
+
+            # Try to parse as JSON
+            try:
+                json_content = json.loads(content)
+                return json_content
+            except json.JSONDecodeError:
+                # Return as plain text if not JSON
+                return {"content": content, "type": "text"}
+
+        except dual_storage.external_client.exceptions.NoSuchKey:
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+        except Exception as e:
+            logger.error(f"[FILE] Error reading file {object_key}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to read file: {str(e)}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[FILE] Error fetching file: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch file: {str(e)}")

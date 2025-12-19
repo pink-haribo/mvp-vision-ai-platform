@@ -10,6 +10,14 @@ from app.db import models
 from app.schemas import training
 from app.services.clearml_service import ClearMLService
 from app.services.websocket_manager import get_websocket_manager
+from app.core.config import settings
+
+# MLflow Adapter (optional)
+try:
+    from app.adapters.observability.mlflow_adapter import MLflowAdapter, MLFLOW_AVAILABLE
+except ImportError:
+    MLflowAdapter = None
+    MLFLOW_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +30,7 @@ class TrainingCallbackService:
     - Job validation
     - Database updates
     - ClearML integration (Phase 12.2)
+    - MLflow integration (Phase 13)
     - WebSocket broadcasting
     """
 
@@ -35,6 +44,19 @@ class TrainingCallbackService:
         self.db = db
         self.clearml_service = ClearMLService(db)
         self.ws_manager = get_websocket_manager()
+
+        # Initialize MLflow adapter
+        self.mlflow_adapter: Optional[MLflowAdapter] = None
+        if MLFLOW_AVAILABLE:
+            try:
+                self.mlflow_adapter = MLflowAdapter()
+                self.mlflow_adapter.initialize({
+                    "tracking_uri": settings.MLFLOW_TRACKING_URI
+                })
+                logger.info(f"[CALLBACK] MLflow adapter initialized (tracking_uri={settings.MLFLOW_TRACKING_URI})")
+            except Exception as e:
+                logger.warning(f"[CALLBACK] MLflow adapter initialization failed (non-critical): {e}")
+                self.mlflow_adapter = None
 
     def _get_job_or_404(self, job_id: int) -> models.TrainingJob:
         """
@@ -97,6 +119,173 @@ class TrainingCallbackService:
 
         except Exception as e:
             logger.warning(f"[CALLBACK] ClearML logging error: {e}")
+            return False
+
+    def _get_or_create_mlflow_run(
+        self,
+        job: models.TrainingJob
+    ) -> Optional[str]:
+        """
+        Get existing MLflow run_id or create a new one.
+
+        Args:
+            job: Training job
+
+        Returns:
+            MLflow run_id or None if MLflow is not available
+        """
+        if not self.mlflow_adapter or not self.mlflow_adapter.is_enabled():
+            return None
+
+        # Check if run already exists in observability_experiment_ids
+        experiment_ids = job.observability_experiment_ids or {}
+        if "mlflow" in experiment_ids:
+            return experiment_ids["mlflow"]
+
+        # Create new MLflow run
+        try:
+            # Get project name for grouping
+            project = self.db.query(models.Project).filter(
+                models.Project.id == job.project_id
+            ).first()
+            project_name = project.name if project else "default"
+
+            run_id = self.mlflow_adapter.create_experiment(
+                job_id=job.id,
+                project_name=project_name,
+                experiment_name=f"Job {job.id} - {job.model_name}",
+                tags=[job.task_type, job.framework] if job.task_type and job.framework else None,
+                hyperparameters=job.config if isinstance(job.config, dict) else None
+            )
+
+            # Store run_id in observability_experiment_ids
+            experiment_ids["mlflow"] = run_id
+            job.observability_experiment_ids = experiment_ids
+
+            logger.info(f"[CALLBACK] Created MLflow run {run_id} for job {job.id}")
+            return run_id
+
+        except Exception as e:
+            logger.warning(f"[CALLBACK] Failed to create MLflow run: {e}")
+            return None
+
+    def _log_metrics_to_mlflow(
+        self,
+        job: models.TrainingJob,
+        metrics: Optional[Any],
+        step: Optional[int] = None
+    ) -> bool:
+        """
+        Log metrics to MLflow.
+
+        Args:
+            job: Training job
+            metrics: Metrics data
+            step: Training step/epoch
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.mlflow_adapter or not self.mlflow_adapter.is_enabled():
+            return False
+
+        if not metrics:
+            return False
+
+        # Get or create MLflow run
+        run_id = self._get_or_create_mlflow_run(job)
+        if not run_id:
+            return False
+
+        try:
+            # Extract metrics dict
+            metrics_dict = metrics.dict() if hasattr(metrics, 'dict') else {}
+            extra_metrics = metrics_dict.get('extra_metrics', {})
+
+            # Flatten metrics for MLflow
+            flat_metrics = {}
+            for key, value in metrics_dict.items():
+                if key != 'extra_metrics' and value is not None:
+                    flat_metrics[key] = float(value) if isinstance(value, (int, float)) else None
+
+            # Add extra_metrics
+            for key, value in extra_metrics.items():
+                if value is not None:
+                    try:
+                        flat_metrics[key] = float(value)
+                    except (ValueError, TypeError):
+                        pass  # Skip non-numeric values
+
+            # Remove None values
+            flat_metrics = {k: v for k, v in flat_metrics.items() if v is not None}
+
+            if flat_metrics:
+                self.mlflow_adapter.log_metrics(
+                    experiment_id=run_id,
+                    metrics=flat_metrics,
+                    step=step or 0
+                )
+                logger.debug(f"[CALLBACK] Logged {len(flat_metrics)} metrics to MLflow for step {step}")
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.warning(f"[CALLBACK] MLflow logging error: {e}")
+            return False
+
+    def _finalize_mlflow_run(
+        self,
+        job: models.TrainingJob,
+        status: str,
+        final_metrics: Optional[Any] = None
+    ) -> bool:
+        """
+        Finalize MLflow run (mark as completed/failed).
+
+        Args:
+            job: Training job
+            status: Final status ("completed" or "failed")
+            final_metrics: Optional final metrics
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.mlflow_adapter or not self.mlflow_adapter.is_enabled():
+            return False
+
+        experiment_ids = job.observability_experiment_ids or {}
+        run_id = experiment_ids.get("mlflow")
+
+        if not run_id:
+            return False
+
+        try:
+            # Extract final metrics
+            final_metrics_dict = None
+            if final_metrics:
+                metrics_data = final_metrics.dict() if hasattr(final_metrics, 'dict') else {}
+                extra_metrics = metrics_data.get('extra_metrics', {})
+
+                final_metrics_dict = {}
+                for key, value in {**metrics_data, **extra_metrics}.items():
+                    if key != 'extra_metrics' and value is not None:
+                        try:
+                            final_metrics_dict[key] = float(value)
+                        except (ValueError, TypeError):
+                            pass
+
+            self.mlflow_adapter.finalize_experiment(
+                experiment_id=run_id,
+                status=status,
+                final_metrics=final_metrics_dict
+            )
+
+            logger.info(f"[CALLBACK] Finalized MLflow run {run_id} with status '{status}'")
+            return True
+
+        except Exception as e:
+            logger.warning(f"[CALLBACK] Failed to finalize MLflow run: {e}")
             return False
 
     async def handle_progress(
@@ -169,6 +358,12 @@ class TrainingCallbackService:
                 self._log_metrics_to_clearml(job, callback.metrics, callback.current_epoch)
             except Exception as e:
                 logger.warning(f"[CALLBACK] ClearML integration error (non-critical): {e}")
+
+            # MLflow integration (Phase 13)
+            try:
+                self._log_metrics_to_mlflow(job, callback.metrics, callback.current_epoch)
+            except Exception as e:
+                logger.warning(f"[CALLBACK] MLflow integration error (non-critical): {e}")
 
             self.db.commit()
             logger.info(f"[CALLBACK] Successfully updated job {job_id}")
@@ -323,6 +518,12 @@ class TrainingCallbackService:
                 # Graceful degradation - don't fail the callback if ClearML fails
                 logger.warning(f"[CALLBACK] ClearML task update error (non-critical): {str(e)}")
 
+            # MLflow integration (Phase 13) - Finalize run
+            try:
+                self._finalize_mlflow_run(job, job.status, callback.final_metrics)
+            except Exception as e:
+                logger.warning(f"[CALLBACK] MLflow finalization error (non-critical): {str(e)}")
+
             self.db.commit()
 
             logger.info(
@@ -341,7 +542,8 @@ class TrainingCallbackService:
                 "best_epoch": callback.best_epoch,
                 "final_checkpoint_path": callback.final_checkpoint_path,
                 "best_checkpoint_path": callback.best_checkpoint_path,
-                "clearml_task_id": job.clearml_task_id,  # Phase 12.2: ClearML instead of MLflow
+                "clearml_task_id": job.clearml_task_id,  # Phase 12.2: ClearML
+                "mlflow_run_id": (job.observability_experiment_ids or {}).get("mlflow"),  # Phase 13: MLflow
                 "error_message": callback.error_message,
             })
 

@@ -14,7 +14,7 @@ interface Dataset {
   description: string
   format: string
   labeled: boolean
-  num_items: number
+  num_images: number
   source: string
   size_mb?: number
   tags?: string[]
@@ -26,7 +26,7 @@ interface Dataset {
   owner_badge_color?: string | null
 }
 
-type SortField = 'name' | 'format' | 'labeled' | 'num_items' | 'source' | 'visibility'
+type SortField = 'name' | 'format' | 'labeled' | 'num_images' | 'source' | 'visibility'
 type SortDirection = 'asc' | 'desc' | null
 
 // Avatar helper function
@@ -341,11 +341,11 @@ export default function DatasetPanel() {
               </th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                 <button
-                  onClick={() => handleSort('num_items')}
+                  onClick={() => handleSort('num_images')}
                   className="flex items-center gap-1 hover:text-violet-600"
                 >
                   이미지 수
-                  {getSortIcon('num_items')}
+                  {getSortIcon('num_images')}
                 </button>
               </th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
@@ -415,7 +415,7 @@ export default function DatasetPanel() {
                         {dataset.source}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-900">
-                        {dataset.num_items.toLocaleString()}
+                        {(dataset.num_images ?? 0).toLocaleString()}
                         {dataset.size_mb && (
                           <span className="text-xs text-gray-500 ml-2">
                             ({dataset.size_mb.toFixed(1)} MB)

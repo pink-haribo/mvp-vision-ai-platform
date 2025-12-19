@@ -1,0 +1,21 @@
+{{- if .Values.backend.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vision-ai.backend.fullname" . }}
+  labels:
+    {{- include "vision-ai.backend.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.backend.service.type }}
+  ports:
+    - port: {{ .Values.backend.service.port }}
+      targetPort: {{ .Values.backend.service.targetPort }}
+      protocol: TCP
+      name: http
+    - port: {{ .Values.backend.service.mlflowPort }}
+      targetPort: {{ .Values.backend.service.mlflowTargetPort }}
+      protocol: TCP
+      name: mlflow
+  selector:
+    {{- include "vision-ai.backend.selectorLabels" . | nindent 4 }}
+{{- end }}

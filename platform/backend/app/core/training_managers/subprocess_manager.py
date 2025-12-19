@@ -13,27 +13,14 @@ Architecture:
 - Implements TrainingManager abstract interface
 """
 
-import asyncio
-import io
 import json
 import logging
 import os
+import shutil
 import subprocess
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
-from sqlalchemy.orm import Session
-
-# Optional Loki integration (disabled on Windows due to query issues)
-try:
-    from logging_loki import LokiHandler
-    LOKI_AVAILABLE = True
-except ImportError:
-    LOKI_AVAILABLE = False
-
-from app.db.database import SessionLocal
-from app.db import models
 from app.core.training_manager import TrainingManager
 
 logger = logging.getLogger(__name__)
@@ -60,14 +47,18 @@ class SubprocessTrainingManager(TrainingManager):
         # Store running processes
         self.processes: Dict[int, subprocess.Popen] = {}
 
-        # Initialize Loki handler (optional - only if LOKI_URL is set)
-        self.loki_url = os.getenv('LOKI_URL', 'http://localhost:3100')
-        self.loki_enabled = os.getenv('LOKI_ENABLED', 'true').lower() == 'true'
-
-        if self.loki_enabled:
-            logger.info(f"[TrainingSubprocess] Loki logging enabled: {self.loki_url}")
+        # UV package manager support
+        self.use_uv = os.getenv('USE_UV', 'false').lower() == 'true'
+        if self.use_uv:
+            self.uv_path = shutil.which('uv')
+            if self.uv_path:
+                logger.info(f"[TrainingSubprocess] UV mode enabled: {self.uv_path}")
+            else:
+                logger.warning("[TrainingSubprocess] USE_UV=true but 'uv' not found in PATH. Falling back to venv.")
+                self.use_uv = False
         else:
-            logger.info(f"[TrainingSubprocess] Loki logging disabled (using DB only)")
+            self.uv_path = None
+            logger.info("[TrainingSubprocess] Using traditional venv mode")
 
     def get_python_executable(self, framework: str) -> Path:
         """
@@ -111,6 +102,40 @@ class SubprocessTrainingManager(TrainingManager):
 
         return trainer_dir
 
+    def build_command(self, framework: str, script_name: str, extra_args: List[str] = None) -> List[str]:
+        """
+        Build command list for subprocess execution.
+
+        Supports both traditional venv and uv package manager modes.
+
+        Args:
+            framework: Framework name (ultralytics, timm, huggingface)
+            script_name: Script to execute (e.g., "train.py", "evaluate.py")
+            extra_args: Additional CLI arguments
+
+        Returns:
+            List of command arguments for subprocess.Popen
+
+        Example (venv mode):
+            ["/path/to/venv/bin/python", "train.py", "--log-level", "INFO"]
+
+        Example (uv mode):
+            ["uv", "run", "python", "train.py", "--log-level", "INFO"]
+        """
+        if extra_args is None:
+            extra_args = []
+
+        if self.use_uv:
+            # UV mode: use "uv run python script.py"
+            # uv automatically detects .venv or pyproject.toml in cwd
+            cmd = [self.uv_path, "run", "python", script_name] + extra_args
+            return cmd
+        else:
+            # Traditional venv mode
+            python_exe = self.get_python_executable(framework)
+            cmd = [str(python_exe), script_name] + extra_args
+            return cmd
+
     async def start_training(
         self,
         job_id: int,
@@ -121,6 +146,7 @@ class SubprocessTrainingManager(TrainingManager):
         config: Dict[str, Any],
         snapshot_id: str = None,
         dataset_version_hash: str = None,
+        custom_docker_image: str = None,
     ) -> subprocess.Popen:
         """
         Start training subprocess.
@@ -132,6 +158,9 @@ class SubprocessTrainingManager(TrainingManager):
             dataset_s3_uri: S3 URI of dataset
             callback_url: Backend API callback URL
             config: Training configuration dictionary
+            snapshot_id: Dataset snapshot ID (for caching)
+            dataset_version_hash: Dataset version hash (for caching)
+            custom_docker_image: Custom Docker image (ignored in subprocess mode)
 
         Returns:
             subprocess.Popen instance
@@ -139,24 +168,23 @@ class SubprocessTrainingManager(TrainingManager):
         Raises:
             FileNotFoundError: If Training Service not found
             subprocess.CalledProcessError: If subprocess fails to start
+
+        Note:
+            custom_docker_image is ignored in subprocess mode since training
+            runs as local Python processes, not Docker containers.
         """
         try:
             # Get paths
-            python_exe = self.get_python_executable(framework)
             trainer_dir = self.get_trainer_directory(framework)
 
             logger.info(f"[TrainingSubprocess] Starting job {job_id}")
             logger.info(f"[TrainingSubprocess]   Framework: {framework}")
             logger.info(f"[TrainingSubprocess]   Trainer dir: {trainer_dir}")
-            logger.info(f"[TrainingSubprocess]   Python: {python_exe}")
+            logger.info(f"[TrainingSubprocess]   UV mode: {self.use_uv}")
             logger.info(f"[TrainingSubprocess]   Model: {model_name}")
 
             # Prepare command (K8s Job style - use env vars instead of CLI args)
-            cmd = [
-                str(python_exe),
-                "train.py",
-                "--log-level", "INFO",  # Only keep log-level as CLI arg for quick override
-            ]
+            cmd = self.build_command(framework, "train.py", ["--log-level", "INFO"])
 
             logger.info(f"[TrainingSubprocess] Command: {' '.join(cmd)}")
 
@@ -228,24 +256,17 @@ class SubprocessTrainingManager(TrainingManager):
             logger.info(f"[TrainingSubprocess] Environment variables set: JOB_ID={job_id}, MODEL_NAME={model_name}")
 
             # Start subprocess in background
+            # Note: PIPE removed - logs are now sent via SDK callback (TrainerSDKLogHandler)
             process = subprocess.Popen(
                 cmd,
                 cwd=str(trainer_dir),
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",  # Replace decode errors instead of failing
             )
 
             # Store process
             self.processes[job_id] = process
 
             logger.info(f"[TrainingSubprocess] Job {job_id} started (PID: {process.pid})")
-
-            # Start async log monitoring (non-blocking)
-            asyncio.create_task(self._monitor_process_logs(job_id, process))
 
             return process
 
@@ -255,196 +276,6 @@ class SubprocessTrainingManager(TrainingManager):
         except Exception as e:
             logger.error(f"[TrainingSubprocess] Failed to start job {job_id}: {e}")
             raise
-
-    async def _monitor_process_logs(self, job_id: int, process: subprocess.Popen):
-        """
-        Monitor subprocess logs in background.
-
-        This is a simple implementation that logs to console.
-        For production, you should store logs in database or forward to Loki.
-        """
-        try:
-            # Wrap stdout/stderr with explicit UTF-8 encoding to avoid Windows cp949 issues
-            # Even though we set encoding="utf-8" on Popen, iteration over the stream
-            # still uses system default encoding, so we need to wrap it explicitly
-            stdout_reader = io.TextIOWrapper(
-                process.stdout.buffer,
-                encoding='utf-8',
-                errors='replace'  # Replace undecodable bytes instead of failing
-            )
-            stderr_reader = io.TextIOWrapper(
-                process.stderr.buffer,
-                encoding='utf-8',
-                errors='replace'
-            )
-
-            # IMPORTANT: Use asyncio.to_thread to avoid blocking the event loop
-            # Reading from pipes is blocking I/O and should not be done directly in async functions
-
-            async def read_stream_async(reader, prefix):
-                """Read stream line by line and save to DB in real-time"""
-                loop = asyncio.get_event_loop()
-                batch = []
-                batch_size = 10  # Save every 10 lines for efficiency
-
-                def read_one_line():
-                    """Read one line from stream (blocking)"""
-                    try:
-                        return reader.readline()
-                    except Exception:
-                        return None
-
-                while True:
-                    # Read line in thread pool to avoid blocking event loop
-                    line = await loop.run_in_executor(None, read_one_line)
-
-                    if not line:  # EOF
-                        break
-
-                    line = line.rstrip()
-                    if not line.strip():
-                        continue
-
-                    # Log to console
-                    if prefix == "stdout":
-                        logger.info(f"[JOB {job_id}] {line}")
-                    else:
-                        logger.error(f"[JOB {job_id}] {line}")
-
-                    # Add to batch
-                    batch.append(line)
-
-                    # Save batch to DB when full
-                    if len(batch) >= batch_size:
-                        await self._save_logs_to_db(job_id, batch, prefix)
-                        batch = []
-
-                # Save remaining logs
-                if batch:
-                    await self._save_logs_to_db(job_id, batch, prefix)
-
-            # Read both streams concurrently (but in threads to avoid blocking)
-            await asyncio.gather(
-                read_stream_async(stdout_reader, "stdout"),
-                read_stream_async(stderr_reader, "stderr")
-            )
-
-            # Wait for process to complete (also blocking, so run in thread)
-            loop = asyncio.get_event_loop()
-            exit_code = await loop.run_in_executor(None, process.wait)
-
-            logger.info(f"[TrainingSubprocess] Job {job_id} finished (exit code: {exit_code})")
-
-            # Remove from active processes
-            if job_id in self.processes:
-                del self.processes[job_id]
-
-        except Exception as e:
-            logger.error(f"[TrainingSubprocess] Error monitoring job {job_id}: {e}")
-
-    async def _save_logs_to_db(self, job_id: int, lines: list[str], log_type: str):
-        """
-        Save log lines to database AND Loki (dual storage).
-
-        Args:
-            job_id: Training job ID
-            lines: List of log lines
-            log_type: "stdout" or "stderr"
-        """
-        try:
-            # Run DB operations in thread pool to avoid blocking event loop
-            loop = asyncio.get_event_loop()
-
-            def save_to_db():
-                # Skip DB save for non-training jobs (export_, inference_, eval_)
-                # These are short-lived tasks and report results via callbacks
-                if not isinstance(job_id, int):
-                    return
-                    
-                db = SessionLocal()
-                try:
-                    # Create log entries
-                    log_entries = [
-                        models.TrainingLog(
-                            job_id=job_id,
-                            log_type=log_type,
-                            content=line,
-                            created_at=datetime.utcnow()
-                        )
-                        for line in lines
-                    ]
-
-                    # Bulk insert for efficiency
-                    db.bulk_save_objects(log_entries)
-                    db.commit()
-
-                except Exception as e:
-                    logger.error(f"[TrainingSubprocess] Failed to save logs to DB: {e}")
-                    db.rollback()
-                finally:
-                    db.close()
-
-            # Save to DB
-            await loop.run_in_executor(None, save_to_db)
-
-            # Also send to Loki if enabled
-            if self.loki_enabled:
-                await self._send_logs_to_loki(job_id, lines, log_type)
-
-        except Exception as e:
-            logger.error(f"[TrainingSubprocess] Error in _save_logs_to_db: {e}")
-
-    async def _send_logs_to_loki(self, job_id: int, lines: list[str], log_type: str):
-        """
-        Send log lines to Loki for real-time log aggregation.
-
-        Args:
-            job_id: Training job ID
-            lines: List of log lines
-            log_type: "stdout" or "stderr"
-        """
-        try:
-            import requests
-
-            # Loki Push API endpoint
-            url = f"{self.loki_url}/loki/api/v1/push"
-
-            # Build Loki streams payload
-            # Loki uses nanosecond timestamps
-            # Use single stream with multiple values for efficiency
-            base_timestamp_ns = int(datetime.utcnow().timestamp() * 1_000_000_000)
-
-            # Create values array with incrementing timestamps
-            # This ensures each log line has a unique timestamp
-            values = []
-            for i, line in enumerate(lines):
-                # Add microseconds to ensure uniqueness
-                timestamp_ns = str(base_timestamp_ns + i * 1000)  # Add 1μs per line
-                values.append([timestamp_ns, line])
-
-            # Single stream for efficiency (Loki batches by stream)
-            stream = {
-                "stream": {
-                    "job": "training",
-                    "job_id": str(job_id),
-                    "log_type": log_type,
-                    "source": "backend"
-                },
-                "values": values
-            }
-
-            payload = {"streams": [stream]}
-
-            # Send to Loki (async)
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: requests.post(url, json=payload, timeout=5)
-            )
-
-        except Exception as e:
-            # Don't fail if Loki is down - logs are still saved in DB
-            logger.warning(f"[TrainingSubprocess] Failed to send logs to Loki: {e}")
 
     def stop_training(self, job_id: int) -> bool:
         """
@@ -544,21 +375,16 @@ class SubprocessTrainingManager(TrainingManager):
         """
         try:
             # Get paths
-            python_exe = self.get_python_executable(framework)
             trainer_dir = self.get_trainer_directory(framework)
 
             logger.info(f"[EvaluationSubprocess] Starting test run {test_run_id}")
             logger.info(f"[EvaluationSubprocess]   Framework: {framework}")
             logger.info(f"[EvaluationSubprocess]   Trainer dir: {trainer_dir}")
-            logger.info(f"[EvaluationSubprocess]   Python: {python_exe}")
+            logger.info(f"[EvaluationSubprocess]   UV mode: {self.use_uv}")
             logger.info(f"[EvaluationSubprocess]   Checkpoint: {checkpoint_s3_uri}")
 
             # Prepare command (K8s Job style - use env vars instead of CLI args)
-            cmd = [
-                str(python_exe),
-                "evaluate.py",
-                "--log-level", "INFO",  # Only keep log-level as CLI arg for quick override
-            ]
+            cmd = self.build_command(framework, "evaluate.py", ["--log-level", "INFO"])
 
             logger.info(f"[EvaluationSubprocess] Command: {' '.join(cmd)}")
 
@@ -594,15 +420,11 @@ class SubprocessTrainingManager(TrainingManager):
             logger.info(f"[EvaluationSubprocess] Environment variables set: TEST_RUN_ID={test_run_id}")
 
             # Start subprocess in background
+            # Note: PIPE removed - evaluate.py uses its own callback mechanism
             process = subprocess.Popen(
                 cmd,
                 cwd=str(trainer_dir),
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
             )
 
             # Store process (use negative test_run_id to avoid collision with training jobs)
@@ -610,9 +432,6 @@ class SubprocessTrainingManager(TrainingManager):
             self.processes[process_key] = process
 
             logger.info(f"[EvaluationSubprocess] Test run {test_run_id} started (PID: {process.pid})")
-
-            # Start async log monitoring
-            asyncio.create_task(self._monitor_process_logs(process_key, process))
 
             return process
 
@@ -654,21 +473,16 @@ class SubprocessTrainingManager(TrainingManager):
         """
         try:
             # Get paths
-            python_exe = self.get_python_executable(framework)
             trainer_dir = self.get_trainer_directory(framework)
 
             logger.info(f"[InferenceSubprocess] Starting inference job {inference_job_id}")
             logger.info(f"[InferenceSubprocess]   Framework: {framework}")
             logger.info(f"[InferenceSubprocess]   Trainer dir: {trainer_dir}")
-            logger.info(f"[InferenceSubprocess]   Python: {python_exe}")
+            logger.info(f"[InferenceSubprocess]   UV mode: {self.use_uv}")
             logger.info(f"[InferenceSubprocess]   Checkpoint: {checkpoint_s3_uri}")
 
             # Prepare command (K8s Job style - use env vars instead of CLI args)
-            cmd = [
-                str(python_exe),
-                "predict.py",
-                "--log-level", "INFO",  # Only keep log-level as CLI arg for quick override
-            ]
+            cmd = self.build_command(framework, "predict.py", ["--log-level", "INFO"])
 
             logger.info(f"[InferenceSubprocess] Command: {' '.join(cmd)}")
 
@@ -704,15 +518,11 @@ class SubprocessTrainingManager(TrainingManager):
             logger.info(f"[InferenceSubprocess] Environment variables set: INFERENCE_JOB_ID={inference_job_id}")
 
             # Start subprocess in background
+            # Note: PIPE removed - logs are now sent via SDK callback (TrainerSDKLogHandler)
             process = subprocess.Popen(
                 cmd,
                 cwd=str(trainer_dir),
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
             )
 
             # Store process (use negative inference_job_id to avoid collision)
@@ -720,9 +530,6 @@ class SubprocessTrainingManager(TrainingManager):
             self.processes[process_key] = process
 
             logger.info(f"[InferenceSubprocess] Inference job {inference_job_id} started (PID: {process.pid})")
-
-            # Start async log monitoring
-            asyncio.create_task(self._monitor_process_logs(process_key, process))
 
             return process
 
@@ -764,22 +571,17 @@ class SubprocessTrainingManager(TrainingManager):
         """
         try:
             # Get paths
-            python_exe = self.get_python_executable(framework)
             trainer_dir = self.get_trainer_directory(framework)
 
             logger.info(f"[ExportSubprocess] Starting export job {export_job_id}")
             logger.info(f"[ExportSubprocess]   Framework: {framework}")
             logger.info(f"[ExportSubprocess]   Trainer dir: {trainer_dir}")
-            logger.info(f"[ExportSubprocess]   Python: {python_exe}")
+            logger.info(f"[ExportSubprocess]   UV mode: {self.use_uv}")
             logger.info(f"[ExportSubprocess]   Export format: {export_format}")
             logger.info(f"[ExportSubprocess]   Checkpoint: {checkpoint_s3_uri}")
 
             # Prepare command (K8s Job style - use env vars instead of CLI args)
-            cmd = [
-                str(python_exe),
-                "export.py",
-                "--log-level", "INFO",  # Only keep log-level as CLI arg for quick override
-            ]
+            cmd = self.build_command(framework, "export.py", ["--log-level", "INFO"])
 
             logger.info(f"[ExportSubprocess] Command: {' '.join(cmd)}")
 
@@ -812,15 +614,11 @@ class SubprocessTrainingManager(TrainingManager):
             logger.info(f"[ExportSubprocess] Environment variables set: EXPORT_JOB_ID={export_job_id}")
 
             # Start subprocess in background
+            # Note: PIPE removed - logs are now sent via SDK callback (TrainerSDKLogHandler)
             process = subprocess.Popen(
                 cmd,
                 cwd=str(trainer_dir),
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
             )
 
             # Store process in registry (use f"export_{export_job_id}" to avoid collision)
@@ -828,9 +626,6 @@ class SubprocessTrainingManager(TrainingManager):
             self.processes[process_key] = process
 
             logger.info(f"[ExportSubprocess] Export job {export_job_id} started (PID: {process.pid})")
-
-            # Start async log monitoring
-            asyncio.create_task(self._monitor_process_logs(process_key, process))
 
             return process
 

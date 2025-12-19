@@ -298,6 +298,7 @@ async def create_training_job(
         model_name=job_request.config.model_name,
         task_type=job_request.config.task_type,
         num_classes=job_request.config.num_classes,
+        custom_docker_image=job_request.config.custom_docker_image,  # Custom Docker image for new frameworks
         dataset_id=dataset_id,  # Store dataset ID if from DB
         dataset_path=dataset_path,  # Use resolved path
         dataset_format=dataset_format,  # Use format from DB or config
@@ -568,10 +569,13 @@ async def start_training_job(
                 detail=f"Failed to create dataset snapshot: {str(e)}"
             )
 
-    # Phase 12: Start training (Temporal Workflow or Direct Subprocess)
+    # Phase 12: Start training based on TRAINING_MODE
+    # - subprocess: Direct execution via SubprocessTrainingManager (Tier 0, local dev)
+    # - kubernetes: K8s Job execution via KubernetesTrainingManager (Tier 1+, production)
+    # - temporal: Temporal Workflow orchestration (future option)
     try:
         if settings.TRAINING_MODE == "subprocess":
-            logger.info(f"[JOB {job_id}] Starting training in direct subprocess mode")
+            logger.info(f"[JOB {job_id}] Starting training in subprocess mode (Tier 0)")
 
             # Phase 12.2: Create ClearML Task
             clearml_task_id = None
@@ -595,14 +599,125 @@ async def start_training_job(
             db.commit()
             db.refresh(job)
 
-            from app.workflows.training_workflow import execute_training
+            # Use SubprocessTrainingManager directly (no Temporal for Tier 0)
+            from app.core.training_manager import get_training_manager
+            manager = get_training_manager()
+
+            # Build training parameters
+            dataset_s3_uri = job.dataset_path or f"datasets/{job.dataset_id}"
+            callback_url = f"{settings.API_BASE_URL}/api/v1"
+
+            training_config = {
+                "model": job.model_name,
+                "task": job.task_type,
+                "epochs": job.epochs,
+                "batch": job.batch_size,
+                "learning_rate": job.learning_rate,
+                "imgsz": 640,
+                "device": "cpu",
+                "primary_metric": job.primary_metric or "loss",
+                "primary_metric_mode": job.primary_metric_mode or "min",
+                "advanced_config": job.advanced_config or {},
+            }
+
+            # Start training asynchronously
             import asyncio
-            asyncio.create_task(execute_training(job_id, clearml_task_id=clearml_task_id))
+            asyncio.create_task(
+                manager.start_training(
+                    job_id=job_id,
+                    framework=job.framework,
+                    model_name=job.model_name,
+                    dataset_s3_uri=dataset_s3_uri,
+                    callback_url=callback_url,
+                    config=training_config,
+                    snapshot_id=job.dataset_snapshot_id,
+                    custom_docker_image=job.custom_docker_image,
+                )
+            )
 
             logger.info(f"[JOB {job_id}] Training started in subprocess mode (ClearML: {clearml_task_id})")
 
-        else:
-            # Temporal Workflow (default for production)
+        elif settings.TRAINING_MODE == "kubernetes":
+            # Kubernetes mode: Create K8s Job via KubernetesTrainingManager (Tier 1+)
+            logger.info(f"[JOB {job_id}] Starting training in kubernetes mode (Tier 1+)")
+
+            # Phase 12.2: Create ClearML Task
+            clearml_task_id = None
+            try:
+                from app.services.clearml_service import ClearMLService
+                clearml_service = ClearMLService(db)
+                clearml_task_id = clearml_service.create_task(
+                    job_id=job_id,
+                    project_name=f"Project {job.project_id}",
+                    task_name=f"Training Job {job_id}",
+                    task_type="training"
+                )
+                logger.info(f"[JOB {job_id}] ClearML task created: {clearml_task_id}")
+            except Exception as e:
+                logger.warning(f"[JOB {job_id}] Failed to create ClearML task: {str(e)}")
+
+            # Use KubernetesTrainingManager
+            from app.core.training_manager import get_training_manager
+            manager = get_training_manager()
+
+            # Build training parameters
+            dataset_s3_uri = job.dataset_path or f"s3://training-datasets/datasets/{job.dataset_id}/"
+            callback_url = f"{settings.API_BASE_URL}/api/v1"
+
+            training_config = {
+                "model": job.model_name,
+                "task": job.task_type,
+                "epochs": job.epochs,
+                "batch": job.batch_size,
+                "learning_rate": job.learning_rate,
+                "imgsz": 640,
+                "device": "0",  # GPU device for K8s
+                "primary_metric": job.primary_metric or "loss",
+                "primary_metric_mode": job.primary_metric_mode or "min",
+                "advanced_config": job.advanced_config or {},
+            }
+
+            # Fetch snapshot info for dataset caching
+            snapshot_id = job.dataset_snapshot_id
+            dataset_version_hash = None
+            if snapshot_id:
+                snapshot = db.query(models.DatasetSnapshot).filter(
+                    models.DatasetSnapshot.id == snapshot_id
+                ).first()
+                if snapshot:
+                    dataset_version_hash = snapshot.dataset_version_hash
+
+            # Start K8s Job
+            k8s_metadata = await manager.start_training(
+                job_id=job_id,
+                framework=job.framework,
+                model_name=job.model_name,
+                dataset_s3_uri=dataset_s3_uri,
+                callback_url=callback_url,
+                config=training_config,
+                snapshot_id=snapshot_id,
+                dataset_version_hash=dataset_version_hash,
+                custom_docker_image=job.custom_docker_image,
+            )
+
+            # Update job status with K8s metadata
+            job.status = "running"
+            job.started_at = datetime.utcnow()
+            job.workflow_id = k8s_metadata.get("k8s_job_name")  # Store K8s job name
+            if clearml_task_id:
+                job.clearml_task_id = clearml_task_id
+            db.commit()
+            db.refresh(job)
+
+            logger.info(
+                f"[JOB {job_id}] K8s training job created: {k8s_metadata.get('k8s_job_name')} "
+                f"in namespace {k8s_metadata.get('k8s_namespace')}"
+            )
+
+        elif settings.TRAINING_MODE == "temporal":
+            # Temporal Workflow mode: Orchestrate via Temporal (future option)
+            logger.info(f"[JOB {job_id}] Starting training via Temporal Workflow")
+
             from app.core.temporal_client import get_temporal_client
             from app.workflows.training_workflow import TrainingWorkflow, TrainingWorkflowInput
 
@@ -636,6 +751,14 @@ async def start_training_job(
                 f"(workflow_id: {workflow_id}, mode: {settings.TRAINING_MODE})"
             )
 
+        else:
+            # Invalid TRAINING_MODE
+            raise HTTPException(
+                status_code=500,
+                detail=f"Invalid TRAINING_MODE: {settings.TRAINING_MODE}. "
+                       f"Expected 'subprocess', 'kubernetes', or 'temporal'"
+            )
+
     except Exception as e:
         logger.error(f"[JOB {job_id}] Failed to start training: {e}")
         raise HTTPException(
@@ -651,7 +774,7 @@ async def cancel_training_job(job_id: int, db: Session = Depends(get_db)):
     """
     Cancel a running training job.
     """
-    from app.core.training_managers.subprocess_manager import get_training_subprocess_manager
+    from app.core.training_manager import get_training_manager
 
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
     if not job:
@@ -663,8 +786,8 @@ async def cancel_training_job(job_id: int, db: Session = Depends(get_db)):
             detail=f"Cannot cancel job with status '{job.status}'",
         )
 
-    # Stop training subprocess
-    manager = get_training_subprocess_manager()
+    # Stop training (works for both subprocess and kubernetes)
+    manager = get_training_manager()
     if manager.stop_training(job_id):
         job.status = "cancelled"
         job.completed_at = datetime.utcnow()
@@ -1562,9 +1685,9 @@ async def stop_training_job(
 
         logger.info(f"[stop-training] Stopping job {job_id} (status: {job.status})")
 
-        # Stop training subprocess
-        from app.core.training_managers.subprocess_manager import get_training_subprocess_manager
-        manager = get_training_subprocess_manager()
+        # Stop training (works for both subprocess and kubernetes)
+        from app.core.training_manager import get_training_manager
+        manager = get_training_manager()
 
         # Stop the training job
         success = manager.stop_training(job_id)

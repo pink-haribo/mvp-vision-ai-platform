@@ -1,0 +1,410 @@
+# Vision AI Platform - Unified Helm Chart Values
+# This chart deploys backend, frontend, and training infrastructure together.
+
+# Global settings
+nameOverride: ""
+fullnameOverride: ""
+
+# =============================================================================
+# Backend Configuration (FastAPI + MLflow)
+# =============================================================================
+backend:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: vision-ai-backend
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+  # Override container command and args
+  # Example:
+  #   command: ["python", "-m", "uvicorn"]
+  #   args: ["app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+  command: []
+  args: []
+
+  imagePullSecrets: []
+
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+
+  # RBAC for Backend to manage training jobs in training namespace
+  # Required when TRAINING_MODE=kubernetes
+  rbac:
+    create: true
+
+  podAnnotations: {}
+  podSecurityContext: {}
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+    mlflowPort: 5000
+    mlflowTargetPort: 5000
+
+  ingress:
+    enabled: false
+    className: "nginx"
+    annotations: {}
+    hosts:
+      - host: api.vision-ai.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Environment variables
+  env:
+    # API Base URL for callbacks (training pods → backend)
+    # This is auto-generated in configmap using K8s service name
+    # Override with full URL if needed (e.g., for cross-namespace)
+    # API_BASE_URL: "http://vision-ai-platform-backend:8000"
+
+    # Database
+    DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/vision_ai"
+    # Redis
+    REDIS_URL: "redis://redis:6379"
+    # Storage (MinIO/S3)
+    S3_ENDPOINT: "http://minio:9000"
+    S3_BUCKET: "vision-ai"
+    AWS_ACCESS_KEY_ID: "minioadmin"
+    AWS_SECRET_ACCESS_KEY: "minioadmin"
+    # Temporal
+    TEMPORAL_HOST: "temporal:7233"
+    TEMPORAL_NAMESPACE: "default"
+    # MLflow
+    MLFLOW_TRACKING_URI: "http://localhost:5000"
+    # Application
+    ENVIRONMENT: "production"
+    LOG_LEVEL: "INFO"
+
+  # Secret environment variables (reference to external secret)
+  secretEnv:
+    - name: OPENAI_API_KEY
+      secretName: vision-ai-secrets
+      secretKey: openai-api-key
+    - name: ANTHROPIC_API_KEY
+      secretName: vision-ai-secrets
+      secretKey: anthropic-api-key
+    - name: GOOGLE_API_KEY
+      secretName: vision-ai-secrets
+      secretKey: google-api-key
+    - name: JWT_SECRET
+      secretName: vision-ai-secrets
+      secretKey: jwt-secret
+
+  # Probes
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Persistence for MLflow artifacts (optional - prefer S3)
+  persistence:
+    enabled: false
+    storageClass: ""
+    size: 10Gi
+    accessModes:
+      - ReadWriteOnce
+
+# =============================================================================
+# Frontend Configuration (Next.js)
+# =============================================================================
+frontend:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: vision-ai-frontend
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+  # Override container command and args
+  # Example:
+  #   command: ["node"]
+  #   args: ["server.js"]
+  command: []
+  args: []
+
+  imagePullSecrets: []
+
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+
+  podAnnotations: {}
+
+  podSecurityContext:
+    fsGroup: 1001
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    hosts:
+      - host: vision-ai.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Environment variables
+  env:
+    NEXT_PUBLIC_API_URL: "http://backend:8000/api/v1"
+    NEXT_PUBLIC_WS_URL: "ws://backend:8000/ws"
+    NEXT_PUBLIC_ENVIRONMENT: "production"
+
+# =============================================================================
+# Training Infrastructure Configuration
+# =============================================================================
+training:
+  enabled: true
+
+  # Namespace for training jobs (can be different from app namespace)
+  namespace: training
+
+  # Docker registry configuration
+  registry:
+    url: ghcr.io/vision-ai
+    defaultTag: latest
+    pullSecret: ""
+
+  # Init container image (for fixing PVC permissions)
+  initContainer:
+    image: busybox
+    tag: "1.36"
+
+  # Service Account for training jobs
+  serviceAccount:
+    create: true
+    name: ""  # Defaults to {release}-training-job-sa
+    annotations: {}
+
+  # RBAC configuration
+  rbac:
+    create: true
+
+  # Job default settings
+  job:
+    backoffLimit: 2
+    ttlSecondsAfterFinished: 3600
+    activeDeadlineSeconds: 86400  # 24 hours
+
+  # Default resource configuration
+  resources:
+    defaults:
+      cpu:
+        request: "2"
+        limit: "4"
+      memory:
+        request: 8Gi
+        limit: 16Gi
+      gpu:
+        limit: "1"
+      # Shared memory for PyTorch DataLoader workers
+      # Increase this if you see "DataLoader worker killed by signal: Bus error"
+      shm:
+        size: 8Gi
+
+  # GPU node configuration
+  gpu:
+    nodeSelector:
+      accelerator: nvidia-gpu
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+
+  # Storage configuration (PVC-based caching for training jobs)
+  storage:
+    # Dataset cache: Stores downloaded datasets to avoid re-downloading from S3
+    # RWX PVC recommended for multi-job concurrent access
+    datasets:
+      enabled: false
+      create: true  # Create PVC via Helm (set false to use existing PVC)
+      pvcName: datasets-cache-pvc
+      storageClass: ""  # Empty = default StorageClass, or specify: nfs-client, cephfs, etc.
+      size: 100Gi
+      accessModes:
+        - ReadWriteMany  # RWX for multi-job access
+      mountPath: /data/datasets
+      readOnly: false  # Must be false for cache writes
+      cacheMaxSizeGB: 100  # Max cache size in GB (LRU eviction)
+
+    # Models cache: Stores pre-trained model weights (HuggingFace, PyTorch, YOLO, etc.)
+    # Shared across jobs to avoid re-downloading from model hubs
+    modelsCache:
+      enabled: false
+      create: true
+      pvcName: models-cache-pvc
+      storageClass: ""
+      size: 50Gi
+      accessModes:
+        - ReadWriteMany
+      mountPath: /data/models
+
+  # S3/MinIO configuration
+  s3:
+    enabled: true
+    secretName: training-s3-credentials
+    # Override during installation:
+    # --set-string training.s3.accessKey=xxx --set-string training.s3.secretKey=xxx
+    accessKey: ""
+    secretKey: ""
+    endpoint: ""
+    bucket: ""
+
+  # MLflow tracking
+  mlflow:
+    enabled: false
+    trackingUri: http://mlflow:5000
+
+  # Framework-specific configurations
+  frameworks:
+    ultralytics:
+      enabled: true
+      image_suffix: trainer-ultralytics
+      resources:
+        memory:
+          request: 8Gi
+          limit: 16Gi
+      extra_env: []
+      extra_volumes: []
+      extra_volume_mounts: []
+
+    huggingface:
+      enabled: true
+      image_suffix: trainer-huggingface
+      resources:
+        memory:
+          request: 16Gi
+          limit: 32Gi
+      # When modelsCache is enabled, HF_HOME/TRANSFORMERS_CACHE are set via _defaults
+      # pointing to shared PVC. The values below are fallback for emptyDir cache.
+      extra_env:
+        - name: HF_HOME
+          value: /tmp/huggingface
+        - name: TRANSFORMERS_CACHE
+          value: /tmp/huggingface/transformers
+      extra_volumes:
+        - name: hf-cache
+          emptyDir:
+            sizeLimit: 10Gi
+      extra_volume_mounts:
+        - name: hf-cache
+          mountPath: /tmp/huggingface
+
+    timm:
+      enabled: true
+      image_suffix: trainer-timm
+      resources:
+        memory:
+          request: 8Gi
+          limit: 16Gi
+      extra_env: []
+      extra_volumes: []
+      extra_volume_mounts: []
+
+    custom:
+      enabled: true
+      resources:
+        memory:
+          request: 8Gi
+          limit: 16Gi
+      extra_env: []
+      extra_volumes: []
+      extra_volume_mounts: []
+
+  # Debug pod for troubleshooting storage and training issues
+  # Access via: kubectl exec -it -n training debug-pod -- /bin/sh
+  debugPod:
+    enabled: false
+    image: python
+    tag: "3.11-slim"
+
+  # Pod security context for training jobs
+  podSecurityContext:
+    fsGroup: 1000
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL

@@ -9,12 +9,12 @@ from app.db.database import Base
 
 
 class UserRole(str, enum.Enum):
-    """5-tier user permission system"""
-    ADMIN = "admin"              # All permissions
-    MANAGER = "manager"          # Can grant permissions below manager
-    ENGINEER_II = "engineer_ii"  # Advanced training features
-    ENGINEER_I = "engineer_i"    # Basic training features
-    GUEST = "guest"              # Limited: 1 project, 1 dataset, no collaboration
+    """5-tier user permission system (matches schemas/enums.py SystemRole)"""
+    GUEST = "guest"                           # 기본 모델만 사용, Limited: 1 project, 1 dataset
+    STANDARD_ENGINEER = "standard_engineer"   # 모든 모델 사용 가능
+    ADVANCED_ENGINEER = "advanced_engineer"   # 세부 기능 사용 가능
+    MANAGER = "manager"                       # 권한 승급 가능
+    ADMIN = "admin"                           # 모든 기능 (권한/사용자/프로젝트 관리)
 
 
 class InvitationType(str, enum.Enum):
@@ -89,7 +89,11 @@ class Invitation(Base):
     invitee_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)  # Set when accepted
 
     # Role to assign upon acceptance
-    invitee_role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.GUEST)
+    invitee_role = Column(
+        SQLEnum(UserRole, values_callable=lambda obj: [e.value for e in obj]),
+        nullable=False,
+        default=UserRole.GUEST
+    )
 
     # Optional invitation message
     message = Column(Text, nullable=True)
@@ -433,6 +437,11 @@ class TrainingJob(Base):
     model_name = Column(String(100), nullable=False)
     task_type = Column(String(50), nullable=False)
     num_classes = Column(Integer, nullable=True)
+
+    # Custom Docker Image (for new/custom training frameworks)
+    # When set, this image is used instead of the default framework image
+    # Image must follow TrainerSDK convention (see docs/CUSTOM_TRAINER_SDK.md)
+    custom_docker_image = Column(String(500), nullable=True)
 
     # Dataset reference (Phase 11.5: Labeler integration)
     dataset_id = Column(String(100), nullable=True, index=True)  # References Labeler dataset UUID (no FK)

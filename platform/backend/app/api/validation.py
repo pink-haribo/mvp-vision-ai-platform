@@ -305,14 +305,27 @@ async def get_validation_summary(
     # Find best epoch (highest primary metric value)
     best_result = max(results, key=lambda r: r.primary_metric_value if r.primary_metric_value else 0)
 
+    # Find last epoch
+    last_result = max(results, key=lambda r: r.epoch)
+
     # Build epoch-wise metrics for charting
     epoch_metrics = []
     for result in results:
+        # Determine checkpoint_path from TrainingJob (Option A)
+        # - best epoch → job.best_checkpoint_path
+        # - last epoch → job.last_checkpoint_path
+        # - other epochs → None (checkpoint not saved for intermediate epochs)
+        checkpoint_path = None
+        if result.epoch == best_result.epoch and job.best_checkpoint_path:
+            checkpoint_path = job.best_checkpoint_path
+        elif result.epoch == last_result.epoch and job.last_checkpoint_path:
+            checkpoint_path = job.last_checkpoint_path
+
         metrics_dict = {
             "epoch": result.epoch,
             "primary_metric": result.primary_metric_value,
             "loss": result.overall_loss,
-            "checkpoint_path": result.checkpoint_path,  # Include checkpoint path for inference
+            "checkpoint_path": checkpoint_path,  # From TrainingJob best/last checkpoint
         }
         # Add task-specific metrics (already deserialized by SQLAlchemy)
         if result.metrics:

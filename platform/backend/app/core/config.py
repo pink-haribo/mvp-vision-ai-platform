@@ -147,9 +147,13 @@ class Settings(BaseSettings):
     # Temporal Workflow Orchestration (Phase 12)
     TEMPORAL_HOST: str = "localhost:7233"
     TEMPORAL_NAMESPACE: str = "default"
+    TEMPORAL_TASK_QUEUE: str = "training-tasks"
 
     # Training Execution Mode (Phase 12: TrainingManager)
-    TRAINING_MODE: str = "subprocess"  # Options: "subprocess" (Tier 0), "kubernetes" (Tier 1+)
+    # - "subprocess": Direct subprocess execution (Tier 0, local development)
+    # - "kubernetes": K8s Job execution via KubernetesTrainingManager (Tier 1+, production)
+    # - "temporal": Temporal Workflow orchestration (advanced, requires Temporal server)
+    TRAINING_MODE: str = "subprocess"
 
     # ClearML Configuration (Phase 12.2: Replaces MLflow)
     CLEARML_API_HOST: str = "http://localhost:8008"
@@ -162,9 +166,10 @@ class Settings(BaseSettings):
     MLFLOW_TRACKING_URI: str = "http://localhost:5000"
 
     class Config:
-        # Don't load .env file - use environment variables directly
-        # Railway provides environment variables, not .env files
-        # For local development, use .env file loaded by main.py
+        # Load .env file for local development
+        # Environment variables (e.g., Railway) take precedence over .env file
+        env_file = ".env"
+        env_file_encoding = "utf-8"
         case_sensitive = True
         extra = "ignore"
 

@@ -16,6 +16,7 @@ Usage:
 
 Environment Variables (alternative to CLI args):
     EXPORT_JOB_ID, TRAINING_JOB_ID, CHECKPOINT_S3_URI, EXPORT_FORMAT, CALLBACK_URL, CONFIG
+    WORKSPACE_DIR: Working directory for export (default: /workspace, useful for local testing)
 
 Exit Codes:
     0 = Success
@@ -35,9 +36,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from dotenv import load_dotenv
 from ultralytics import YOLO
 
 from trainer_sdk import ErrorType, TrainerSDK
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -45,6 +50,41 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+class TrainerSDKLogHandler(logging.Handler):
+    """
+    Custom logging handler that forwards logs to Backend via TrainerSDK.
+
+    This allows existing logger.info() calls to automatically send logs
+    to Backend → WebSocket → Frontend without code changes.
+    """
+
+    def __init__(self, sdk: TrainerSDK):
+        super().__init__()
+        self.sdk = sdk
+        self._enabled = True
+
+    def emit(self, record: logging.LogRecord):
+        if not self._enabled:
+            return
+        try:
+            level_map = {
+                logging.DEBUG: 'DEBUG',
+                logging.INFO: 'INFO',
+                logging.WARNING: 'WARNING',
+                logging.ERROR: 'ERROR',
+                logging.CRITICAL: 'ERROR',
+            }
+            level = level_map.get(record.levelno, 'INFO')
+            message = self.format(record)
+            self.sdk.log(message, level=level, source='export')
+        except Exception:
+            pass
+
+    def disable(self):
+        """Disable the handler (used during shutdown)"""
+        self._enabled = False
 
 
 def parse_args():
@@ -159,14 +199,24 @@ def export_model(
 
     logger.info(f"[EXPORT] Export completed in {export_time:.2f}s")
 
-    exported_file = Path(export_result)
-    file_size_bytes = exported_file.stat().st_size
+    exported_path = Path(export_result)
+
+    # Calculate size (handle both file and directory exports)
+    # OpenVINO and CoreML export as directories, others as files
+    if exported_path.is_dir():
+        # Sum up all files in directory
+        file_size_bytes = sum(f.stat().st_size for f in exported_path.rglob('*') if f.is_file())
+        logger.info(f"[EXPORT] Exported directory: {exported_path}")
+    else:
+        file_size_bytes = exported_path.stat().st_size
+        logger.info(f"[EXPORT] Exported file: {exported_path}")
+
     file_size_mb = file_size_bytes / (1024 * 1024)
 
-    logger.info(f"[EXPORT] Exported file size: {file_size_mb:.2f} MB")
+    logger.info(f"[EXPORT] Exported size: {file_size_mb:.2f} MB")
 
     return {
-        'exported_file': exported_file,
+        'exported_file': exported_path,
         'file_size_bytes': file_size_bytes,
         'file_size_mb': file_size_mb,
         'export_time_seconds': export_time
@@ -292,9 +342,15 @@ def create_export_package(
     package_dir = output_dir / f"export_{export_job_id}"
     package_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy exported model
+    # Copy exported model (handle both file and directory exports)
+    # OpenVINO and CoreML export as directories, others as files
     model_dest = package_dir / exported_file.name
-    shutil.copy2(exported_file, model_dest)
+    if exported_file.is_dir():
+        shutil.copytree(exported_file, model_dest)
+        logger.info(f"[EXPORT] Copied directory: {exported_file} -> {model_dest}")
+    else:
+        shutil.copy2(exported_file, model_dest)
+        logger.info(f"[EXPORT] Copied file: {exported_file} -> {model_dest}")
 
     # Write metadata.json
     metadata_path = package_dir / 'metadata.json'
@@ -331,6 +387,11 @@ def run_export(
     """Main export function"""
     sdk = TrainerSDK()
 
+    # Add SDK log handler to forward logs to Backend
+    sdk_handler = TrainerSDKLogHandler(sdk)
+    sdk_handler.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(sdk_handler)
+
     try:
         logger.info("=" * 80)
         logger.info("ULTRALYTICS YOLO EXPORT")
@@ -345,8 +406,8 @@ def run_export(
         # Report started
         sdk.report_started('export')
 
-        # Create workspace
-        workspace = Path('/workspace')
+        # Create workspace (configurable via env var for local testing)
+        workspace = Path(os.getenv('WORKSPACE_DIR', '/workspace'))
         workspace.mkdir(parents=True, exist_ok=True)
 
         # Download checkpoint
@@ -406,6 +467,11 @@ def run_export(
         logger.info(f"Package: {package_s3_uri}")
         logger.info("=" * 80)
 
+        # Flush remaining logs and cleanup handler
+        sdk.flush_logs()
+        sdk_handler.disable()
+        logger.removeHandler(sdk_handler)
+
         sdk.close()
         return 0
 
@@ -435,6 +501,11 @@ def run_export(
             )
         except Exception as cb_error:
             logger.error(f"[CALLBACK ERROR] Failed to send failure callback: {cb_error}")
+
+        # Flush remaining logs and cleanup handler
+        sdk.flush_logs()
+        sdk_handler.disable()
+        logger.removeHandler(sdk_handler)
 
         sdk.close()
         return 1

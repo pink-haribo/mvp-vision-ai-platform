@@ -6,11 +6,15 @@ Provides pluggable adapters for multiple observability backends (ClearML, MLflow
 
 from .base import ObservabilityAdapter, MetricsResult
 from .database_adapter import DatabaseAdapter
-from .clearml_adapter import ClearMLAdapter
+
+# ClearMLAdapter is lazily imported to avoid requiring clearml package
+# Use: from app.adapters.observability.clearml_adapter import ClearMLAdapter
+
+# MLflowAdapter is lazily imported to avoid requiring mlflow package
+# Use: from app.adapters.observability.mlflow_adapter import MLflowAdapter
 
 __all__ = [
     "ObservabilityAdapter",
     "MetricsResult",
     "DatabaseAdapter",
-    "ClearMLAdapter",
 ]
