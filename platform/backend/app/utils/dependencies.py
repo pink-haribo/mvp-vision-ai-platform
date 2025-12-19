@@ -3,8 +3,6 @@
 Keycloak OIDC 인증을 사용합니다.
 """
 
-from typing import Optional
-
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
@@ -103,7 +101,7 @@ async def get_current_user(
     return user
 
 
-def get_current_active_user(
+async def get_current_active_user(
     current_user: models.User = Depends(get_current_user)
 ) -> models.User:
     """
@@ -126,7 +124,7 @@ def get_current_active_user(
     return current_user
 
 
-def get_current_superuser(
+async def get_current_superuser(
     current_user: models.User = Depends(get_current_user)
 ) -> models.User:
     """

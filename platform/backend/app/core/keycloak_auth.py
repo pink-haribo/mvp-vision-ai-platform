@@ -192,8 +192,13 @@ async def verify_keycloak_token(token: str) -> KeycloakTokenPayload:
 
     except JWKError as e:
         raise JWTError(f"JWK error: {str(e)}")
+    except httpx.ConnectError:
+        raise JWTError(
+            f"Cannot connect to Keycloak server at {settings.KEYCLOAK_SERVER_URL}. "
+            "Please ensure Keycloak is running."
+        )
     except httpx.HTTPError as e:
-        raise JWTError(f"Failed to fetch JWKS: {str(e)}")
+        raise JWTError(f"Failed to fetch JWKS from Keycloak: {str(e)}")
     except Exception as e:
         if isinstance(e, JWTError):
             raise
