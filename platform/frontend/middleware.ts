@@ -2,7 +2,7 @@ import { withAuth } from "next-auth/middleware"
 
 export default withAuth({
   pages: {
-    signIn: "/api/auth/signin", // NextAuth 기본 로그인 (Keycloak 리다이렉트)
+    signIn: "/api/auth/signin/keycloak", // Keycloak으로 바로 리다이렉트
     error: "/auth/error",
   },
 })
