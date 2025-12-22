@@ -1,0 +1,200 @@
+{
+  "framework": "openmm",
+  "version": "1.0.0",
+  "display_name": "OpenMMLab",
+  "description": "OpenMMLab framework supporting MMDetection, MMSegmentation, and MMPose",
+  "supported_tasks": [
+    "object_detection",
+    "instance_segmentation",
+    "semantic_segmentation",
+    "pose_estimation"
+  ],
+  "models": [
+    {
+      "name": "faster-rcnn-r50",
+      "display_name": "Faster R-CNN (ResNet-50)",
+      "task_type": "object_detection",
+      "description": "Two-stage object detector with ResNet-50 backbone",
+      "config_file": "faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py",
+      "pretrained_weights": "https://download.openmmlab.com/mmdetection/v2.0/faster_rcnn/faster_rcnn_r50_fpn_1x_coco/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth",
+      "input_size": [640, 640],
+      "supported_formats": ["onnx", "torchscript"]
+    },
+    {
+      "name": "mask-rcnn-r50",
+      "display_name": "Mask R-CNN (ResNet-50)",
+      "task_type": "instance_segmentation",
+      "description": "Instance segmentation with ResNet-50 backbone",
+      "config_file": "mask_rcnn/mask-rcnn_r50_fpn_1x_coco.py",
+      "pretrained_weights": "https://download.openmmlab.com/mmdetection/v2.0/mask_rcnn/mask_rcnn_r50_fpn_1x_coco/mask_rcnn_r50_fpn_1x_coco_20200205-d4b0c5d6.pth",
+      "input_size": [640, 640],
+      "supported_formats": ["onnx", "torchscript"]
+    },
+    {
+      "name": "retinanet-r50",
+      "display_name": "RetinaNet (ResNet-50)",
+      "task_type": "object_detection",
+      "description": "One-stage detector with focal loss",
+      "config_file": "retinanet/retinanet_r50_fpn_1x_coco.py",
+      "pretrained_weights": "https://download.openmmlab.com/mmdetection/v2.0/retinanet/retinanet_r50_fpn_1x_coco/retinanet_r50_fpn_1x_coco_20200130-c2398f9e.pth",
+      "input_size": [640, 640],
+      "supported_formats": ["onnx", "torchscript"]
+    },
+    {
+      "name": "fcos-r50",
+      "display_name": "FCOS (ResNet-50)",
+      "task_type": "object_detection",
+      "description": "Anchor-free object detector",
+      "config_file": "fcos/fcos_r50_fpn_1x_coco.py",
+      "pretrained_weights": "https://download.openmmlab.com/mmdetection/v2.0/fcos/fcos_r50_fpn_1x_coco/fcos_r50_fpn_1x_coco_20200630_035635-44c7d47a.pth",
+      "input_size": [640, 640],
+      "supported_formats": ["onnx", "torchscript"]
+    },
+    {
+      "name": "yolox-s",
+      "display_name": "YOLOX-Small",
+      "task_type": "object_detection",
+      "description": "Fast anchor-free detector (small variant)",
+      "config_file": "yolox/yolox_s_8xb8-300e_coco.py",
+      "pretrained_weights": "https://download.openmmlab.com/mmdetection/v2.0/yolox/yolox_s_8x8_300e_coco/yolox_s_8x8_300e_coco_20211121_095711-4592a793.pth",
+      "input_size": [640, 640],
+      "supported_formats": ["onnx", "torchscript", "tensorrt"]
+    },
+    {
+      "name": "yolox-m",
+      "display_name": "YOLOX-Medium",
+      "task_type": "object_detection",
+      "description": "Fast anchor-free detector (medium variant)",
+      "config_file": "yolox/yolox_m_8xb8-300e_coco.py",
+      "pretrained_weights": "https://download.openmmlab.com/mmdetection/v2.0/yolox/yolox_m_8x8_300e_coco/yolox_m_8x8_300e_coco_20211121_100532-dbbe9b93.pth",
+      "input_size": [640, 640],
+      "supported_formats": ["onnx", "torchscript", "tensorrt"]
+    },
+    {
+      "name": "rtmdet-s",
+      "display_name": "RTMDet-Small",
+      "task_type": "object_detection",
+      "description": "Real-time detector optimized for edge devices (small)",
+      "config_file": "rtmdet/rtmdet_s_8xb32-300e_coco.py",
+      "pretrained_weights": "https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_s_8xb32-300e_coco/rtmdet_s_8xb32-300e_coco_20220905_161602-387a891e.pth",
+      "input_size": [640, 640],
+      "supported_formats": ["onnx", "torchscript", "tensorrt"]
+    },
+    {
+      "name": "rtmdet-m",
+      "display_name": "RTMDet-Medium",
+      "task_type": "object_detection",
+      "description": "Real-time detector optimized for edge devices (medium)",
+      "config_file": "rtmdet/rtmdet_m_8xb32-300e_coco.py",
+      "pretrained_weights": "https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_m_8xb32-300e_coco/rtmdet_m_8xb32-300e_coco_20220909_145001-92a44bf2.pth",
+      "input_size": [640, 640],
+      "supported_formats": ["onnx", "torchscript", "tensorrt"]
+    }
+  ],
+  "export_formats": [
+    {
+      "format": "onnx",
+      "display_name": "ONNX",
+      "description": "Open Neural Network Exchange format",
+      "supported_opset": [11, 13, 17],
+      "deployment_targets": ["onnxruntime", "tensorrt"]
+    },
+    {
+      "format": "torchscript",
+      "display_name": "TorchScript",
+      "description": "PyTorch JIT compiled model",
+      "deployment_targets": ["pytorch", "libtorch"]
+    },
+    {
+      "format": "tensorrt",
+      "display_name": "TensorRT",
+      "description": "NVIDIA TensorRT optimized engine",
+      "deployment_targets": ["tensorrt"]
+    }
+  ],
+  "config_schema": {
+    "basic": {
+      "epochs": {
+        "type": "integer",
+        "default": 12,
+        "min": 1,
+        "max": 500,
+        "description": "Number of training epochs"
+      },
+      "batch": {
+        "type": "integer",
+        "default": 2,
+        "min": 1,
+        "max": 128,
+        "description": "Batch size per GPU"
+      },
+      "lr0": {
+        "type": "float",
+        "default": 0.02,
+        "min": 0.0,
+        "max": 1.0,
+        "description": "Initial learning rate"
+      },
+      "optimizer": {
+        "type": "string",
+        "default": "SGD",
+        "enum": ["SGD", "Adam", "AdamW"],
+        "description": "Optimizer type"
+      },
+      "device": {
+        "type": "string",
+        "default": "0",
+        "description": "GPU device ID"
+      },
+      "workers": {
+        "type": "integer",
+        "default": 4,
+        "min": 0,
+        "max": 32,
+        "description": "Number of dataloader workers"
+      }
+    },
+    "advanced": {
+      "lr_scheduler": {
+        "type": "string",
+        "default": "step",
+        "enum": ["step", "cosine", "onecycle"],
+        "description": "Learning rate scheduler"
+      },
+      "warmup_epochs": {
+        "type": "integer",
+        "default": 0,
+        "min": 0,
+        "description": "Warmup epochs"
+      },
+      "mosaic": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable mosaic augmentation"
+      },
+      "mixup": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable mixup augmentation"
+      },
+      "amp": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable automatic mixed precision"
+      },
+      "sync_bn": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable synchronized batch normalization"
+      }
+    }
+  },
+  "hardware_requirements": {
+    "min_gpu_memory_gb": 8,
+    "recommended_gpu_memory_gb": 16,
+    "min_cpu_cores": 4,
+    "recommended_cpu_cores": 8,
+    "min_ram_gb": 16,
+    "recommended_ram_gb": 32
+  }
+}

@@ -1,0 +1,17 @@
+# OpenMMLab dependencies
+torch>=2.0.0
+torchvision>=0.15.0
+mmcv>=2.0.0
+mmdet>=3.0.0
+mmsegmentation>=1.0.0
+mmpose>=1.0.0
+
+# Core dependencies (same as other trainers)
+httpx>=0.24.0
+boto3>=1.26.0
+PyYAML>=6.0
+Pillow>=10.0.0
+opencv-python>=4.8.0
+
+# Optional: ClearML integration
+clearml>=1.14.0
