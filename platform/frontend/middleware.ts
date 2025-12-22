@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getToken } from "next-auth/jwt"
 
 /**
- * Keycloak으로 직접 리다이렉트하는 커스텀 Middleware
- * NextAuth의 기본 리다이렉트(/auth/signin)를 거치지 않고 바로 Keycloak으로 이동
+ * Authentication Middleware
+ *
+ * 미인증 사용자를 NextAuth signin 페이지로 리다이렉트합니다.
+ * Custom signin page에서 자동으로 Keycloak으로 리다이렉트되며,
+ * NextAuth가 state cookie를 생성하여 CSRF 보호를 제공합니다.
  */
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl
@@ -29,29 +32,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // 미인증 사용자 → Keycloak으로 직접 리다이렉트
-  const keycloakIssuer = process.env.KEYCLOAK_ISSUER
-  const clientId = process.env.KEYCLOAK_CLIENT_ID
+  // 미인증 사용자 → NextAuth signin 페이지로 리다이렉트
+  // Custom signin page에서 자동으로 Keycloak으로 리다이렉트되며, state cookie가 생성됩니다
   const nextAuthUrl = process.env.NEXTAUTH_URL || `${request.nextUrl.origin}`
 
-  if (!keycloakIssuer || !clientId) {
-    console.error("[Middleware] Missing Keycloak configuration")
-    return NextResponse.redirect(new URL("/auth/error", request.url))
-  }
+  // NextAuth signin 페이지로 리다이렉트 (원래 경로를 callbackUrl로 전달)
+  const originalPath = pathname + search
+  const signInUrl = new URL(`${nextAuthUrl}/api/auth/signin`)
+  signInUrl.searchParams.set("callbackUrl", originalPath)
 
-  // Keycloak Authorization URL 직접 생성 (state는 제거 - NextAuth가 자동 처리)
-  const originalPath = pathname + search // 원래 요청 경로
-  const redirectUri = `${nextAuthUrl}/api/auth/callback/keycloak`
-
-  const authUrl = new URL(`${keycloakIssuer}/protocol/openid-connect/auth`)
-  authUrl.searchParams.set("client_id", clientId)
-  authUrl.searchParams.set("redirect_uri", redirectUri)
-  authUrl.searchParams.set("response_type", "code")
-  authUrl.searchParams.set("scope", "openid profile email")
-  // state 파라미터 제거 - NextAuth callback에서 처리하지 않음
-
-  console.log("[Middleware] Redirecting to Keycloak:", authUrl.toString())
-  return NextResponse.redirect(authUrl.toString())
+  console.log("[Middleware] Redirecting to signin page:", signInUrl.toString())
+  return NextResponse.redirect(signInUrl.toString())
 }
 
 export const config = {
