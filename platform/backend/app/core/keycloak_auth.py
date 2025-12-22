@@ -81,7 +81,8 @@ class KeycloakJWKS:
             return self._jwks
 
         # JWKS 새로 가져오기
-        async with httpx.AsyncClient() as client:
+        # SSL 검증 여부는 환경 변수로 제어 (self-signed cert 대응)
+        async with httpx.AsyncClient(verify=settings.KEYCLOAK_VERIFY_SSL) as client:
             response = await client.get(self._jwks_url, timeout=10.0)
             response.raise_for_status()
             self._jwks = response.json()

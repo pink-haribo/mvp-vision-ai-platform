@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # Client Secret (Confidential Client인 경우)
     KEYCLOAK_CLIENT_SECRET: Optional[str] = None
 
+    # SSL 검증 여부 (개발 환경에서 self-signed cert 사용 시 False로 설정)
+    KEYCLOAK_VERIFY_SSL: bool = True
+
     @property
     def KEYCLOAK_ISSUER(self) -> str:
         """OIDC Issuer URL"""
