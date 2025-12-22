@@ -9,7 +9,12 @@ export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl
 
   // NextAuth 엔드포인트는 통과
-  if (pathname.startsWith("/auth/")) {
+  if (pathname.startsWith("/api/auth/")) {
+    return NextResponse.next()
+  }
+
+  // Error 페이지는 통과
+  if (pathname.startsWith("/auth/error")) {
     return NextResponse.next()
   }
 
@@ -36,7 +41,7 @@ export async function middleware(request: NextRequest) {
 
   // Keycloak Authorization URL 생성
   const originalPath = pathname + search // 원래 요청 경로
-  const redirectUri = `${nextAuthUrl}/auth/callback/keycloak`
+  const redirectUri = `${nextAuthUrl}/api/auth/callback/keycloak`
 
   // NextAuth callback URL에 원래 경로 포함
   const callbackUrlWithPath = `${redirectUri}?callbackUrl=${encodeURIComponent(originalPath)}`
@@ -57,11 +62,12 @@ export const config = {
     /*
      * 인증이 필요한 모든 경로
      * 제외:
-     * - auth (NextAuth 엔드포인트)
+     * - api/auth (NextAuth 엔드포인트)
+     * - auth/error (에러 페이지)
      * - _next/static (정적 파일)
      * - _next/image (이미지 최적화)
      * - favicon.ico
      */
-    "/((?!auth|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api/auth|auth/error|_next/static|_next/image|favicon.ico).*)",
   ],
 }
