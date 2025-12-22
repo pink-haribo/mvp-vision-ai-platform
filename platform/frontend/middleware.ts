@@ -39,22 +39,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/auth/error", request.url))
   }
 
-  // Keycloak Authorization URL 생성
+  // NextAuth signIn 엔드포인트로 리다이렉트 (NextAuth가 state 관리)
   const originalPath = pathname + search // 원래 요청 경로
-  const redirectUri = `${nextAuthUrl}/api/auth/callback/keycloak`
+  const signInUrl = new URL(`${nextAuthUrl}/api/auth/signin/keycloak`)
+  signInUrl.searchParams.set("callbackUrl", originalPath)
 
-  // NextAuth callback URL에 원래 경로 포함
-  const callbackUrlWithPath = `${redirectUri}?callbackUrl=${encodeURIComponent(originalPath)}`
-
-  const authUrl = new URL(`${keycloakIssuer}/protocol/openid-connect/auth`)
-  authUrl.searchParams.set("client_id", clientId)
-  authUrl.searchParams.set("redirect_uri", redirectUri) // Keycloak에는 base redirect_uri만 전달
-  authUrl.searchParams.set("response_type", "code")
-  authUrl.searchParams.set("scope", "openid profile email")
-  authUrl.searchParams.set("state", encodeURIComponent(originalPath)) // state에도 경로 저장 (fallback)
-
-  console.log("[Middleware] Redirecting to Keycloak:", authUrl.toString())
-  return NextResponse.redirect(authUrl.toString())
+  console.log("[Middleware] Redirecting to NextAuth signin:", signInUrl.toString())
+  return NextResponse.redirect(signInUrl.toString())
 }
 
 export const config = {
