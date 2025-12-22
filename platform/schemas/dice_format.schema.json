@@ -1,0 +1,320 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vision-ai-platform.com/schemas/dice-format.json",
+  "title": "DICE Annotation Format",
+  "description": "Vision AI Platform's standard annotation format (COCO-compatible with extensions)",
+  "version": "1.0.0",
+
+  "definitions": {
+    "category": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unique category ID. Use 0 for __background__ (negative samples)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Category name. Use '__background__' for negative samples"
+        },
+        "supercategory": {
+          "type": "string",
+          "description": "Optional parent category name"
+        }
+      }
+    },
+
+    "image": {
+      "type": "object",
+      "required": ["id", "file_name", "width", "height"],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Unique image ID"
+        },
+        "file_name": {
+          "type": "string",
+          "description": "Image filename relative to storage_info.image_root (e.g., 'images/wood/scratch/000.png')"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Image width in pixels"
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Image height in pixels"
+        },
+        "date_captured": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional ISO 8601 datetime when image was captured"
+        },
+        "annotations": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/annotation" },
+          "description": "Optional nested annotations (Platform custom format only)"
+        }
+      }
+    },
+
+    "annotation": {
+      "type": "object",
+      "required": ["id", "image_id", "category_id"],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Unique annotation ID"
+        },
+        "image_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Reference to image.id"
+        },
+        "category_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Reference to category.id. Use 0 for __background__ (negative sample marker)"
+        },
+        "class_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Alias for category_id (Platform custom format)"
+        },
+        "class_name": {
+          "type": "string",
+          "description": "Optional class name (denormalized)"
+        },
+        "bbox": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "Bounding box in COCO format [x, y, width, height]. Omit for negative samples."
+        },
+        "segmentation": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": { "type": "number" }
+              },
+              "description": "Polygon segmentation [[x1,y1,x2,y2,...]]"
+            },
+            {
+              "type": "object",
+              "description": "RLE segmentation"
+            }
+          ]
+        },
+        "keypoints": {
+          "type": "array",
+          "items": { "type": "number" },
+          "description": "Keypoints for pose estimation [x1,y1,v1,x2,y2,v2,...]"
+        },
+        "area": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Annotation area in pixels"
+        },
+        "iscrowd": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "0 = individual object, 1 = crowd/group"
+        }
+      }
+    },
+
+    "storage_info": {
+      "type": "object",
+      "properties": {
+        "image_root": {
+          "type": "string",
+          "description": "S3 prefix for images (e.g., 'datasets/ds_abc123/images/')"
+        },
+        "annotation_root": {
+          "type": "string",
+          "description": "S3 prefix for annotations (optional)"
+        },
+        "storage_type": {
+          "type": "string",
+          "enum": ["s3", "r2", "local"],
+          "description": "Storage backend type"
+        }
+      }
+    }
+  },
+
+  "type": "object",
+  "oneOf": [
+    {
+      "description": "COCO/DICE Standard Format",
+      "required": ["categories", "images", "annotations"],
+      "properties": {
+        "categories": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/category" },
+          "minItems": 1,
+          "description": "List of categories/classes"
+        },
+        "images": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/image" },
+          "minItems": 1,
+          "description": "List of images"
+        },
+        "annotations": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/annotation" },
+          "description": "List of annotations (separate from images)"
+        },
+        "storage_info": {
+          "$ref": "#/definitions/storage_info",
+          "description": "Storage location metadata"
+        },
+        "info": {
+          "type": "object",
+          "description": "Optional dataset metadata"
+        }
+      }
+    },
+    {
+      "description": "Platform Nested Format (Custom)",
+      "required": ["classes", "images"],
+      "properties": {
+        "classes": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/category" },
+          "minItems": 1,
+          "description": "List of classes (alias for categories)"
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              { "$ref": "#/definitions/image" },
+              {
+                "required": ["annotations"],
+                "properties": {
+                  "annotations": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/annotation" },
+                    "description": "Nested annotations for this image"
+                  }
+                }
+              }
+            ]
+          },
+          "minItems": 1,
+          "description": "List of images with nested annotations"
+        },
+        "storage_info": {
+          "$ref": "#/definitions/storage_info",
+          "description": "Storage location metadata"
+        }
+      }
+    }
+  ],
+
+  "examples": [
+    {
+      "description": "COCO/DICE Standard Format - Object Detection",
+      "value": {
+        "categories": [
+          { "id": 1, "name": "broken" },
+          { "id": 2, "name": "normal" }
+        ],
+        "images": [
+          {
+            "id": 1,
+            "file_name": "images/bottle/broken/000.png",
+            "width": 640,
+            "height": 480
+          },
+          {
+            "id": 2,
+            "file_name": "images/bottle/normal/001.png",
+            "width": 640,
+            "height": 480
+          }
+        ],
+        "annotations": [
+          {
+            "id": 1,
+            "image_id": 1,
+            "category_id": 1,
+            "bbox": [100, 150, 200, 180],
+            "area": 36000,
+            "iscrowd": 0
+          }
+        ],
+        "storage_info": {
+          "image_root": "datasets/ds_abc123/images/",
+          "storage_type": "s3"
+        }
+      }
+    },
+    {
+      "description": "Negative Sample (No objects in image)",
+      "value": {
+        "categories": [
+          { "id": 0, "name": "__background__" },
+          { "id": 1, "name": "defect" }
+        ],
+        "images": [
+          {
+            "id": 42,
+            "file_name": "images/good/sample.png",
+            "width": 640,
+            "height": 480
+          }
+        ],
+        "annotations": [
+          {
+            "id": 100,
+            "image_id": 42,
+            "category_id": 0
+          }
+        ]
+      }
+    },
+    {
+      "description": "Platform Nested Format",
+      "value": {
+        "classes": [
+          { "id": 1, "name": "cat" },
+          { "id": 2, "name": "dog" }
+        ],
+        "images": [
+          {
+            "id": 1,
+            "file_name": "images/001.jpg",
+            "width": 800,
+            "height": 600,
+            "annotations": [
+              {
+                "id": 1,
+                "class_id": 1,
+                "bbox": [50, 60, 120, 140]
+              },
+              {
+                "id": 2,
+                "class_id": 2,
+                "bbox": [200, 100, 180, 200]
+              }
+            ]
+          }
+        ],
+        "storage_info": {
+          "image_root": "datasets/ds_xyz/images/"
+        }
+      }
+    }
+  ]
+}
