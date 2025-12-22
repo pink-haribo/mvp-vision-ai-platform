@@ -11,6 +11,11 @@ import { getToken } from "next-auth/jwt"
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl
 
+  // 공개 페이지 (인증 불필요)
+  if (pathname === "/") {
+    return NextResponse.next()
+  }
+
   // NextAuth 엔드포인트는 통과
   if (pathname.startsWith("/api/auth/")) {
     return NextResponse.next()

@@ -359,9 +359,13 @@ export default function Sidebar({
             )}
           </div>
         ) : (
-          <div className="text-center">
-            <p className="text-xs text-gray-400">인증 확인 중...</p>
-          </div>
+          <button
+            onClick={() => router.push('/api/auth/signin')}
+            className="w-full px-4 py-3 rounded-lg bg-violet-600 hover:bg-violet-700 transition-colors text-center font-medium text-white flex items-center justify-center gap-2"
+          >
+            <User className="w-4 h-4" />
+            <span>로그인</span>
+          </button>
         )}
       </div>
     </div>
