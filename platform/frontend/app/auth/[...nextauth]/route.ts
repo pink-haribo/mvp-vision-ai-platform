@@ -34,6 +34,15 @@ export const authOptions: NextAuthOptions = {
       session.error = token.error as string | undefined
       return session
     },
+    async redirect({ url, baseUrl }) {
+      // Middleware에서 설정한 callbackUrl로 리다이렉트
+      // url이 상대 경로면 baseUrl과 결합
+      if (url.startsWith("/")) return `${baseUrl}${url}`
+      // url이 같은 origin이면 허용
+      else if (new URL(url).origin === baseUrl) return url
+      // 그 외에는 홈으로
+      return baseUrl
+    },
   },
   events: {
     async signOut({ token }) {
