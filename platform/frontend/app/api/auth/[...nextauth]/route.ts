@@ -1,13 +1,25 @@
 import NextAuth, { NextAuthOptions } from "next-auth"
 import KeycloakProvider from "next-auth/providers/keycloak"
 
+// 내부 통신용 Keycloak URL (서버 사이드에서 사용)
+// K8s 환경에서는 서비스 이름, 개발 환경에서는 localhost 사용
+const keycloakIssuerInternal =
+  process.env.KEYCLOAK_ISSUER_INTERNAL || process.env.KEYCLOAK_ISSUER
+
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
   providers: [
     KeycloakProvider({
       clientId: process.env.KEYCLOAK_CLIENT_ID!,
       clientSecret: process.env.KEYCLOAK_CLIENT_SECRET || "",
-      issuer: process.env.KEYCLOAK_ISSUER,
+      // 브라우저는 KEYCLOAK_ISSUER 사용, 서버는 KEYCLOAK_ISSUER_INTERNAL 사용
+      issuer: keycloakIssuerInternal,
+      authorization: {
+        params: {
+          // 브라우저 리다이렉트 시에는 외부 URL 사용
+          // Keycloak authorization endpoint는 브라우저에서 접근
+        },
+      },
     }),
   ],
   callbacks: {
@@ -48,7 +60,7 @@ export const authOptions: NextAuthOptions = {
     async signOut({ token }) {
       // Keycloak 세션도 함께 로그아웃
       if (token?.idToken) {
-        const logoutUrl = `${process.env.KEYCLOAK_ISSUER}/protocol/openid-connect/logout`
+        const logoutUrl = `${keycloakIssuerInternal}/protocol/openid-connect/logout`
         const params = new URLSearchParams({
           id_token_hint: token.idToken as string,
           post_logout_redirect_uri: process.env.NEXTAUTH_URL || "http://localhost:3000",
@@ -75,13 +87,24 @@ export const authOptions: NextAuthOptions = {
  */
 async function refreshAccessToken(token: any) {
   try {
+    // 개발 환경에서 self-signed certificate 허용
+    const fetchOptions: RequestInit = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+    }
+
+    // Node.js 환경에서만 사용 가능
+    if (process.env.NODE_ENV === "development" && typeof process !== "undefined") {
+      // @ts-ignore - Node.js only
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
+    }
+
     const response = await fetch(
-      `${process.env.KEYCLOAK_ISSUER}/protocol/openid-connect/token`,
+      `${keycloakIssuerInternal}/protocol/openid-connect/token`,
       {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
+        ...fetchOptions,
         body: new URLSearchParams({
           client_id: process.env.KEYCLOAK_CLIENT_ID!,
           client_secret: process.env.KEYCLOAK_CLIENT_SECRET || "",
