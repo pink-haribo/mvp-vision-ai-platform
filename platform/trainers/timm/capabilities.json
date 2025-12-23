@@ -1,238 +1,142 @@
 {
   "framework": "timm",
+  "display_name": "PyTorch Image Models (timm)",
   "version": "0.9.12",
   "description": "PyTorch Image Models - Image Classification",
-  "supported_tasks": ["image_classification"],
-  "models": {
-    "resnet18": {
+  "task_types": [
+    {
+      "name": "image_classification",
+      "display_name": "Image Classification",
+      "description": "Classify images into predefined categories",
+      "supported": true
+    }
+  ],
+  "dataset_formats": [
+    {
+      "name": "imagefolder",
+      "display_name": "ImageFolder",
+      "description": "PyTorch ImageFolder format with class subdirectories",
+      "supported": true
+    },
+    {
+      "name": "dice",
+      "display_name": "DICE Format",
+      "description": "Platform's internal DICE format (auto-converted)",
+      "supported": true
+    }
+  ],
+  "models": [
+    {
+      "model_name": "resnet18",
       "display_name": "ResNet-18",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "18-layer ResNet for image classification",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 32,
-        "learning_rate": 0.001,
-        "imgsz": 224
-      }
+      "supported": true
     },
-    "resnet34": {
+    {
+      "model_name": "resnet34",
       "display_name": "ResNet-34",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "34-layer ResNet for image classification",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 32,
-        "learning_rate": 0.001,
-        "imgsz": 224
-      }
+      "supported": true
     },
-    "resnet50": {
+    {
+      "model_name": "resnet50",
       "display_name": "ResNet-50",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "50-layer ResNet for image classification",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 32,
-        "learning_rate": 0.001,
-        "imgsz": 224
-      }
+      "supported": true
     },
-    "resnet101": {
+    {
+      "model_name": "resnet101",
       "display_name": "ResNet-101",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "101-layer ResNet for image classification",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 16,
-        "learning_rate": 0.001,
-        "imgsz": 224
-      }
+      "supported": true
     },
-    "efficientnet_b0": {
+    {
+      "model_name": "efficientnet_b0",
       "display_name": "EfficientNet-B0",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "EfficientNet B0 - balanced efficiency and accuracy",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 32,
-        "learning_rate": 0.001,
-        "imgsz": 224
-      }
+      "supported": true
     },
-    "efficientnet_b1": {
+    {
+      "model_name": "efficientnet_b1",
       "display_name": "EfficientNet-B1",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "EfficientNet B1 - larger than B0",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 32,
-        "learning_rate": 0.001,
-        "imgsz": 240
-      }
+      "supported": true
     },
-    "efficientnet_b2": {
+    {
+      "model_name": "efficientnet_b2",
       "display_name": "EfficientNet-B2",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "EfficientNet B2 - larger than B1",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 32,
-        "learning_rate": 0.001,
-        "imgsz": 260
-      }
+      "supported": true
     },
-    "efficientnet_b3": {
+    {
+      "model_name": "efficientnet_b3",
       "display_name": "EfficientNet-B3",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "EfficientNet B3 - good balance for most tasks",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 16,
-        "learning_rate": 0.001,
-        "imgsz": 300
-      }
+      "supported": true
     },
-    "vit_tiny_patch16_224": {
+    {
+      "model_name": "vit_tiny_patch16_224",
       "display_name": "ViT-Tiny",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "Vision Transformer Tiny - lightweight ViT",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 32,
-        "learning_rate": 0.0001,
-        "imgsz": 224
-      }
+      "supported": true
     },
-    "vit_small_patch16_224": {
+    {
+      "model_name": "vit_small_patch16_224",
       "display_name": "ViT-Small",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "Vision Transformer Small",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 32,
-        "learning_rate": 0.0001,
-        "imgsz": 224
-      }
+      "supported": true
     },
-    "vit_base_patch16_224": {
+    {
+      "model_name": "vit_base_patch16_224",
       "display_name": "ViT-Base",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "Vision Transformer Base - standard ViT",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 16,
-        "learning_rate": 0.0001,
-        "imgsz": 224
-      }
+      "supported": true
     },
-    "convnext_tiny": {
+    {
+      "model_name": "convnext_tiny",
       "display_name": "ConvNeXt-Tiny",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "ConvNeXt Tiny - modern CNN architecture",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 32,
-        "learning_rate": 0.001,
-        "imgsz": 224
-      }
+      "supported": true
     },
-    "convnext_small": {
+    {
+      "model_name": "convnext_small",
       "display_name": "ConvNeXt-Small",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "ConvNeXt Small",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 32,
-        "learning_rate": 0.001,
-        "imgsz": 224
-      }
+      "supported": true
     },
-    "convnext_base": {
+    {
+      "model_name": "convnext_base",
       "display_name": "ConvNeXt-Base",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "ConvNeXt Base",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 16,
-        "learning_rate": 0.001,
-        "imgsz": 224
-      }
+      "supported": true
     },
-    "mobilenetv3_small_100": {
+    {
+      "model_name": "mobilenetv3_small_100",
       "display_name": "MobileNetV3-Small",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "MobileNetV3 Small - optimized for mobile",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 64,
-        "learning_rate": 0.001,
-        "imgsz": 224
-      }
+      "supported": true
     },
-    "mobilenetv3_large_100": {
+    {
+      "model_name": "mobilenetv3_large_100",
       "display_name": "MobileNetV3-Large",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "MobileNetV3 Large - larger mobile model",
-      "default_config": {
-        "epochs": 100,
-        "batch_size": 32,
-        "learning_rate": 0.001,
-        "imgsz": 224
-      }
+      "supported": true
     }
-  },
-  "export_formats": ["onnx", "torchscript"],
-  "config_schema": {
-    "epochs": {
-      "type": "int",
-      "default": 100,
-      "min": 1,
-      "max": 1000,
-      "description": "Number of training epochs"
-    },
-    "batch_size": {
-      "type": "int",
-      "default": 32,
-      "min": 1,
-      "max": 512,
-      "description": "Batch size for training"
-    },
-    "learning_rate": {
-      "type": "float",
-      "default": 0.001,
-      "min": 0.000001,
-      "max": 1.0,
-      "description": "Initial learning rate"
-    },
-    "imgsz": {
-      "type": "int",
-      "default": 224,
-      "options": [224, 240, 260, 300, 320, 384, 448, 512],
-      "description": "Input image size"
-    },
-    "optimizer": {
-      "type": "select",
-      "default": "adamw",
-      "options": ["adam", "adamw", "sgd"],
-      "description": "Optimizer algorithm"
-    },
-    "scheduler": {
-      "type": "select",
-      "default": "cosine",
-      "options": ["cosine", "step", "plateau", "none"],
-      "description": "Learning rate scheduler"
-    },
-    "weight_decay": {
-      "type": "float",
-      "default": 0.0001,
-      "min": 0.0,
-      "max": 0.1,
-      "description": "Weight decay for regularization"
-    },
-    "pretrained": {
-      "type": "bool",
-      "default": true,
-      "description": "Use pretrained weights"
-    }
-  }
+  ]
 }
