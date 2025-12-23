@@ -13,16 +13,7 @@ export async function GET(request: NextRequest) {
     secret: process.env.NEXTAUTH_SECRET,
   })
 
-  // 2. NextAuth 세션 쿠키 삭제
-  const response = NextResponse.redirect(
-    new URL('/auth/logout-success', request.nextUrl.origin)
-  )
-
-  // NextAuth 세션 쿠키 삭제
-  response.cookies.delete('next-auth.session-token')
-  response.cookies.delete('__Secure-next-auth.session-token')
-
-  // 3. Keycloak 로그아웃 URL로 리다이렉트
+  // 2. Keycloak 로그아웃 URL로 리다이렉트
   if (token?.idToken) {
     const keycloakIssuer = process.env.KEYCLOAK_ISSUER
     const logoutUrl = `${keycloakIssuer}/protocol/openid-connect/logout`
@@ -41,8 +32,12 @@ export async function GET(request: NextRequest) {
     const finalUrl = `${logoutUrl}?${params.toString()}`
 
     // Keycloak 로그아웃 페이지로 리다이렉트
+    // NextAuth 세션은 /auth/logout-success에서 정리됨
     return NextResponse.redirect(finalUrl)
   }
 
-  return response
+  // idToken이 없으면 바로 로그아웃 성공 페이지로
+  return NextResponse.redirect(
+    new URL('/auth/logout-success', request.nextUrl.origin)
+  )
 }
