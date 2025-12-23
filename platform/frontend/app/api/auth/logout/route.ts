@@ -31,10 +31,16 @@ export async function GET(request: NextRequest) {
   if (token?.idToken) {
     const keycloakIssuer = process.env.KEYCLOAK_ISSUER
     const logoutUrl = `${keycloakIssuer}/protocol/openid-connect/logout`
-    const redirectUri = `${request.nextUrl.origin}/auth/logout-success`
+
+    // NEXTAUTH_URL 사용 (0.0.0.0 문제 방지)
+    // Fallback: Host 헤더 또는 X-Forwarded-Host (Kubernetes Ingress)
+    const baseUrl = process.env.NEXTAUTH_URL ||
+                    `${request.headers.get('x-forwarded-proto') || 'http'}://${request.headers.get('x-forwarded-host') || request.headers.get('host')}`
+    const redirectUri = `${baseUrl}/auth/logout-success`
 
     console.log('[Logout] Keycloak Issuer:', keycloakIssuer)
     console.log('[Logout] Logout URL:', logoutUrl)
+    console.log('[Logout] Base URL:', baseUrl)
     console.log('[Logout] Redirect URI:', redirectUri)
 
     const params = new URLSearchParams({
