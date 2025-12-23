@@ -63,11 +63,12 @@ export const config = {
      * 제외:
      * - api/auth (NextAuth 엔드포인트)
      * - auth/error (에러 페이지)
+     * - auth/signin (로그인 페이지)
      * - auth/logout-success (로그아웃 성공 페이지)
      * - _next/static (정적 파일)
      * - _next/image (이미지 최적화)
      * - favicon.ico
      */
-    "/((?!api/auth|auth/error|auth/logout-success|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api/auth|auth/error|auth/signin|auth/logout-success|_next/static|_next/image|favicon.ico).*)",
   ],
 }
