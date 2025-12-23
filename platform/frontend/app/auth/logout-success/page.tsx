@@ -21,10 +21,16 @@ export default function LogoutSuccessPage() {
     }
 
     log('Page mounted')
+
+    // NextAuth callback-url 쿠키 삭제 (재로그인 시 이 페이지로 리다이렉트 방지)
+    document.cookie = 'next-auth.callback-url=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+    document.cookie = '__Secure-next-auth.callback-url=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; secure'
+    log('Cleared callback-url cookies')
+
     log('Starting signOut...')
 
     // NextAuth 클라이언트 세션 정리
-    signOut({ redirect: false })
+    signOut({ redirect: false, callbackUrl: '/' })
       .then(() => {
         log('signOut completed successfully')
         log('Navigating to home...')
