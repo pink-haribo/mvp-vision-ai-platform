@@ -17,7 +17,7 @@ from .dataset import SplitStrategy
 class TrainingConfig(BaseModel):
     """Training configuration schema."""
 
-    framework: str = Field("timm", description="Framework (timm, ultralytics, transformers)")
+    framework: str = Field("timm", description="Framework (timm, ultralytics, huggingface, openmm)")
     model_name: str = Field(..., description="Model name (e.g., resnet50, yolov8n)")
     task_type: str = Field(..., description="Task type (e.g., image_classification, object_detection)")
     num_classes: Optional[int] = Field(None, ge=2, description="Number of classes (required for classification)")

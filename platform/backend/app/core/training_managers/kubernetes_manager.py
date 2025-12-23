@@ -245,6 +245,14 @@ DEFAULT_FRAMEWORKS_CONFIG = {
         "extra_volumes": [],
         "extra_volume_mounts": [],
     },
+    "openmm": {
+        "image_suffix": "trainer-openmm",
+        "memory_request": "16Gi",
+        "memory_limit": "32Gi",
+        "extra_env": [],
+        "extra_volumes": [],
+        "extra_volume_mounts": [],
+    },
     "custom": {
         "memory_request": "8Gi",
         "memory_limit": "16Gi",

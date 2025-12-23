@@ -30,7 +30,7 @@ class SubprocessTrainingManager(TrainingManager):
     """
     Manages training subprocesses for local development.
 
-    Each framework (ultralytics, timm, huggingface) has its own Training Service
+    Each framework (ultralytics, timm, huggingface, openmm) has its own Training Service
     with dedicated venv and dependencies.
     """
 
@@ -65,7 +65,7 @@ class SubprocessTrainingManager(TrainingManager):
         Get Python executable for a specific framework's Trainer.
 
         Args:
-            framework: Framework name (ultralytics, timm, huggingface)
+            framework: Framework name (ultralytics, timm, huggingface, openmm)
 
         Returns:
             Path to Python executable in Trainer's venv
@@ -109,7 +109,7 @@ class SubprocessTrainingManager(TrainingManager):
         Supports both traditional venv and uv package manager modes.
 
         Args:
-            framework: Framework name (ultralytics, timm, huggingface)
+            framework: Framework name (ultralytics, timm, huggingface, openmm)
             script_name: Script to execute (e.g., "train.py", "evaluate.py")
             extra_args: Additional CLI arguments
 
