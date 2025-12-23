@@ -27,13 +27,21 @@ export async function GET(request: NextRequest) {
     const keycloakIssuer = process.env.KEYCLOAK_ISSUER
     const logoutUrl = `${keycloakIssuer}/protocol/openid-connect/logout`
 
+    // NEXTAUTH_URL 사용 (0.0.0.0 문제 방지)
+    // Fallback: Host 헤더 또는 X-Forwarded-Host (Kubernetes Ingress)
+    const baseUrl = process.env.NEXTAUTH_URL ||
+                    `${request.headers.get('x-forwarded-proto') || 'http'}://${request.headers.get('x-forwarded-host') || request.headers.get('host')}`
+    const redirectUri = `${baseUrl}/auth/logout-success`
+
     const params = new URLSearchParams({
       id_token_hint: token.idToken as string,
-      post_logout_redirect_uri: `${request.nextUrl.origin}/auth/logout-success`,
+      post_logout_redirect_uri: redirectUri,
     })
 
+    const finalUrl = `${logoutUrl}?${params.toString()}`
+
     // Keycloak 로그아웃 페이지로 리다이렉트
-    return NextResponse.redirect(`${logoutUrl}?${params.toString()}`)
+    return NextResponse.redirect(finalUrl)
   }
 
   return response

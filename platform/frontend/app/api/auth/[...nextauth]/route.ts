@@ -74,7 +74,7 @@ export const authOptions: NextAuthOptions = {
     },
   },
   pages: {
-    signIn: "/api/auth/signin", // Custom signin page (자동 Keycloak 리다이렉트)
+    signIn: "/auth/signin", // Custom signin page (자동 Keycloak 리다이렉트)
     error: "/auth/error",
   },
   session: {
