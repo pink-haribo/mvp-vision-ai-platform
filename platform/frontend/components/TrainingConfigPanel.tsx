@@ -214,7 +214,11 @@ export default function TrainingConfigPanel({
   const allFrameworks = [
     { value: 'timm', label: 'timm (PyTorch Image Models)', supportedTasks: ['image_classification'] },
     { value: 'ultralytics', label: 'Ultralytics YOLO', supportedTasks: ['object_detection', 'instance_segmentation', 'pose_estimation', 'image_classification'] },
-    { value: 'custom', label: 'Custom (사용자 정의 Docker 이미지)', supportedTasks: ['image_classification', 'object_detection', 'instance_segmentation', 'pose_estimation'] },
+    { value: 'mmdet', label: 'MMDetection (OpenMMLab)', supportedTasks: ['object_detection', 'instance_segmentation'] },
+    { value: 'mmpretrain', label: 'MMPreTrain (OpenMMLab)', supportedTasks: ['image_classification'] },
+    { value: 'mmseg', label: 'MMSegmentation (OpenMMLab)', supportedTasks: ['semantic_segmentation'] },
+    { value: 'mmyolo', label: 'MMYOLO (OpenMMLab)', supportedTasks: ['object_detection'] },
+    { value: 'custom', label: 'Custom (사용자 정의 Docker 이미지)', supportedTasks: ['image_classification', 'object_detection', 'instance_segmentation', 'pose_estimation', 'semantic_segmentation'] },
   ]
 
   // All available models with their framework and supported tasks
@@ -272,6 +276,8 @@ export default function TrainingConfigPanel({
   const allTaskTypes = [
     { value: 'image_classification', label: '이미지 분류 (Image Classification)' },
     { value: 'object_detection', label: '객체 탐지 (Object Detection)' },
+    { value: 'instance_segmentation', label: '인스턴스 분할 (Instance Segmentation)' },
+    { value: 'semantic_segmentation', label: '시맨틱 분할 (Semantic Segmentation)' },
     { value: 'pose_estimation', label: '포즈 추정 (Pose Estimation)' },
   ]
 
