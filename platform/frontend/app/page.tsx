@@ -66,12 +66,22 @@ export default function Home() {
   // Handle logout query parameter (from Keycloak redirect)
   useEffect(() => {
     const logout = searchParams.get('logout')
-    if (logout === 'true' && !logoutProcessed) {
+
+    // Check if already processed in this browser session
+    const processed = sessionStorage.getItem('logout-processed')
+
+    if (logout === 'true' && !processed && !logoutProcessed) {
       setLogoutProcessed(true)
+      sessionStorage.setItem('logout-processed', 'true')
+
       // Clear NextAuth session
       signOut({ redirect: false }).then(() => {
         // Remove logout query parameter from URL
         router.replace('/')
+        // Clear the flag after navigation completes
+        setTimeout(() => {
+          sessionStorage.removeItem('logout-processed')
+        }, 1000)
       })
     }
   }, [searchParams, router, logoutProcessed])
