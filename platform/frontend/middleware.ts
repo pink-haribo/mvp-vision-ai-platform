@@ -27,11 +27,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Logout endpoint는 통과
-  if (pathname === "/api/auth/logout") {
-    return NextResponse.next()
-  }
-
   // 토큰 확인
   const token = await getToken({
     req: request,
@@ -46,16 +41,10 @@ export async function middleware(request: NextRequest) {
   // 미인증 사용자 → NextAuth signin 페이지로 리다이렉트
   // Custom signin page에서 자동으로 Keycloak으로 리다이렉트되며, state cookie가 생성됩니다
   const nextAuthUrl = process.env.NEXTAUTH_URL || `${request.nextUrl.origin}`
-
-  // NextAuth signin 페이지로 리다이렉트 (원래 경로를 callbackUrl로 전달)
-  let originalPath = pathname + search
-
-  // logout parameter가 있으면 제거 (로그아웃 후 재로그인 시 무한루프 방지)
-  if (originalPath.includes('logout=true')) {
-    originalPath = pathname
-  }
-
   const signInUrl = new URL(`${nextAuthUrl}/api/auth/signin`)
+
+  // 원래 경로를 callbackUrl로 전달
+  const originalPath = pathname + search
   signInUrl.searchParams.set("callbackUrl", originalPath)
 
   return NextResponse.redirect(signInUrl.toString())
