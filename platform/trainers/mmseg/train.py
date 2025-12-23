@@ -398,9 +398,106 @@ def train_model(
         # Import MMSegmentation
         from mmengine.config import Config
         from mmengine.runner import Runner
+        from mmengine.hooks import Hook
 
         cfg = Config.fromfile(config_path)
         runner = Runner.from_cfg(cfg)
+
+        # Custom hook for progress reporting (MMEngine Hook)
+        class ProgressHook(Hook):
+            """Custom hook for reporting training progress and uploading best checkpoints."""
+
+            def __init__(self, sdk, total_epochs, training_state, checkpoint_dir):
+                super().__init__()
+                self.sdk = sdk
+                self.total_epochs = total_epochs
+                self.training_state = training_state
+                self.checkpoint_dir = checkpoint_dir
+                self.logged_iters = set()
+
+            def after_train_iter(self, runner, batch_idx, data_batch=None, outputs=None):
+                # Report progress every 100 iterations
+                current_iter = runner.iter + 1
+                if current_iter % 100 != 0 or current_iter in self.logged_iters:
+                    return
+
+                self.logged_iters.add(current_iter)
+
+                # Get metrics from message hub
+                metrics = {}
+                if hasattr(runner, 'message_hub'):
+                    log_scalars = runner.message_hub.log_scalars
+                    for key, value in log_scalars.items():
+                        if isinstance(value, (int, float)):
+                            metrics[key] = float(value)
+
+                loss = metrics.get('loss', 0.0)
+
+                # Estimate epoch from iteration (rough estimate)
+                iters_per_epoch = getattr(runner, '_max_iters', 20000) // self.total_epochs
+                epoch = current_iter // max(iters_per_epoch, 1)
+
+                # Send progress
+                self.sdk.report_progress(
+                    epoch=epoch,
+                    total_epochs=self.total_epochs,
+                    metrics={
+                        'loss': loss,
+                        'iteration': current_iter,
+                        'learning_rate': metrics.get('lr', 0.0),
+                        **metrics
+                    }
+                )
+
+            def after_val_epoch(self, runner, metrics=None):
+                if metrics is None:
+                    return
+
+                # Estimate epoch from iteration
+                iters_per_epoch = getattr(runner, '_max_iters', 20000) // self.total_epochs
+                epoch = runner.iter // max(iters_per_epoch, 1)
+
+                mIoU = metrics.get('mIoU', 0.0)
+                mDice = metrics.get('mDice', 0.0)
+                mFscore = metrics.get('mFscore', 0.0)
+
+                is_best = mIoU > self.training_state['best_metric']
+                if is_best:
+                    self.training_state['best_metric'] = mIoU
+                    logger.info(f"[BEST] New best mIoU: {mIoU:.4f} at iter {runner.iter}")
+
+                    # Upload best checkpoint immediately when updated
+                    import glob as glob_module
+                    import time
+                    # Small delay to ensure checkpoint is fully written
+                    time.sleep(0.5)
+                    best_files = glob_module.glob(str(self.checkpoint_dir / 'best_*.pth'))
+                    if best_files:
+                        best_pt = sorted(best_files, key=lambda x: Path(x).stat().st_mtime)[-1]
+                        logger.info(f"[BEST] Uploading best checkpoint: {best_pt}")
+                        try:
+                            self.sdk.upload_checkpoint(best_pt, 'best')
+                            logger.info(f"[BEST] Best checkpoint uploaded successfully")
+                        except Exception as e:
+                            logger.warning(f"[BEST] Failed to upload best checkpoint: {e}")
+
+                # Report validation metrics
+                self.sdk.report_validation(
+                    epoch=epoch,
+                    task_type='semantic_segmentation',
+                    primary_metric=('mIoU', mIoU),
+                    all_metrics={
+                        'mIoU': mIoU,
+                        'mDice': mDice,
+                        'mFscore': mFscore,
+                    },
+                    is_best=is_best
+                )
+
+        # Register custom hook with runner
+        progress_hook = ProgressHook(sdk, epochs, training_state, work_dir)
+        runner.register_hook(progress_hook, priority='LOW')
+        logger.info("Progress hook registered")
 
         # Start training
         logger.info(f"Starting training for {epochs} epochs")
