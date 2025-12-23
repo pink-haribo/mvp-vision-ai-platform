@@ -102,6 +102,10 @@ backend:
     TEMPORAL_NAMESPACE: "default"
     # MLflow
     MLFLOW_TRACKING_URI: "http://localhost:5000"
+    # Keycloak OIDC (SSO Authentication)
+    KEYCLOAK_SERVER_URL: "http://keycloak:8080"
+    KEYCLOAK_REALM: "vision-ai"
+    KEYCLOAK_CLIENT_ID: "platform-backend"
     # Application
     ENVIRONMENT: "production"
     LOG_LEVEL: "INFO"
@@ -120,6 +124,9 @@ backend:
     - name: JWT_SECRET
       secretName: vision-ai-secrets
       secretKey: jwt-secret
+    - name: KEYCLOAK_CLIENT_SECRET
+      secretName: vision-ai-secrets
+      secretKey: keycloak-client-secret
 
   # Probes
   livenessProbe:
@@ -228,6 +235,20 @@ frontend:
     NEXT_PUBLIC_API_URL: "http://backend:8000/api/v1"
     NEXT_PUBLIC_WS_URL: "ws://backend:8000/ws"
     NEXT_PUBLIC_ENVIRONMENT: "production"
+    # NextAuth.js Configuration
+    NEXTAUTH_URL: "https://vision-ai.example.com"
+    # Keycloak OIDC (SSO Authentication)
+    KEYCLOAK_CLIENT_ID: "platform-frontend"
+    KEYCLOAK_ISSUER: "http://keycloak:8080/realms/vision-ai"
+
+  # Secret environment variables
+  secretEnv:
+    - name: NEXTAUTH_SECRET
+      secretName: vision-ai-secrets
+      secretKey: nextauth-secret
+    - name: KEYCLOAK_CLIENT_SECRET
+      secretName: vision-ai-secrets
+      secretKey: keycloak-frontend-client-secret
 
 # =============================================================================
 # Training Infrastructure Configuration

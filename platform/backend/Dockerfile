@@ -1,10 +1,20 @@
 # Vision AI Platform Backend
 # Build: docker build -t vision-backend:latest .
 # Run: docker run -p 8000:8000 --env-file .env vision-backend:latest
+#
+# Registry mirror options:
+#   --build-arg REGISTRY_MIRROR=your-mirror.com/  (for docker.io images)
+#   --build-arg GHCR_MIRROR=your-mirror.com/      (for ghcr.io images)
 
 ARG REGISTRY_MIRROR=
+ARG GHCR_MIRROR=ghcr.io/
+
+FROM ${GHCR_MIRROR}astral-sh/uv:latest AS uv
 
 FROM ${REGISTRY_MIRROR}python:3.11-slim AS builder
+
+# Re-declare ARGs after FROM (they reset after each FROM)
+ARG GHCR_MIRROR=ghcr.io/
 
 WORKDIR /app
 
@@ -17,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv (fast Python package manager)
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=uv /uv /usr/local/bin/uv
 
 # Copy dependency files first (for better caching)
 COPY pyproject.toml .

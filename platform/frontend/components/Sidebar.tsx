@@ -25,8 +25,6 @@ interface SidebarProps {
   onCreateProject?: () => void
   onOpenImageTools?: () => void
   onOpenDatasets?: () => void
-  onOpenLogin?: () => void
-  onOpenRegister?: () => void
   onOpenProfile?: () => void
   onOpenAdminProjects?: () => void
   onOpenAdminUsers?: () => void
@@ -40,8 +38,6 @@ export default function Sidebar({
   onCreateProject,
   onOpenImageTools,
   onOpenDatasets,
-  onOpenLogin,
-  onOpenRegister,
   onOpenProfile,
   onOpenAdminProjects,
   onOpenAdminUsers,
@@ -363,23 +359,13 @@ export default function Sidebar({
             )}
           </div>
         ) : (
-          <div className="space-y-3">
-            <p className="text-xs text-gray-400 text-center">로그인이 필요합니다</p>
-            <div className="space-y-2">
-              <button
-                onClick={onOpenLogin}
-                className="w-full px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg transition-colors"
-              >
-                로그인
-              </button>
-              <button
-                onClick={onOpenRegister}
-                className="w-full px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium rounded-lg transition-colors"
-              >
-                회원가입
-              </button>
-            </div>
-          </div>
+          <button
+            onClick={() => router.push('/api/auth/signin')}
+            className="w-full px-4 py-3 rounded-lg bg-violet-600 hover:bg-violet-700 transition-colors text-center font-medium text-white flex items-center justify-center gap-2"
+          >
+            <User className="w-4 h-4" />
+            <span>로그인</span>
+          </button>
         )}
       </div>
     </div>
