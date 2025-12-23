@@ -21,8 +21,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Error 페이지는 통과
-  if (pathname.startsWith("/auth/error") || pathname.startsWith("/auth/logout-success")) {
+  // Error 페이지와 Auth 페이지는 통과
+  if (pathname.startsWith("/auth/error") ||
+      pathname.startsWith("/auth/logout-success") ||
+      pathname.startsWith("/auth/signin")) {
     return NextResponse.next()
   }
 
@@ -51,7 +53,6 @@ export async function middleware(request: NextRequest) {
   const signInUrl = new URL(`${nextAuthUrl}/api/auth/signin`)
   signInUrl.searchParams.set("callbackUrl", originalPath)
 
-  console.log("[Middleware] Redirecting to signin page:", signInUrl.toString())
   return NextResponse.redirect(signInUrl.toString())
 }
 
