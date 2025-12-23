@@ -60,31 +60,8 @@ export default function Home() {
   // Dataset panel state
   const [showDatasets, setShowDatasets] = useState(false)
 
-  // Logout processing flag (prevent re-processing on re-render)
-  const [logoutProcessed, setLogoutProcessed] = useState(false)
-
-  // Handle logout query parameter (from Keycloak redirect)
-  useEffect(() => {
-    const logout = searchParams.get('logout')
-
-    // Check if already processed in this browser session
-    const processed = sessionStorage.getItem('logout-processed')
-
-    if (logout === 'true' && !processed && !logoutProcessed) {
-      setLogoutProcessed(true)
-      sessionStorage.setItem('logout-processed', 'true')
-
-      // Clear NextAuth session
-      signOut({ redirect: false }).then(() => {
-        // Remove logout query parameter from URL
-        router.replace('/')
-        // Clear the flag after navigation completes
-        setTimeout(() => {
-          sessionStorage.removeItem('logout-processed')
-        }, 1000)
-      })
-    }
-  }, [searchParams, router, logoutProcessed])
+  // Logout 파라미터 처리 로직 제거
+  // signOut({ callbackUrl: '/api/auth/logout-keycloak' }) 플로우로 변경됨
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault()
