@@ -97,21 +97,21 @@ async def get_capabilities():
             "name": "image_classification",
             "display_name": "이미지 분류",
             "description": "이미지를 여러 클래스 중 하나로 분류",
-            "frameworks": ["timm", "ultralytics"],
+            "frameworks": ["timm", "ultralytics", "mmpretrain"],
             "supported": True
         },
         {
             "name": "object_detection",
             "display_name": "객체 탐지",
             "description": "이미지 내 객체의 위치와 클래스 탐지",
-            "frameworks": ["ultralytics"],
+            "frameworks": ["ultralytics", "mmdet", "mmyolo"],
             "supported": True
         },
         {
             "name": "instance_segmentation",
             "display_name": "인스턴스 분할",
             "description": "이미지 내 각 객체를 픽셀 단위로 분할",
-            "frameworks": ["ultralytics"],
+            "frameworks": ["ultralytics", "mmdet"],
             "supported": True
         },
         {
@@ -125,15 +125,15 @@ async def get_capabilities():
             "name": "semantic_segmentation",
             "display_name": "시맨틱 분할",
             "description": "이미지의 모든 픽셀을 클래스별로 분할",
-            "frameworks": ["transformers"],
-            "supported": False  # Not yet implemented
+            "frameworks": ["mmseg", "huggingface"],
+            "supported": True
         },
         {
             "name": "super_resolution",
             "display_name": "초해상화",
             "description": "저해상도 이미지를 고해상도로 업스케일",
-            "frameworks": ["transformers"],
-            "supported": False  # Not yet implemented
+            "frameworks": ["huggingface"],
+            "supported": True
         }
     ]
 
