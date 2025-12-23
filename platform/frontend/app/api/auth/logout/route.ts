@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 
   // 2. NextAuth 세션 쿠키 삭제
   const response = NextResponse.redirect(
-    new URL('/auth/logout-success', request.nextUrl.origin)
+    new URL('/', request.nextUrl.origin)
   )
 
   // NextAuth 세션 쿠키 삭제
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
   if (token?.idToken) {
     const keycloakIssuer = process.env.KEYCLOAK_ISSUER
     const logoutUrl = `${keycloakIssuer}/protocol/openid-connect/logout`
-    const redirectUri = `${request.nextUrl.origin}/auth/logout-success`
+    const redirectUri = `${request.nextUrl.origin}/`
 
     console.log('[Logout] Keycloak Issuer:', keycloakIssuer)
     console.log('[Logout] Logout URL:', logoutUrl)
