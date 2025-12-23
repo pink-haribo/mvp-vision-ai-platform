@@ -368,9 +368,96 @@ def train_model(
         # Import MMPreTrain
         from mmengine.config import Config
         from mmengine.runner import Runner
+        from mmengine.hooks import Hook
 
         cfg = Config.fromfile(config_path)
         runner = Runner.from_cfg(cfg)
+
+        # Custom hook for progress reporting (MMEngine Hook)
+        class ProgressHook(Hook):
+            """Custom hook for reporting training progress and uploading best checkpoints."""
+
+            def __init__(self, sdk, total_epochs, training_state, checkpoint_dir):
+                super().__init__()
+                self.sdk = sdk
+                self.total_epochs = total_epochs
+                self.training_state = training_state
+                self.checkpoint_dir = checkpoint_dir
+                self.logged_epochs = set()
+
+            def after_train_epoch(self, runner):
+                epoch = runner.epoch + 1
+                if epoch in self.logged_epochs:
+                    return
+
+                self.logged_epochs.add(epoch)
+                self.training_state['current_epoch'] = epoch
+
+                # Get metrics from message hub
+                metrics = {}
+                if hasattr(runner, 'message_hub'):
+                    log_scalars = runner.message_hub.log_scalars
+                    for key, value in log_scalars.items():
+                        if isinstance(value, (int, float)):
+                            metrics[key] = float(value)
+
+                loss = metrics.get('loss', 0.0)
+
+                # Send progress
+                self.sdk.report_progress(
+                    epoch=epoch,
+                    total_epochs=self.total_epochs,
+                    metrics={
+                        'loss': loss,
+                        'learning_rate': metrics.get('lr', 0.0),
+                        **metrics
+                    }
+                )
+
+            def after_val_epoch(self, runner, metrics=None):
+                if metrics is None:
+                    return
+
+                epoch = runner.epoch + 1
+                top1_acc = metrics.get('accuracy/top1', 0.0)
+                top5_acc = metrics.get('accuracy/top5', 0.0)
+
+                is_best = top1_acc > self.training_state['best_metric']
+                if is_best:
+                    self.training_state['best_metric'] = top1_acc
+                    logger.info(f"[BEST] New best Top-1 Accuracy: {top1_acc:.4f} at epoch {epoch}")
+
+                    # Upload best checkpoint immediately when updated
+                    import glob as glob_module
+                    import time
+                    # Small delay to ensure checkpoint is fully written
+                    time.sleep(0.5)
+                    best_files = glob_module.glob(str(self.checkpoint_dir / 'best_*.pth'))
+                    if best_files:
+                        best_pt = sorted(best_files, key=lambda x: Path(x).stat().st_mtime)[-1]
+                        logger.info(f"[BEST] Uploading best checkpoint: {best_pt}")
+                        try:
+                            self.sdk.upload_checkpoint(best_pt, 'best')
+                            logger.info(f"[BEST] Best checkpoint uploaded successfully (epoch {epoch})")
+                        except Exception as e:
+                            logger.warning(f"[BEST] Failed to upload best checkpoint: {e}")
+
+                # Report validation metrics
+                self.sdk.report_validation(
+                    epoch=epoch,
+                    task_type='classification',
+                    primary_metric=('accuracy_top1', top1_acc),
+                    all_metrics={
+                        'accuracy_top1': top1_acc,
+                        'accuracy_top5': top5_acc,
+                    },
+                    is_best=is_best
+                )
+
+        # Register custom hook with runner
+        progress_hook = ProgressHook(sdk, epochs, training_state, work_dir)
+        runner.register_hook(progress_hook, priority='LOW')
+        logger.info("Progress hook registered")
 
         # Start training
         logger.info(f"Starting training for {epochs} epochs")
