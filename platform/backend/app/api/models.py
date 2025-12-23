@@ -85,7 +85,7 @@ def get_all_models() -> List[Dict[str, Any]]:
     Returns:
         List of all model dictionaries
     """
-    known_frameworks = ["ultralytics", "timm", "huggingface"]
+    known_frameworks = ["ultralytics", "timm", "huggingface", "mmdet", "mmpretrain", "mmseg", "mmyolo"]
     all_models = []
 
     for framework in known_frameworks:
@@ -161,7 +161,7 @@ class ModelGuide(BaseModel):
 
 @router.get("/list", response_model=List[ModelInfo])
 async def list_models(
-    framework: Optional[str] = Query(None, description="Filter by framework (ultralytics, timm, huggingface)"),
+    framework: Optional[str] = Query(None, description="Filter by framework (ultralytics, timm, huggingface, mmdet, mmpretrain, mmseg, mmyolo)"),
     task_type: Optional[str] = Query(None, description="Filter by task type"),
     supported_only: bool = Query(True, description="Show only supported models")
 ):
@@ -187,7 +187,7 @@ async def list_models(
             raise HTTPException(
                 status_code=404,
                 detail=f"Model capabilities for framework '{framework}' not found. "
-                       f"Available frameworks: ultralytics, timm, huggingface. "
+                       f"Available frameworks: ultralytics, timm, huggingface, mmdet, mmpretrain, mmseg, mmyolo. "
                        f"Capabilities are uploaded via GitHub Actions from platform/trainers/*/capabilities.json"
             )
 
@@ -244,7 +244,7 @@ async def list_models(
 
 @router.get("/get", response_model=Dict[str, Any])
 async def get_model_by_query(
-    framework: str = Query(..., description="Framework name (ultralytics, timm, huggingface)"),
+    framework: str = Query(..., description="Framework name (ultralytics, timm, huggingface, mmdet, mmpretrain, mmseg, mmyolo)"),
     model_name: str = Query(..., description="Model name (e.g., yolo11n, resnet50)")
 ):
     """
@@ -304,7 +304,7 @@ async def get_framework_capabilities(framework: str):
         raise HTTPException(
             status_code=404,
             detail=f"Capabilities for framework '{framework}' not found. "
-                   f"Available frameworks: ultralytics, timm, huggingface. "
+                   f"Available frameworks: ultralytics, timm, huggingface, mmdet, mmpretrain, mmseg, mmyolo. "
                    f"Capabilities are uploaded via GitHub Actions from platform/trainers/*/capabilities.json"
         )
 

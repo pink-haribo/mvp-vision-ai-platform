@@ -1,0 +1,384 @@
+{
+  "framework": "mmseg",
+  "display_name": "MMSegmentation",
+  "description": "OpenMMLab Semantic Segmentation Toolbox - State-of-the-art segmentation models",
+  "version": "1.0.0",
+  "openmmlab_version": "1.2.2",
+  "models": [
+    {
+      "model_name": "fcn_r50-d8",
+      "display_name": "FCN (ResNet-50)",
+      "task_types": ["semantic_segmentation"],
+      "description": "Fully Convolutional Network with ResNet-50 backbone",
+      "parameters": {
+        "backbone": "resnet50",
+        "params_m": 49.5,
+        "flops_g": 275.0
+      },
+      "config_file": "fcn/fcn_r50-d8_4xb4-40k_cityscapes-512x1024.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/fcn/fcn_r50-d8_512x1024_40k_cityscapes/fcn_r50-d8_512x1024_40k_cityscapes_20200604_192608-efe53f0d.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "deeplabv3plus_r50-d8",
+      "display_name": "DeepLabV3+ (ResNet-50)",
+      "task_types": ["semantic_segmentation"],
+      "description": "DeepLabV3+ with ASPP and decoder module",
+      "parameters": {
+        "backbone": "resnet50",
+        "params_m": 43.6,
+        "flops_g": 275.0
+      },
+      "config_file": "deeplabv3plus/deeplabv3plus_r50-d8_4xb4-40k_cityscapes-512x1024.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/deeplabv3plus/deeplabv3plus_r50-d8_512x1024_40k_cityscapes/deeplabv3plus_r50-d8_512x1024_40k_cityscapes_20200605_094610-d222ffcd.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "deeplabv3plus_r101-d8",
+      "display_name": "DeepLabV3+ (ResNet-101)",
+      "task_types": ["semantic_segmentation"],
+      "description": "DeepLabV3+ with deeper ResNet-101 backbone",
+      "parameters": {
+        "backbone": "resnet101",
+        "params_m": 62.7,
+        "flops_g": 351.0
+      },
+      "config_file": "deeplabv3plus/deeplabv3plus_r101-d8_4xb4-40k_cityscapes-512x1024.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/deeplabv3plus/deeplabv3plus_r101-d8_512x1024_40k_cityscapes/deeplabv3plus_r101-d8_512x1024_40k_cityscapes_20200605_094614-3769eecf.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "pspnet_r50-d8",
+      "display_name": "PSPNet (ResNet-50)",
+      "task_types": ["semantic_segmentation"],
+      "description": "Pyramid Scene Parsing Network with ResNet-50",
+      "parameters": {
+        "backbone": "resnet50",
+        "params_m": 48.6,
+        "flops_g": 256.0
+      },
+      "config_file": "pspnet/pspnet_r50-d8_4xb4-40k_cityscapes-512x1024.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/pspnet/pspnet_r50-d8_512x1024_40k_cityscapes/pspnet_r50-d8_512x1024_40k_cityscapes_20200605_003338-2966598c.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "upernet_r50",
+      "display_name": "UperNet (ResNet-50)",
+      "task_types": ["semantic_segmentation"],
+      "description": "Unified Perceptual Parsing Network",
+      "parameters": {
+        "backbone": "resnet50",
+        "params_m": 66.1,
+        "flops_g": 280.0
+      },
+      "config_file": "upernet/upernet_r50_4xb4-40k_cityscapes-512x1024.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/upernet/upernet_r50_512x1024_40k_cityscapes/upernet_r50_512x1024_40k_cityscapes_20200605_094827-aa54cb54.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "segformer_mit-b0",
+      "display_name": "SegFormer (MiT-B0)",
+      "task_types": ["semantic_segmentation"],
+      "description": "Simple and Efficient Semantic Segmentation with Transformers (lightweight)",
+      "parameters": {
+        "backbone": "mit_b0",
+        "params_m": 3.8,
+        "flops_g": 8.4
+      },
+      "config_file": "segformer/segformer_mit-b0_8xb2-160k_cityscapes-1024x1024.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/segformer/segformer_mit-b0_8x1_1024x1024_160k_cityscapes/segformer_mit-b0_8x1_1024x1024_160k_cityscapes_20211208_101857-e7f88502.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "segformer_mit-b2",
+      "display_name": "SegFormer (MiT-B2)",
+      "task_types": ["semantic_segmentation"],
+      "description": "SegFormer with MiT-B2 backbone",
+      "parameters": {
+        "backbone": "mit_b2",
+        "params_m": 27.5,
+        "flops_g": 62.4
+      },
+      "config_file": "segformer/segformer_mit-b2_8xb2-160k_cityscapes-1024x1024.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/segformer/segformer_mit-b2_8x1_1024x1024_160k_cityscapes/segformer_mit-b2_8x1_1024x1024_160k_cityscapes_20211207_134205-6096669a.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "segformer_mit-b5",
+      "display_name": "SegFormer (MiT-B5)",
+      "task_types": ["semantic_segmentation"],
+      "description": "SegFormer with largest MiT-B5 backbone",
+      "parameters": {
+        "backbone": "mit_b5",
+        "params_m": 84.7,
+        "flops_g": 183.3
+      },
+      "config_file": "segformer/segformer_mit-b5_8xb2-160k_cityscapes-1024x1024.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/segformer/segformer_mit-b5_8x1_1024x1024_160k_cityscapes/segformer_mit-b5_8x1_1024x1024_160k_cityscapes_20211206_072934-87a052ec.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "mask2former_r50",
+      "display_name": "Mask2Former (ResNet-50)",
+      "task_types": ["semantic_segmentation", "panoptic_segmentation"],
+      "description": "Masked-attention Mask Transformer - unified segmentation",
+      "parameters": {
+        "backbone": "resnet50",
+        "params_m": 44.0,
+        "flops_g": 90.0
+      },
+      "config_file": "mask2former/mask2former_r50_8xb2-90k_cityscapes-512x1024.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/mask2former/mask2former_r50_8xb2-90k_cityscapes-512x1024/mask2former_r50_8xb2-90k_cityscapes-512x1024_20221202_140802-ffd9d750.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "mask2former_swin-l",
+      "display_name": "Mask2Former (Swin-L)",
+      "task_types": ["semantic_segmentation", "panoptic_segmentation"],
+      "description": "Mask2Former with Swin-Large backbone - SOTA performance",
+      "parameters": {
+        "backbone": "swin_large",
+        "params_m": 216.0,
+        "flops_g": 411.0
+      },
+      "config_file": "mask2former/mask2former_swin-l_8xb2-90k_cityscapes-512x1024.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/mask2former/mask2former_swin-l_8xb2-90k_cityscapes-512x1024/mask2former_swin-l_8xb2-90k_cityscapes-512x1024_20221202_141901-28ad20f1.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "swin-tiny_upernet",
+      "display_name": "UperNet (Swin-Tiny)",
+      "task_types": ["semantic_segmentation"],
+      "description": "UperNet with Swin Transformer tiny backbone",
+      "parameters": {
+        "backbone": "swin_tiny",
+        "params_m": 60.0,
+        "flops_g": 236.0
+      },
+      "config_file": "swin/swin-tiny-patch4-window7-in1k-pre_upernet_8xb2-160k_ade20k-512x512.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/swin/upernet_swin_tiny_patch4_window7_512x512_160k_ade20k_pretrain_224x224_1K/upernet_swin_tiny_patch4_window7_512x512_160k_ade20k_pretrain_224x224_1K_20210531_112542-e380ad3e.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "swin-base_upernet",
+      "display_name": "UperNet (Swin-Base)",
+      "task_types": ["semantic_segmentation"],
+      "description": "UperNet with Swin Transformer base backbone",
+      "parameters": {
+        "backbone": "swin_base",
+        "params_m": 121.0,
+        "flops_g": 471.0
+      },
+      "config_file": "swin/swin-base-patch4-window7-in1k-pre_upernet_8xb2-160k_ade20k-512x512.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/swin/upernet_swin_base_patch4_window7_512x512_160k_ade20k_pretrain_224x224_1K/upernet_swin_base_patch4_window7_512x512_160k_ade20k_pretrain_224x224_1K_20210531_132020-05b22ea4.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "bisenetv2",
+      "display_name": "BiSeNetV2",
+      "task_types": ["semantic_segmentation"],
+      "description": "Bilateral Segmentation Network V2 - fast real-time segmentation",
+      "parameters": {
+        "params_m": 3.4,
+        "flops_g": 21.2
+      },
+      "config_file": "bisenetv2/bisenetv2_fcn_4xb4-160k_cityscapes-1024x1024.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/bisenetv2/bisenetv2_fcn_4x4_1024x1024_160k_cityscapes/bisenetv2_fcn_4x4_1024x1024_160k_cityscapes_20210902_015551-bcf10f09.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "ddrnet_23-slim",
+      "display_name": "DDRNet-23-Slim",
+      "task_types": ["semantic_segmentation"],
+      "description": "Deep Dual-resolution Networks - real-time segmentation",
+      "parameters": {
+        "params_m": 5.7,
+        "flops_g": 36.3
+      },
+      "config_file": "ddrnet/ddrnet_23-slim_in1k-pre_2xb6-120k_cityscapes-1024x1024.py",
+      "pretrained": "https://download.openmmlab.com/mmsegmentation/v0.5/ddrnet/ddrnet_23-slim_in1k-pre_2xb6-120k_cityscapes-1024x1024/ddrnet_23-slim_in1k-pre_2xb6-120k_cityscapes-1024x1024_20230426_145312-6a5e5174.pth",
+      "supported": true,
+      "validated": true
+    }
+  ],
+  "task_types": [
+    {
+      "name": "semantic_segmentation",
+      "display_name": "Semantic Segmentation",
+      "description": "Pixel-wise classification into semantic categories",
+      "supported": true
+    },
+    {
+      "name": "panoptic_segmentation",
+      "display_name": "Panoptic Segmentation",
+      "description": "Unified segmentation for both stuff and things",
+      "supported": true
+    }
+  ],
+  "dataset_formats": [
+    {
+      "name": "cityscapes",
+      "display_name": "Cityscapes Format",
+      "description": "Cityscapes dataset format with gtFine annotations",
+      "supported": true
+    },
+    {
+      "name": "ade20k",
+      "display_name": "ADE20K Format",
+      "description": "ADE20K format with annotations directory",
+      "supported": true
+    },
+    {
+      "name": "coco_stuff",
+      "display_name": "COCO-Stuff Format",
+      "description": "COCO segmentation format",
+      "supported": true
+    },
+    {
+      "name": "dice",
+      "display_name": "DICE Format",
+      "description": "Platform's internal DICE format (auto-converted)",
+      "supported": true
+    }
+  ],
+  "metric_candidates_by_task": {
+    "semantic_segmentation": [
+      {
+        "value": "mIoU",
+        "label": "Mean IoU",
+        "mode": "max",
+        "description": "모든 클래스의 평균 Intersection over Union (권장)"
+      },
+      {
+        "value": "mAcc",
+        "label": "Mean Accuracy",
+        "mode": "max",
+        "description": "클래스별 평균 정확도"
+      },
+      {
+        "value": "aAcc",
+        "label": "All Accuracy",
+        "mode": "max",
+        "description": "전체 픽셀 정확도"
+      },
+      {
+        "value": "mDice",
+        "label": "Mean Dice",
+        "mode": "max",
+        "description": "클래스별 평균 Dice 계수"
+      },
+      {
+        "value": "mFscore",
+        "label": "Mean F-Score",
+        "mode": "max",
+        "description": "클래스별 평균 F1 점수"
+      }
+    ],
+    "panoptic_segmentation": [
+      {
+        "value": "PQ",
+        "label": "Panoptic Quality",
+        "mode": "max",
+        "description": "Panoptic Quality = SQ × RQ"
+      },
+      {
+        "value": "SQ",
+        "label": "Segmentation Quality",
+        "mode": "max",
+        "description": "세그멘테이션 품질"
+      },
+      {
+        "value": "RQ",
+        "label": "Recognition Quality",
+        "mode": "max",
+        "description": "인식 품질"
+      }
+    ]
+  },
+  "config_schema": {
+    "epochs": {
+      "type": "int",
+      "default": 80,
+      "min": 1,
+      "max": 500,
+      "description": "Number of training epochs"
+    },
+    "batch_size": {
+      "type": "int",
+      "default": 4,
+      "min": 1,
+      "max": 32,
+      "description": "Batch size per GPU (segmentation uses larger memory)"
+    },
+    "learning_rate": {
+      "type": "float",
+      "default": 0.01,
+      "min": 0.00001,
+      "max": 0.1,
+      "description": "Base learning rate"
+    },
+    "crop_size": {
+      "type": "tuple",
+      "default": [512, 512],
+      "description": "Training crop size (height, width)"
+    },
+    "optimizer": {
+      "type": "select",
+      "default": "SGD",
+      "options": ["SGD", "AdamW"],
+      "description": "Optimizer algorithm"
+    },
+    "lr_scheduler": {
+      "type": "select",
+      "default": "poly",
+      "options": ["poly", "step", "cosine"],
+      "description": "Learning rate scheduler (poly recommended for segmentation)"
+    },
+    "weight_decay": {
+      "type": "float",
+      "default": 0.0005,
+      "min": 0.0,
+      "max": 0.1,
+      "description": "Weight decay for regularization"
+    },
+    "pretrained": {
+      "type": "bool",
+      "default": true,
+      "description": "Use pretrained backbone weights"
+    },
+    "val_interval": {
+      "type": "int",
+      "default": 1,
+      "min": 1,
+      "max": 50,
+      "description": "Validation interval (epochs)"
+    },
+    "auxiliary_head": {
+      "type": "bool",
+      "default": true,
+      "description": "Use auxiliary head for deep supervision"
+    }
+  },
+  "export_formats": ["onnx", "torchscript", "tensorrt"],
+  "requirements": {
+    "python": ">=3.8,<3.12",
+    "pytorch": ">=1.8.0",
+    "cuda": ">=11.0",
+    "mmcv": ">=2.0.0",
+    "mmengine": ">=0.7.1",
+    "mmseg": ">=1.0.0"
+  }
+}

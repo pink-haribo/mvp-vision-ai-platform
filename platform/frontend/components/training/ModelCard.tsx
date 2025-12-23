@@ -48,6 +48,8 @@ interface ModelCardProps {
 const TASK_TYPE_LABELS: Record<string, string> = {
   'detection': '객체 탐지',
   'segmentation': '이미지 분할',
+  'semantic_segmentation': '시맨틱 분할',
+  'panoptic_segmentation': '파노픽 분할',
   'pose': '포즈 추정',
   'open_vocabulary_detection': '오픈 어휘 탐지',
   'classification': '이미지 분류',
@@ -56,6 +58,11 @@ const TASK_TYPE_LABELS: Record<string, string> = {
 const FRAMEWORK_LABELS: Record<string, string> = {
   'timm': 'timm',
   'ultralytics': 'Ultralytics',
+  'huggingface': 'HuggingFace',
+  'mmdet': 'MMDetection',
+  'mmpretrain': 'MMPreTrain',
+  'mmseg': 'MMSegmentation',
+  'mmyolo': 'MMYOLO',
 }
 
 export default function ModelCard({
@@ -147,7 +154,20 @@ export default function ModelCard({
       // Fallback to main docs
       return 'https://docs.ultralytics.com/models/'
     }
-    // Other frameworks - no link yet (Phase 7.1)
+    // OpenMMLab frameworks
+    if (model.framework === 'mmdet') {
+      return 'https://mmdetection.readthedocs.io/en/latest/model_zoo.html'
+    }
+    if (model.framework === 'mmpretrain') {
+      return 'https://mmpretrain.readthedocs.io/en/latest/modelzoo_statistics.html'
+    }
+    if (model.framework === 'mmseg') {
+      return 'https://mmsegmentation.readthedocs.io/en/latest/model_zoo.html'
+    }
+    if (model.framework === 'mmyolo') {
+      return 'https://mmyolo.readthedocs.io/en/latest/model_zoo.html'
+    }
+    // Other frameworks - no link yet
     return null
   }
 

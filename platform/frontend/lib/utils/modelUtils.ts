@@ -28,7 +28,7 @@ export function getTaskDisplayName(taskType: string): string {
  * Get model display name from model registry
  * This fetches from backend API /models/get
  *
- * @param framework - Framework name (timm, ultralytics, huggingface)
+ * @param framework - Framework name (timm, ultralytics, huggingface, mmdet, mmpretrain, mmseg, mmyolo)
  * @param modelId - Model ID (e.g., "resnet50", "google/vit-base-patch16-224")
  * @returns Display name or fallback to modelId
  */
@@ -109,6 +109,59 @@ export function getModelDisplayNameSync(
     "caidas/swin2SR-classical-sr-x2-64": "Swin2SR 2x",
     "caidas/swin2SR-classical-sr-x4-64": "Swin2SR 4x",
     "ustc-community/dfine-x-coco": "D-FINE",
+
+    // mmdet (MMDetection)
+    "faster-rcnn_r50_fpn": "Faster R-CNN (ResNet-50)",
+    "faster-rcnn_r101_fpn": "Faster R-CNN (ResNet-101)",
+    "detr_r50": "DETR (ResNet-50)",
+    "dino-4scale_r50": "DINO (ResNet-50)",
+    "dino-5scale_swin-l": "DINO (Swin-L)",
+    "rtmdet_tiny": "RTMDet Tiny",
+    "rtmdet_s": "RTMDet Small",
+    "rtmdet_m": "RTMDet Medium",
+    "rtmdet_l": "RTMDet Large",
+    "co_dino_5scale_r50": "Co-DETR (ResNet-50)",
+    "co_dino_5scale_swin_l": "Co-DETR (Swin-L)",
+
+    // mmpretrain (MMPreTrain)
+    "resnet50_8xb32": "ResNet-50",
+    "resnet101_8xb32": "ResNet-101",
+    "swin-tiny_16xb64": "Swin Transformer Tiny",
+    "swin-small_16xb64": "Swin Transformer Small",
+    "swin-base_16xb64": "Swin Transformer Base",
+    "convnext-tiny_32xb128": "ConvNeXt Tiny",
+    "convnext-small_32xb128": "ConvNeXt Small",
+    "convnext-base_32xb128": "ConvNeXt Base",
+    "vit-base-p16_64xb64": "ViT Base (Patch16)",
+    "efficientnet-b0_8xb32": "EfficientNet-B0",
+    "efficientnet-b4_8xb32": "EfficientNet-B4",
+
+    // mmseg (MMSegmentation)
+    "deeplabv3plus_r50-d8": "DeepLabV3+ (ResNet-50)",
+    "deeplabv3plus_r101-d8": "DeepLabV3+ (ResNet-101)",
+    "segformer_mit-b0": "SegFormer (MiT-B0)",
+    "segformer_mit-b2": "SegFormer (MiT-B2)",
+    "segformer_mit-b5": "SegFormer (MiT-B5)",
+    "mask2former_swin-s": "Mask2Former (Swin-S)",
+    "mask2former_swin-b": "Mask2Former (Swin-B)",
+    "upernet_swin-t": "UperNet (Swin-T)",
+    "upernet_swin-b": "UperNet (Swin-B)",
+
+    // mmyolo (MMYOLO)
+    "yolov5_n": "YOLOv5 Nano",
+    "yolov5_s": "YOLOv5 Small",
+    "yolov5_m": "YOLOv5 Medium",
+    "yolov5_l": "YOLOv5 Large",
+    "yolov6_n": "YOLOv6 Nano",
+    "yolov6_s": "YOLOv6 Small",
+    "yolov7_tiny": "YOLOv7 Tiny",
+    "yolov7_l": "YOLOv7 Large",
+    "yolov8_n": "YOLOv8 Nano",
+    "yolov8_s": "YOLOv8 Small",
+    "rtmdet_tiny_syncbn": "RTMDet Tiny",
+    "rtmdet_s_syncbn": "RTMDet Small",
+    ppyoloe_plus_s: "PPYOLOE+ Small",
+    ppyoloe_plus_m: "PPYOLOE+ Medium",
   };
 
   // Check common models first

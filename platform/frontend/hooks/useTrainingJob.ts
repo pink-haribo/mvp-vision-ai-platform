@@ -11,7 +11,7 @@ export interface TrainingJob {
   job_id: number;
   session_id?: number;
   model_name: string;
-  framework: 'timm' | 'ultralytics' | 'huggingface';
+  framework: 'timm' | 'ultralytics' | 'huggingface' | 'mmdet' | 'mmpretrain' | 'mmseg' | 'mmyolo';
   task_type: string;
   dataset_path: string;
   num_epochs: number;

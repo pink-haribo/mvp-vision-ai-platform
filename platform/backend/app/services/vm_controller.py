@@ -261,7 +261,11 @@ class VMController:
         images = {
             "ultralytics": f"{registry}/trainer-ultralytics:{version}",
             "timm": f"{registry}/trainer-timm:{version}",
-            "transformers": f"{registry}/trainer-transformers:{version}",
+            "huggingface": f"{registry}/trainer-huggingface:{version}",
+            "mmdet": f"{registry}/trainer-mmdet:{version}",
+            "mmpretrain": f"{registry}/trainer-mmpretrain:{version}",
+            "mmseg": f"{registry}/trainer-mmseg:{version}",
+            "mmyolo": f"{registry}/trainer-mmyolo:{version}",
         }
 
         return images.get(framework, images["ultralytics"])
