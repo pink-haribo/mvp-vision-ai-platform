@@ -48,7 +48,13 @@ export async function middleware(request: NextRequest) {
   const nextAuthUrl = process.env.NEXTAUTH_URL || `${request.nextUrl.origin}`
 
   // NextAuth signin 페이지로 리다이렉트 (원래 경로를 callbackUrl로 전달)
-  const originalPath = pathname + search
+  let originalPath = pathname + search
+
+  // logout parameter가 있으면 제거 (로그아웃 후 재로그인 시 무한루프 방지)
+  if (originalPath.includes('logout=true')) {
+    originalPath = pathname
+  }
+
   const signInUrl = new URL(`${nextAuthUrl}/api/auth/signin`)
   signInUrl.searchParams.set("callbackUrl", originalPath)
 
