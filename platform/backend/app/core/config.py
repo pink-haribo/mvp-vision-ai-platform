@@ -53,7 +53,36 @@ class Settings(BaseSettings):
 
     # Google Gemini API (when LLM_PROVIDER=gemini)
     GOOGLE_API_KEY: str = ""
-    # Security & Authentication
+
+    # ========================================
+    # Keycloak OIDC Configuration
+    # ========================================
+    # Keycloak 서버 URL (예: http://localhost:8080)
+    KEYCLOAK_SERVER_URL: str = "http://localhost:8080"
+
+    # Realm 이름
+    KEYCLOAK_REALM: str = "vision-ai"
+
+    # Backend Client ID (토큰 검증용)
+    KEYCLOAK_CLIENT_ID: str = "platform-backend"
+
+    # Client Secret (Confidential Client인 경우)
+    KEYCLOAK_CLIENT_SECRET: Optional[str] = None
+
+    # SSL 검증 여부 (개발 환경에서 self-signed cert 사용 시 False로 설정)
+    KEYCLOAK_VERIFY_SSL: bool = True
+
+    @property
+    def KEYCLOAK_ISSUER(self) -> str:
+        """OIDC Issuer URL"""
+        return f"{self.KEYCLOAK_SERVER_URL}/realms/{self.KEYCLOAK_REALM}"
+
+    @property
+    def KEYCLOAK_JWKS_URL(self) -> str:
+        """JWKS (JSON Web Key Set) URL for token verification"""
+        return f"{self.KEYCLOAK_ISSUER}/protocol/openid-connect/certs"
+
+    # Security & Authentication (Legacy - kept for service JWT)
     JWT_SECRET: str = "your-secret-key-change-this-in-production-use-openssl-rand-hex-32"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60

@@ -21,18 +21,14 @@ export default function ProfilePage() {
   const [phoneNumber, setPhoneNumber] = useState('')
   const [bio, setBio] = useState('')
 
-  const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [showPasswordChange, setShowPasswordChange] = useState(false)
-
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
-  // Redirect if not authenticated
+  // Redirect if not authenticated (middleware handles SSO redirect)
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
-      router.push('/login')
+      router.push('/')
     }
   }, [authLoading, isAuthenticated, router])
 
@@ -64,19 +60,6 @@ export default function ProfilePage() {
       return
     }
 
-    // Validate password if changing
-    if (showPasswordChange) {
-      if (newPassword.length > 0 && newPassword.length < 8) {
-        setError('비밀번호는 최소 8자 이상이어야 합니다')
-        return
-      }
-
-      if (newPassword !== confirmPassword) {
-        setError('비밀번호가 일치하지 않습니다')
-        return
-      }
-    }
-
     setIsLoading(true)
 
     try {
@@ -85,7 +68,7 @@ export default function ProfilePage() {
         throw new Error('인증 토큰이 없습니다')
       }
 
-      const updateData: any = {
+      const updateData = {
         full_name: fullName || null,
         company: company || null,
         company_custom: company === '직접 입력' ? companyCustom : null,
@@ -94,10 +77,6 @@ export default function ProfilePage() {
         department: department || null,
         phone_number: phoneNumber || null,
         bio: bio || null,
-      }
-
-      if (showPasswordChange && newPassword) {
-        updateData.password = newPassword
       }
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`, {
@@ -115,9 +94,6 @@ export default function ProfilePage() {
       }
 
       setSuccess('프로필이 성공적으로 업데이트되었습니다')
-      setShowPasswordChange(false)
-      setNewPassword('')
-      setConfirmPassword('')
 
       // Reload user data
       window.location.reload()
@@ -354,59 +330,12 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* Password Change */}
+            {/* Password Info */}
             <div className="space-y-4">
-              <div className="flex items-center justify-between border-b pb-2">
-                <h3 className="text-lg font-semibold text-gray-900">비밀번호 변경</h3>
-                <button
-                  type="button"
-                  onClick={() => setShowPasswordChange(!showPasswordChange)}
-                  className="text-sm text-violet-600 hover:text-violet-700"
-                >
-                  {showPasswordChange ? '취소' : '변경하기'}
-                </button>
-              </div>
-
-              {showPasswordChange && (
-                <>
-                  <div>
-                    <label htmlFor="newPassword" className="block text-sm font-medium text-gray-700 mb-2">
-                      새 비밀번호
-                    </label>
-                    <input
-                      id="newPassword"
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      minLength={8}
-                      className={cn(
-                        'w-full px-4 py-3 border border-gray-300 rounded-lg',
-                        'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
-                        'text-gray-900'
-                      )}
-                      placeholder="최소 8자 이상"
-                    />
-                  </div>
-
-                  <div>
-                    <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
-                      비밀번호 확인
-                    </label>
-                    <input
-                      id="confirmPassword"
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      className={cn(
-                        'w-full px-4 py-3 border border-gray-300 rounded-lg',
-                        'focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-transparent',
-                        'text-gray-900'
-                      )}
-                      placeholder="비밀번호 재입력"
-                    />
-                  </div>
-                </>
-              )}
+              <h3 className="text-lg font-semibold text-gray-900 border-b pb-2">비밀번호</h3>
+              <p className="text-sm text-gray-600">
+                비밀번호는 SSO 시스템에서 관리됩니다. 비밀번호를 변경하려면 SSO 관리 페이지를 이용해주세요.
+              </p>
             </div>
 
             <div className="flex gap-4">

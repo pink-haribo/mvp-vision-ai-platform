@@ -1,72 +1,107 @@
-"""Authentication dependencies for FastAPI endpoints."""
+"""Authentication dependencies for FastAPI endpoints.
 
-from typing import Optional
+Keycloak OIDC 인증을 사용합니다.
+"""
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
 from sqlalchemy.orm import Session
 
-from app.core.security import decode_token
+from app.core.keycloak_auth import (
+    verify_keycloak_token,
+    map_keycloak_to_system_role,
+    KeycloakTokenPayload,
+)
 from app.db.database import get_db, get_user_db
 from app.db import models
 
-# OAuth2 scheme for token extraction
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+# HTTP Bearer 스킴 (Keycloak 토큰용)
+http_bearer = HTTPBearer(
+    scheme_name="Keycloak Bearer",
+    description="Keycloak에서 발급받은 Access Token",
+    auto_error=True
+)
 
 
-def get_current_user(
-    token: str = Depends(oauth2_scheme),
+async def get_current_user(
+    bearer: HTTPAuthorizationCredentials = Depends(http_bearer),
     user_db: Session = Depends(get_user_db)
 ) -> models.User:
     """
-    Get the current authenticated user from JWT token.
+    Keycloak 토큰에서 현재 인증된 사용자 반환
 
-    Phase 11: Uses Shared User DB for authentication.
+    1. Keycloak 토큰 검증 (RS256, JWKS)
+    2. keycloak_id로 사용자 조회
+    3. 없으면 이메일로 조회 후 keycloak_id 연결
+    4. 그래도 없으면 JIT Provisioning (자동 사용자 생성)
 
     Args:
-        token: JWT access token from Authorization header
+        bearer: Authorization 헤더에서 추출한 Bearer 토큰
         user_db: Shared User database session
 
     Returns:
         Current user object
 
     Raises:
-        HTTPException: If token is invalid or user not found
+        HTTPException: 토큰 검증 실패 또는 사용자 비활성
     """
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    token = bearer.credentials
 
+    # 1. Keycloak 토큰 검증
     try:
-        payload = decode_token(token)
-        user_id_str: Optional[str] = payload.get("sub")
-        token_type: Optional[str] = payload.get("type")
-
-        if user_id_str is None or token_type != "access":
-            raise credentials_exception
-
-        # Convert user_id from string to int
-        try:
-            user_id = int(user_id_str)
-        except (ValueError, TypeError):
-            raise credentials_exception
-
+        payload: KeycloakTokenPayload = await verify_keycloak_token(token)
     except JWTError as e:
-        raise credentials_exception
-    except Exception as e:
-        raise credentials_exception
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid Keycloak token: {str(e)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    user = user_db.query(models.User).filter(models.User.id == user_id).first()
-    if user is None:
-        raise credentials_exception
+    # 2. keycloak_id로 사용자 조회
+    user = user_db.query(models.User).filter(
+        models.User.keycloak_id == payload.sub
+    ).first()
+
+    # 3. 없으면 이메일로 기존 사용자 조회 (마이그레이션 케이스)
+    if not user and payload.email:
+        user = user_db.query(models.User).filter(
+            models.User.email == payload.email
+        ).first()
+
+        if user:
+            # 기존 사용자에 keycloak_id 연결
+            user.keycloak_id = payload.sub
+            user_db.commit()
+
+    # 4. 그래도 없으면 새 사용자 생성 (JIT Provisioning)
+    if not user:
+        user = models.User(
+            keycloak_id=payload.sub,
+            email=payload.email or f"{payload.sub}@keycloak.local",
+            hashed_password=None,  # Keycloak 사용자는 비밀번호 없음
+            full_name=payload.name or payload.preferred_username or "Unknown",
+            system_role=map_keycloak_to_system_role(payload),
+            is_active=True,
+            # 커스텀 속성 (Keycloak User Attributes에서 매핑된 경우)
+            company=payload.company,
+            department=payload.department,
+        )
+        user_db.add(user)
+        user_db.commit()
+        user_db.refresh(user)
+
+    # 5. 활성 사용자 확인
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Inactive user"
+        )
 
     return user
 
 
-def get_current_active_user(
+async def get_current_active_user(
     current_user: models.User = Depends(get_current_user)
 ) -> models.User:
     """
@@ -89,25 +124,25 @@ def get_current_active_user(
     return current_user
 
 
-def get_current_superuser(
+async def get_current_superuser(
     current_user: models.User = Depends(get_current_user)
 ) -> models.User:
     """
-    Get the current superuser.
+    Get the current admin user.
 
     Args:
         current_user: Current user from get_current_user
 
     Returns:
-        Superuser object
+        Admin user object
 
     Raises:
-        HTTPException: If user is not a superuser
+        HTTPException: If user is not an admin
     """
-    if not current_user.is_superuser:
+    if current_user.system_role != models.UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
+            detail="Not enough permissions. Admin role required."
         )
     return current_user
 
@@ -132,11 +167,10 @@ def check_project_permission(project_id: int, user_id: int, db: Session) -> bool
     if project.user_id == user_id:
         return True
 
-    # Check if user is a member (when ProjectMember model is implemented)
-    # member = db.query(models.ProjectMember).filter(
-    #     models.ProjectMember.project_id == project_id,
-    #     models.ProjectMember.user_id == user_id
-    # ).first()
-    # return member is not None
+    # Check if user is a member
+    member = db.query(models.ProjectMember).filter(
+        models.ProjectMember.project_id == project_id,
+        models.ProjectMember.user_id == user_id
+    ).first()
 
-    return False
+    return member is not None

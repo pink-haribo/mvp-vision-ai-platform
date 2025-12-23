@@ -21,7 +21,6 @@ from app.schemas.invitation import (
 )
 from app.utils.dependencies import get_current_active_user
 from app.services.email_service import get_email_service
-from app.core.security import get_password_hash
 
 router = APIRouter(prefix="/invitations", tags=["invitations"])
 
@@ -126,49 +125,19 @@ def accept_invitation(
         db.commit()
         raise HTTPException(status_code=400, detail="Invitation has expired")
 
-    # Check if user already exists
+    # Check if user already exists (created via Keycloak JIT provisioning)
     existing_user = user_db.query(User).filter(User.email == invitation.invitee_email).first()
 
     if existing_user:
-        # User exists, just add to entity
+        # User exists (logged in via Keycloak before), add to entity
         user = existing_user
     else:
-        # Create new user
-        if not request.password:
-            raise HTTPException(status_code=400, detail="Password required for new account")
-
-        # Determine organization based on invitation type
-        organization_id = None
-        if invitation.invitation_type == InvitationType.ORGANIZATION:
-            organization_id = invitation.organization_id
-        elif invitation.invitation_type == InvitationType.PROJECT:
-            project = db.query(Project).filter(Project.id == invitation.project_id).first()
-            if project:
-                organization_id = project.organization_id
-        elif invitation.invitation_type == InvitationType.DATASET:
-            # Phase 11.5: Dataset managed by Labeler
-            # TODO: Query Labeler API for dataset owner and organization
-            pass  # organization_id stays None for now
-
-        # Generate avatar name
-        import random
-        AVATAR_ADJECTIVES = ['happy', 'brave', 'clever', 'wise', 'swift']
-        AVATAR_NOUNS = ['panda', 'tiger', 'eagle', 'dolphin', 'fox']
-        avatar_name = f"{random.choice(AVATAR_ADJECTIVES)}-{random.choice(AVATAR_NOUNS)}-{random.randint(100, 999)}"
-
-        user = User(
-            email=invitation.invitee_email,
-            hashed_password=get_password_hash(request.password),
-            full_name=request.full_name,
-            phone_number=request.phone_number,
-            department=request.department,
-            organization_id=organization_id,
-            system_role=invitation.invitee_role,
-            avatar_name=avatar_name,
-            is_active=True
+        # With Keycloak SSO, users must log in first (creates account via JIT provisioning)
+        # Then they can accept invitations
+        raise HTTPException(
+            status_code=400,
+            detail="Please log in first via SSO to create your account, then accept this invitation."
         )
-        db.add(user)
-        db.flush()  # Get user.id
 
     # Add user to entity based on invitation type
     if invitation.invitation_type == InvitationType.PROJECT:
@@ -198,7 +167,7 @@ def accept_invitation(
         "message": "Invitation accepted successfully",
         "user_id": user.id,
         "email": user.email,
-        "redirect_to": "/login" if existing_user else "/login?registered=true"
+        "redirect_to": "/"  # User is already logged in via SSO
     }
 
 

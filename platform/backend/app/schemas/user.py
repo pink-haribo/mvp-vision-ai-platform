@@ -1,10 +1,14 @@
-"""User schemas for API requests and responses."""
+"""User schemas for API requests and responses.
+
+Note: User authentication is handled by Keycloak SSO.
+Password-related schemas (UserCreate, Token, ForgotPassword, etc.) have been removed.
+"""
 
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
-from app.schemas.enums import SystemRole, Company, Division
+from pydantic import BaseModel, EmailStr
+from app.schemas.enums import SystemRole
 
 
 class UserBase(BaseModel):
@@ -24,14 +28,11 @@ class UserBase(BaseModel):
     bio: Optional[str] = None               # 소개
 
 
-class UserCreate(UserBase):
-    """Schema for user registration."""
-
-    password: str = Field(..., min_length=8, max_length=100)
-
-
 class UserUpdate(BaseModel):
-    """Schema for updating user information."""
+    """Schema for updating user profile information.
+
+    Note: Password changes are handled by Keycloak, not this schema.
+    """
 
     full_name: Optional[str] = None
     company: Optional[str] = None
@@ -41,7 +42,6 @@ class UserUpdate(BaseModel):
     department: Optional[str] = None
     phone_number: Optional[str] = None
     bio: Optional[str] = None
-    password: Optional[str] = Field(None, min_length=8, max_length=100)
 
 
 class UserResponse(UserBase):
@@ -57,45 +57,3 @@ class UserResponse(UserBase):
 
     class Config:
         from_attributes = True
-
-
-class UserInDB(UserBase):
-    """Schema for user in database (includes hashed_password)."""
-
-    id: int
-    hashed_password: str
-    system_role: SystemRole
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class Token(BaseModel):
-    """Schema for authentication token response."""
-
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-
-
-class TokenData(BaseModel):
-    """Schema for decoded token data."""
-
-    user_id: Optional[int] = None
-    email: Optional[str] = None
-
-
-class ForgotPasswordRequest(BaseModel):
-    """Schema for requesting password reset."""
-
-    email: EmailStr
-
-
-class ResetPasswordRequest(BaseModel):
-    """Schema for resetting password with token."""
-
-    token: str = Field(..., min_length=1)
-    new_password: str = Field(..., min_length=8, max_length=100)
