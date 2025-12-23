@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { signOut } from 'next-auth/react'
 import Sidebar from '@/components/Sidebar'
 import ChatPanel from '@/components/ChatPanel'
 import TrainingPanel from '@/components/TrainingPanel'
@@ -27,6 +29,9 @@ interface TrainingConfig {
 }
 
 export default function Home() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
   const [sessionId, setSessionId] = useState<number | null>(null)
   const [trainingJobId, setTrainingJobId] = useState<number | null>(null)
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
@@ -54,6 +59,18 @@ export default function Home() {
 
   // Dataset panel state
   const [showDatasets, setShowDatasets] = useState(false)
+
+  // Handle logout query parameter (from Keycloak redirect)
+  useEffect(() => {
+    const logout = searchParams.get('logout')
+    if (logout === 'true') {
+      // Clear NextAuth session
+      signOut({ redirect: false }).then(() => {
+        // Remove logout query parameter from URL
+        router.replace('/')
+      })
+    }
+  }, [searchParams, router])
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault()
