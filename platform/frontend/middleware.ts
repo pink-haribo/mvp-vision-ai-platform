@@ -16,11 +16,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // 삭제된 logout-success 페이지 접근 시 홈으로 리다이렉트
-  if (pathname === "/auth/logout-success") {
-    return NextResponse.redirect(new URL('/', request.url))
-  }
-
   // NextAuth 엔드포인트는 통과
   if (pathname.startsWith("/api/auth/")) {
     return NextResponse.next()
