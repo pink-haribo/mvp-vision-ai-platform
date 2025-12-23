@@ -1,0 +1,386 @@
+{
+  "framework": "mmdet",
+  "display_name": "MMDetection",
+  "description": "OpenMMLab Detection Toolbox - State-of-the-art object detection models",
+  "version": "1.0.0",
+  "openmmlab_version": "3.3.0",
+  "models": [
+    {
+      "model_name": "faster-rcnn_r50_fpn",
+      "display_name": "Faster R-CNN (ResNet-50)",
+      "task_types": ["detection"],
+      "description": "Classic two-stage detector with ResNet-50 backbone and FPN",
+      "parameters": {
+        "backbone": "resnet50",
+        "neck": "fpn",
+        "params_m": 41.5,
+        "flops_g": 207.0
+      },
+      "config_file": "faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v2.0/faster_rcnn/faster_rcnn_r50_fpn_1x_coco/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "faster-rcnn_r101_fpn",
+      "display_name": "Faster R-CNN (ResNet-101)",
+      "task_types": ["detection"],
+      "description": "Faster R-CNN with deeper ResNet-101 backbone",
+      "parameters": {
+        "backbone": "resnet101",
+        "neck": "fpn",
+        "params_m": 60.5,
+        "flops_g": 283.0
+      },
+      "config_file": "faster_rcnn/faster-rcnn_r101_fpn_1x_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v2.0/faster_rcnn/faster_rcnn_r101_fpn_1x_coco/faster_rcnn_r101_fpn_1x_coco_20200130-f513f705.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "retinanet_r50_fpn",
+      "display_name": "RetinaNet (ResNet-50)",
+      "task_types": ["detection"],
+      "description": "Single-stage detector with focal loss for dense object detection",
+      "parameters": {
+        "backbone": "resnet50",
+        "neck": "fpn",
+        "params_m": 37.7,
+        "flops_g": 205.0
+      },
+      "config_file": "retinanet/retinanet_r50_fpn_1x_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v2.0/retinanet/retinanet_r50_fpn_1x_coco/retinanet_r50_fpn_1x_coco_20200130-c2398f9e.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "atss_r50_fpn",
+      "display_name": "ATSS (ResNet-50)",
+      "task_types": ["detection"],
+      "description": "Adaptive Training Sample Selection - bridging anchor-based and anchor-free",
+      "parameters": {
+        "backbone": "resnet50",
+        "neck": "fpn",
+        "params_m": 32.1,
+        "flops_g": 205.0
+      },
+      "config_file": "atss/atss_r50_fpn_1x_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v2.0/atss/atss_r50_fpn_1x_coco/atss_r50_fpn_1x_coco_20200209-985f7bd0.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "cascade-rcnn_r50_fpn",
+      "display_name": "Cascade R-CNN (ResNet-50)",
+      "task_types": ["detection"],
+      "description": "Multi-stage detector with progressive IoU thresholds",
+      "parameters": {
+        "backbone": "resnet50",
+        "neck": "fpn",
+        "params_m": 69.2,
+        "flops_g": 245.0
+      },
+      "config_file": "cascade_rcnn/cascade-rcnn_r50_fpn_1x_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v2.0/cascade_rcnn/cascade_rcnn_r50_fpn_1x_coco/cascade_rcnn_r50_fpn_1x_coco_20200316-3dc56deb.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "detr_r50",
+      "display_name": "DETR (ResNet-50)",
+      "task_types": ["detection"],
+      "description": "DEtection TRansformer - End-to-end object detection with transformers",
+      "parameters": {
+        "backbone": "resnet50",
+        "encoder_layers": 6,
+        "decoder_layers": 6,
+        "params_m": 41.3,
+        "flops_g": 86.0
+      },
+      "config_file": "detr/detr_r50_8xb2-150e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v3.0/detr/detr_r50_8xb2-150e_coco/detr_r50_8xb2-150e_coco_20221023_153551-436d03e8.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "dino-4scale_r50",
+      "display_name": "DINO (ResNet-50, 4-scale)",
+      "task_types": ["detection"],
+      "description": "DINO: DETR with Improved deNoising anchOr boxes - SOTA transformer detector",
+      "parameters": {
+        "backbone": "resnet50",
+        "encoder_layers": 6,
+        "decoder_layers": 6,
+        "num_feature_levels": 4,
+        "params_m": 47.4,
+        "flops_g": 279.0
+      },
+      "config_file": "dino/dino-4scale_r50_8xb2-12e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v3.0/dino/dino-4scale_r50_8xb2-12e_coco/dino-4scale_r50_8xb2-12e_coco_20221202_182705-55b2bba2.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "dino-5scale_swin-l",
+      "display_name": "DINO (Swin-L, 5-scale)",
+      "task_types": ["detection"],
+      "description": "DINO with Swin-Large backbone - Top performance on COCO",
+      "parameters": {
+        "backbone": "swin_large",
+        "encoder_layers": 6,
+        "decoder_layers": 6,
+        "num_feature_levels": 5,
+        "params_m": 218.0,
+        "flops_g": 860.0
+      },
+      "config_file": "dino/dino-5scale_swin-l_8xb2-36e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v3.0/dino/dino-5scale_swin-l_8xb2-36e_coco/dino-5scale_swin-l_8xb2-36e_coco_20230228_072924-a654145f.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "co-detr_r50",
+      "display_name": "Co-DETR (ResNet-50)",
+      "task_types": ["detection"],
+      "description": "Collaborative DETR - Combines transformer with auxiliary heads",
+      "parameters": {
+        "backbone": "resnet50",
+        "encoder_layers": 6,
+        "decoder_layers": 6,
+        "params_m": 52.0,
+        "flops_g": 310.0
+      },
+      "config_file": "co_detr/co_detr_r50_1x_coco.py",
+      "pretrained": null,
+      "supported": true,
+      "validated": false
+    },
+    {
+      "model_name": "fcos_r50_fpn",
+      "display_name": "FCOS (ResNet-50)",
+      "task_types": ["detection"],
+      "description": "Fully Convolutional One-Stage Object Detection - anchor-free detector",
+      "parameters": {
+        "backbone": "resnet50",
+        "neck": "fpn",
+        "params_m": 32.0,
+        "flops_g": 200.0
+      },
+      "config_file": "fcos/fcos_r50-dcn-caffe_fpn_gn-head-center-normbbox-centeronreg-giou_1x_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v2.0/fcos/fcos_center-normbbox-centeronreg-giou_r50_caffe_fpn_gn-head_1x_coco/fcos_center-normbbox-centeronreg-giou_r50_caffe_fpn_gn-head_1x_coco-0a0d75a8.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "centernet_r18",
+      "display_name": "CenterNet (ResNet-18)",
+      "task_types": ["detection"],
+      "description": "Objects as Points - keypoint-based anchor-free detector (lightweight)",
+      "parameters": {
+        "backbone": "resnet18",
+        "params_m": 14.2,
+        "flops_g": 18.0
+      },
+      "config_file": "centernet/centernet_r18-dcnv2_8xb16-crop512-140e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v2.0/centernet/centernet_resnet18_dcnv2_140e_coco/centernet_resnet18_dcnv2_140e_coco_20210702_155131-c8cd631f.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "rtmdet_tiny",
+      "display_name": "RTMDet Tiny",
+      "task_types": ["detection"],
+      "description": "Real-Time Models for Object Detection - lightweight and fast",
+      "parameters": {
+        "params_m": 4.8,
+        "flops_g": 8.1
+      },
+      "config_file": "rtmdet/rtmdet_tiny_8xb32-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_tiny_8xb32-300e_coco/rtmdet_tiny_8xb32-300e_coco_20220902_112414-78e30dcc.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "rtmdet_s",
+      "display_name": "RTMDet Small",
+      "task_types": ["detection"],
+      "description": "RTMDet Small - balanced speed and accuracy",
+      "parameters": {
+        "params_m": 8.9,
+        "flops_g": 14.8
+      },
+      "config_file": "rtmdet/rtmdet_s_8xb32-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_s_8xb32-300e_coco/rtmdet_s_8xb32-300e_coco_20220905_161602-387a891e.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "rtmdet_m",
+      "display_name": "RTMDet Medium",
+      "task_types": ["detection"],
+      "description": "RTMDet Medium - good balance for general use",
+      "parameters": {
+        "params_m": 24.7,
+        "flops_g": 39.3
+      },
+      "config_file": "rtmdet/rtmdet_m_8xb32-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_m_8xb32-300e_coco/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "rtmdet_l",
+      "display_name": "RTMDet Large",
+      "task_types": ["detection"],
+      "description": "RTMDet Large - high accuracy real-time detector",
+      "parameters": {
+        "params_m": 52.3,
+        "flops_g": 80.2
+      },
+      "config_file": "rtmdet/rtmdet_l_8xb32-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_l_8xb32-300e_coco/rtmdet_l_8xb32-300e_coco_20220719_112030-5a0be7c4.pth",
+      "supported": true,
+      "validated": true
+    }
+  ],
+  "task_types": [
+    {
+      "name": "detection",
+      "display_name": "Object Detection",
+      "description": "Detect and localize objects in images with bounding boxes",
+      "supported": true
+    }
+  ],
+  "dataset_formats": [
+    {
+      "name": "coco",
+      "display_name": "COCO Format",
+      "description": "COCO JSON format - native format for MMDetection",
+      "supported": true
+    },
+    {
+      "name": "dice",
+      "display_name": "DICE Format",
+      "description": "Platform's internal DICE format (auto-converted to COCO)",
+      "supported": true
+    }
+  ],
+  "metric_candidates_by_task": {
+    "detection": [
+      {
+        "value": "bbox_mAP",
+        "label": "mAP (평균 정밀도)",
+        "mode": "max",
+        "description": "COCO 표준 mAP@0.5:0.95 (권장)"
+      },
+      {
+        "value": "bbox_mAP_50",
+        "label": "mAP@0.5",
+        "mode": "max",
+        "description": "IoU 0.5 기준 평균 정밀도"
+      },
+      {
+        "value": "bbox_mAP_75",
+        "label": "mAP@0.75",
+        "mode": "max",
+        "description": "IoU 0.75 기준 평균 정밀도 (strict)"
+      },
+      {
+        "value": "bbox_mAP_s",
+        "label": "mAP (Small)",
+        "mode": "max",
+        "description": "작은 객체 탐지 성능"
+      },
+      {
+        "value": "bbox_mAP_m",
+        "label": "mAP (Medium)",
+        "mode": "max",
+        "description": "중간 크기 객체 탐지 성능"
+      },
+      {
+        "value": "bbox_mAP_l",
+        "label": "mAP (Large)",
+        "mode": "max",
+        "description": "큰 객체 탐지 성능"
+      }
+    ]
+  },
+  "config_schema": {
+    "epochs": {
+      "type": "int",
+      "default": 12,
+      "min": 1,
+      "max": 300,
+      "description": "Number of training epochs (default 12 for 1x schedule)"
+    },
+    "batch_size": {
+      "type": "int",
+      "default": 2,
+      "min": 1,
+      "max": 32,
+      "description": "Batch size per GPU (MMDet uses smaller batches)"
+    },
+    "learning_rate": {
+      "type": "float",
+      "default": 0.02,
+      "min": 0.0001,
+      "max": 0.1,
+      "description": "Base learning rate (scales with batch size)"
+    },
+    "optimizer": {
+      "type": "select",
+      "default": "SGD",
+      "options": ["SGD", "AdamW"],
+      "description": "Optimizer algorithm"
+    },
+    "lr_scheduler": {
+      "type": "select",
+      "default": "step",
+      "options": ["step", "cosine", "linear"],
+      "description": "Learning rate scheduler"
+    },
+    "warmup_iters": {
+      "type": "int",
+      "default": 500,
+      "min": 0,
+      "max": 5000,
+      "description": "Number of warmup iterations"
+    },
+    "img_scale": {
+      "type": "tuple",
+      "default": [1333, 800],
+      "description": "Training image scale (max_size, min_size)"
+    },
+    "pretrained": {
+      "type": "bool",
+      "default": true,
+      "description": "Use pretrained backbone weights"
+    },
+    "load_from": {
+      "type": "string",
+      "default": null,
+      "description": "Path or URL to pretrained model checkpoint"
+    },
+    "resume_from": {
+      "type": "string",
+      "default": null,
+      "description": "Path to checkpoint to resume training from"
+    },
+    "val_interval": {
+      "type": "int",
+      "default": 1,
+      "min": 1,
+      "max": 50,
+      "description": "Validation interval (epochs)"
+    }
+  },
+  "export_formats": ["onnx", "torchscript", "tensorrt"],
+  "requirements": {
+    "python": ">=3.8,<3.12",
+    "pytorch": ">=1.8.0",
+    "cuda": ">=11.0",
+    "mmcv": ">=2.0.0",
+    "mmengine": ">=0.7.1",
+    "mmdet": ">=3.0.0"
+  }
+}

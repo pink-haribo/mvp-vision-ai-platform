@@ -59,6 +59,10 @@ export default function AdvancedConfigPanel({
               <p className="text-sm text-gray-400">
                 {framework === 'timm' && 'Classification 전용 설정 (Mixup, CutMix 등)'}
                 {framework === 'ultralytics' && 'Detection 전용 설정 (Mosaic, Copy-Paste 등)'}
+                {framework === 'mmdet' && 'MMDetection 설정 (Multi-scale, Repeat Dataset 등)'}
+                {framework === 'mmpretrain' && 'MMPreTrain 설정 (Mixup, CutMix, Label Smoothing 등)'}
+                {framework === 'mmseg' && 'MMSegmentation 설정 (Slide Inference, Multi-scale 등)'}
+                {framework === 'mmyolo' && 'MMYOLO 설정 (Mosaic, Mixup, Copy-Paste 등)'}
               </p>
             </div>
           </div>

@@ -1436,7 +1436,7 @@ async def get_config_schema(framework: str, task_type: str = None):
             raise HTTPException(
                 status_code=404,
                 detail=f"Configuration schema for framework '{framework}' not found. "
-                       f"Available frameworks: ultralytics, timm, huggingface. "
+                       f"Available frameworks: ultralytics, timm, huggingface, mmdet, mmpretrain, mmseg, mmyolo. "
                        f"Schemas are uploaded via GitHub Actions from platform/trainers/*/config_schema.py"
             )
 

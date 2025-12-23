@@ -1,0 +1,500 @@
+{
+  "framework": "mmyolo",
+  "display_name": "MMYOLO",
+  "description": "OpenMMLab YOLO Series Toolbox - YOLOv5, YOLOv7, YOLOv8, RTMDet, PPYOLOE",
+  "version": "1.0.0",
+  "openmmlab_version": "0.6.0",
+  "models": [
+    {
+      "model_name": "yolov5_n",
+      "display_name": "YOLOv5 Nano",
+      "task_types": ["detection"],
+      "description": "YOLOv5 Nano - fastest YOLOv5 variant",
+      "parameters": {
+        "params_m": 1.9,
+        "flops_g": 4.5
+      },
+      "config_file": "yolov5/yolov5_n-v61_syncbn_fast_8xb16-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov5/yolov5_n-v61_syncbn_fast_8xb16-300e_coco/yolov5_n-v61_syncbn_fast_8xb16-300e_coco_20220919_090739-b804c1ad.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov5_s",
+      "display_name": "YOLOv5 Small",
+      "task_types": ["detection"],
+      "description": "YOLOv5 Small - balanced speed and accuracy",
+      "parameters": {
+        "params_m": 7.2,
+        "flops_g": 16.5
+      },
+      "config_file": "yolov5/yolov5_s-v61_syncbn_fast_8xb16-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov5/yolov5_s-v61_syncbn_fast_8xb16-300e_coco/yolov5_s-v61_syncbn_fast_8xb16-300e_coco_20220918_084700-86e02187.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov5_m",
+      "display_name": "YOLOv5 Medium",
+      "task_types": ["detection"],
+      "description": "YOLOv5 Medium - good balance for general use",
+      "parameters": {
+        "params_m": 21.2,
+        "flops_g": 49.0
+      },
+      "config_file": "yolov5/yolov5_m-v61_syncbn_fast_8xb16-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov5/yolov5_m-v61_syncbn_fast_8xb16-300e_coco/yolov5_m-v61_syncbn_fast_8xb16-300e_coco_20220917_204944-516a710f.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov5_l",
+      "display_name": "YOLOv5 Large",
+      "task_types": ["detection"],
+      "description": "YOLOv5 Large - high accuracy",
+      "parameters": {
+        "params_m": 46.5,
+        "flops_g": 109.1
+      },
+      "config_file": "yolov5/yolov5_l-v61_syncbn_fast_8xb16-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov5/yolov5_l-v61_syncbn_fast_8xb16-300e_coco/yolov5_l-v61_syncbn_fast_8xb16-300e_coco_20220917_031007-096ef0eb.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov6_s",
+      "display_name": "YOLOv6 Small",
+      "task_types": ["detection"],
+      "description": "YOLOv6 Small - efficient and fast",
+      "parameters": {
+        "params_m": 18.5,
+        "flops_g": 45.3
+      },
+      "config_file": "yolov6/yolov6_s_syncbn_fast_8xb32-400e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov6/yolov6_s_syncbn_fast_8xb32-400e_coco/yolov6_s_syncbn_fast_8xb32-400e_coco_20221102_203035-932e1d91.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov6_m",
+      "display_name": "YOLOv6 Medium",
+      "task_types": ["detection"],
+      "description": "YOLOv6 Medium - balanced performance",
+      "parameters": {
+        "params_m": 34.9,
+        "flops_g": 85.8
+      },
+      "config_file": "yolov6/yolov6_m_syncbn_fast_8xb32-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov6/yolov6_m_syncbn_fast_8xb32-300e_coco/yolov6_m_syncbn_fast_8xb32-300e_coco_20221109_182658-85bda3f4.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov6_l",
+      "display_name": "YOLOv6 Large",
+      "task_types": ["detection"],
+      "description": "YOLOv6 Large - high accuracy",
+      "parameters": {
+        "params_m": 59.6,
+        "flops_g": 150.7
+      },
+      "config_file": "yolov6/yolov6_l_syncbn_fast_8xb32-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov6/yolov6_l_syncbn_fast_8xb32-300e_coco/yolov6_l_syncbn_fast_8xb32-300e_coco_20221109_183156-91e3c447.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov7_tiny",
+      "display_name": "YOLOv7 Tiny",
+      "task_types": ["detection"],
+      "description": "YOLOv7 Tiny - lightweight edge deployment",
+      "parameters": {
+        "params_m": 6.2,
+        "flops_g": 13.7
+      },
+      "config_file": "yolov7/yolov7_tiny_syncbn_fast_8xb16-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov7/yolov7_tiny_syncbn_fast_8xb16-300e_coco/yolov7_tiny_syncbn_fast_8xb16-300e_coco_20221126_102719-0ee5bbdf.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov7_l",
+      "display_name": "YOLOv7 Large",
+      "task_types": ["detection"],
+      "description": "YOLOv7 Large - state-of-the-art real-time detector",
+      "parameters": {
+        "params_m": 36.9,
+        "flops_g": 104.7
+      },
+      "config_file": "yolov7/yolov7_l_syncbn_fast_8xb16-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov7/yolov7_l_syncbn_fast_8xb16-300e_coco/yolov7_l_syncbn_fast_8xb16-300e_coco_20221123_023601-8113c0eb.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov7_x",
+      "display_name": "YOLOv7 X-Large",
+      "task_types": ["detection"],
+      "description": "YOLOv7 X-Large - maximum accuracy",
+      "parameters": {
+        "params_m": 71.3,
+        "flops_g": 189.9
+      },
+      "config_file": "yolov7/yolov7_x_syncbn_fast_8xb16-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov7/yolov7_x_syncbn_fast_8xb16-300e_coco/yolov7_x_syncbn_fast_8xb16-300e_coco_20221124_215331-ef949a68.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov8_n",
+      "display_name": "YOLOv8 Nano",
+      "task_types": ["detection"],
+      "description": "YOLOv8 Nano - fastest YOLOv8 variant",
+      "parameters": {
+        "params_m": 3.2,
+        "flops_g": 8.7
+      },
+      "config_file": "yolov8/yolov8_n_syncbn_fast_8xb16-500e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov8/yolov8_n_syncbn_fast_8xb16-500e_coco/yolov8_n_syncbn_fast_8xb16-500e_coco_20230114_131804-88c11cdb.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov8_s",
+      "display_name": "YOLOv8 Small",
+      "task_types": ["detection"],
+      "description": "YOLOv8 Small - balanced speed and accuracy",
+      "parameters": {
+        "params_m": 11.2,
+        "flops_g": 28.6
+      },
+      "config_file": "yolov8/yolov8_s_syncbn_fast_8xb16-500e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov8/yolov8_s_syncbn_fast_8xb16-500e_coco/yolov8_s_syncbn_fast_8xb16-500e_coco_20230117_180101-5aa5f0f1.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov8_m",
+      "display_name": "YOLOv8 Medium",
+      "task_types": ["detection"],
+      "description": "YOLOv8 Medium - good balance for general use",
+      "parameters": {
+        "params_m": 25.9,
+        "flops_g": 78.9
+      },
+      "config_file": "yolov8/yolov8_m_syncbn_fast_8xb16-500e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov8/yolov8_m_syncbn_fast_8xb16-500e_coco/yolov8_m_syncbn_fast_8xb16-500e_coco_20230115_192200-c22e560a.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov8_l",
+      "display_name": "YOLOv8 Large",
+      "task_types": ["detection"],
+      "description": "YOLOv8 Large - high accuracy",
+      "parameters": {
+        "params_m": 43.7,
+        "flops_g": 165.2
+      },
+      "config_file": "yolov8/yolov8_l_syncbn_fast_8xb16-500e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov8/yolov8_l_syncbn_fast_8xb16-500e_coco/yolov8_l_syncbn_fast_8xb16-500e_coco_20230217_182526-189611b6.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "yolov8_x",
+      "display_name": "YOLOv8 X-Large",
+      "task_types": ["detection"],
+      "description": "YOLOv8 X-Large - maximum accuracy",
+      "parameters": {
+        "params_m": 68.2,
+        "flops_g": 257.8
+      },
+      "config_file": "yolov8/yolov8_x_syncbn_fast_8xb16-500e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/yolov8/yolov8_x_syncbn_fast_8xb16-500e_coco/yolov8_x_syncbn_fast_8xb16-500e_coco_20230218_023338-5674673c.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "rtmdet_tiny",
+      "display_name": "RTMDet Tiny",
+      "task_types": ["detection"],
+      "description": "Real-Time Models for Object Detection - tiny variant",
+      "parameters": {
+        "params_m": 4.8,
+        "flops_g": 8.1
+      },
+      "config_file": "rtmdet/rtmdet_tiny_syncbn_fast_8xb32-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/rtmdet/rtmdet_tiny_syncbn_fast_8xb32-300e_coco/rtmdet_tiny_syncbn_fast_8xb32-300e_coco_20230102_140117-dbb1dc83.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "rtmdet_s",
+      "display_name": "RTMDet Small",
+      "task_types": ["detection"],
+      "description": "RTMDet Small - excellent speed-accuracy trade-off",
+      "parameters": {
+        "params_m": 8.9,
+        "flops_g": 14.8
+      },
+      "config_file": "rtmdet/rtmdet_s_syncbn_fast_8xb32-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/rtmdet/rtmdet_s_syncbn_fast_8xb32-300e_coco/rtmdet_s_syncbn_fast_8xb32-300e_coco_20221230_182329-0a8c901a.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "rtmdet_m",
+      "display_name": "RTMDet Medium",
+      "task_types": ["detection"],
+      "description": "RTMDet Medium - balanced performance",
+      "parameters": {
+        "params_m": 24.7,
+        "flops_g": 39.3
+      },
+      "config_file": "rtmdet/rtmdet_m_syncbn_fast_8xb32-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/rtmdet/rtmdet_m_syncbn_fast_8xb32-300e_coco/rtmdet_m_syncbn_fast_8xb32-300e_coco_20230102_135952-40af4fe8.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "rtmdet_l",
+      "display_name": "RTMDet Large",
+      "task_types": ["detection"],
+      "description": "RTMDet Large - high accuracy real-time",
+      "parameters": {
+        "params_m": 52.3,
+        "flops_g": 80.2
+      },
+      "config_file": "rtmdet/rtmdet_l_syncbn_fast_8xb32-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/rtmdet/rtmdet_l_syncbn_fast_8xb32-300e_coco/rtmdet_l_syncbn_fast_8xb32-300e_coco_20230102_135928-ee3ab15c.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "rtmdet_x",
+      "display_name": "RTMDet X-Large",
+      "task_types": ["detection"],
+      "description": "RTMDet X-Large - SOTA real-time detector",
+      "parameters": {
+        "params_m": 94.9,
+        "flops_g": 141.7
+      },
+      "config_file": "rtmdet/rtmdet_x_syncbn_fast_8xb32-300e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/rtmdet/rtmdet_x_syncbn_fast_8xb32-300e_coco/rtmdet_x_syncbn_fast_8xb32-300e_coco_20221231_100345-b85cd476.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "ppyoloe_plus_s",
+      "display_name": "PPYOLOE+ Small",
+      "task_types": ["detection"],
+      "description": "PP-YOLOE+ Small - PaddleDetection's improved YOLO",
+      "parameters": {
+        "params_m": 7.9,
+        "flops_g": 17.4
+      },
+      "config_file": "ppyoloe/ppyoloe_plus_s_fast_8xb8-80e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/ppyoloe/ppyoloe_plus_s_fast_8xb8-80e_coco/ppyoloe_plus_s_fast_8xb8-80e_coco_20230101_154052-9fee7c9d.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "ppyoloe_plus_m",
+      "display_name": "PPYOLOE+ Medium",
+      "task_types": ["detection"],
+      "description": "PP-YOLOE+ Medium - balanced performance",
+      "parameters": {
+        "params_m": 23.4,
+        "flops_g": 49.9
+      },
+      "config_file": "ppyoloe/ppyoloe_plus_m_fast_8xb8-80e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/ppyoloe/ppyoloe_plus_m_fast_8xb8-80e_coco/ppyoloe_plus_m_fast_8xb8-80e_coco_20230104_193132-e4325ada.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "ppyoloe_plus_l",
+      "display_name": "PPYOLOE+ Large",
+      "task_types": ["detection"],
+      "description": "PP-YOLOE+ Large - high accuracy",
+      "parameters": {
+        "params_m": 52.2,
+        "flops_g": 110.1
+      },
+      "config_file": "ppyoloe/ppyoloe_plus_l_fast_8xb8-80e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/ppyoloe/ppyoloe_plus_l_fast_8xb8-80e_coco/ppyoloe_plus_l_fast_8xb8-80e_coco_20230104_191442-dcdc16a9.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "ppyoloe_plus_x",
+      "display_name": "PPYOLOE+ X-Large",
+      "task_types": ["detection"],
+      "description": "PP-YOLOE+ X-Large - maximum accuracy",
+      "parameters": {
+        "params_m": 98.4,
+        "flops_g": 206.6
+      },
+      "config_file": "ppyoloe/ppyoloe_plus_x_fast_8xb8-80e_coco.py",
+      "pretrained": "https://download.openmmlab.com/mmyolo/v0/ppyoloe/ppyoloe_plus_x_fast_8xb8-80e_coco/ppyoloe_plus_x_fast_8xb8-80e_coco_20230104_192258-12c15a5b.pth",
+      "supported": true,
+      "validated": true
+    }
+  ],
+  "task_types": [
+    {
+      "name": "detection",
+      "display_name": "Object Detection",
+      "description": "Detect and localize objects with bounding boxes",
+      "supported": true
+    }
+  ],
+  "dataset_formats": [
+    {
+      "name": "yolo",
+      "display_name": "YOLO Format",
+      "description": "YOLO format with images/ and labels/ directories",
+      "supported": true
+    },
+    {
+      "name": "coco",
+      "display_name": "COCO Format",
+      "description": "COCO JSON format (converted internally)",
+      "supported": true
+    },
+    {
+      "name": "dice",
+      "display_name": "DICE Format",
+      "description": "Platform's internal DICE format (auto-converted)",
+      "supported": true
+    }
+  ],
+  "metric_candidates_by_task": {
+    "detection": [
+      {
+        "value": "bbox_mAP",
+        "label": "mAP (평균 정밀도)",
+        "mode": "max",
+        "description": "COCO 표준 mAP@0.5:0.95 (권장)"
+      },
+      {
+        "value": "bbox_mAP_50",
+        "label": "mAP@0.5",
+        "mode": "max",
+        "description": "IoU 0.5 기준 평균 정밀도"
+      },
+      {
+        "value": "bbox_mAP_75",
+        "label": "mAP@0.75",
+        "mode": "max",
+        "description": "IoU 0.75 기준 평균 정밀도 (strict)"
+      },
+      {
+        "value": "bbox_mAP_s",
+        "label": "mAP (Small)",
+        "mode": "max",
+        "description": "작은 객체 탐지 성능"
+      },
+      {
+        "value": "bbox_mAP_m",
+        "label": "mAP (Medium)",
+        "mode": "max",
+        "description": "중간 크기 객체 탐지 성능"
+      },
+      {
+        "value": "bbox_mAP_l",
+        "label": "mAP (Large)",
+        "mode": "max",
+        "description": "큰 객체 탐지 성능"
+      }
+    ]
+  },
+  "config_schema": {
+    "epochs": {
+      "type": "int",
+      "default": 300,
+      "min": 1,
+      "max": 1000,
+      "description": "Number of training epochs (YOLO typically uses 300)"
+    },
+    "batch_size": {
+      "type": "int",
+      "default": 16,
+      "min": 1,
+      "max": 128,
+      "description": "Batch size per GPU"
+    },
+    "learning_rate": {
+      "type": "float",
+      "default": 0.01,
+      "min": 0.0001,
+      "max": 0.1,
+      "description": "Base learning rate"
+    },
+    "img_scale": {
+      "type": "tuple",
+      "default": [640, 640],
+      "description": "Training image scale (height, width)"
+    },
+    "optimizer": {
+      "type": "select",
+      "default": "SGD",
+      "options": ["SGD", "AdamW"],
+      "description": "Optimizer algorithm"
+    },
+    "warmup_epochs": {
+      "type": "int",
+      "default": 3,
+      "min": 0,
+      "max": 30,
+      "description": "Number of warmup epochs"
+    },
+    "weight_decay": {
+      "type": "float",
+      "default": 0.0005,
+      "min": 0.0,
+      "max": 0.1,
+      "description": "Weight decay for regularization"
+    },
+    "pretrained": {
+      "type": "bool",
+      "default": true,
+      "description": "Use pretrained weights"
+    },
+    "val_interval": {
+      "type": "int",
+      "default": 10,
+      "min": 1,
+      "max": 100,
+      "description": "Validation interval (epochs)"
+    },
+    "mosaic": {
+      "type": "bool",
+      "default": true,
+      "description": "Enable mosaic augmentation"
+    },
+    "mixup": {
+      "type": "bool",
+      "default": true,
+      "description": "Enable mixup augmentation"
+    },
+    "close_mosaic_epochs": {
+      "type": "int",
+      "default": 10,
+      "min": 0,
+      "max": 50,
+      "description": "Disable mosaic for last N epochs"
+    }
+  },
+  "export_formats": ["onnx", "torchscript", "tensorrt", "ncnn"],
+  "requirements": {
+    "python": ">=3.8,<3.12",
+    "pytorch": ">=1.8.0",
+    "cuda": ">=11.0",
+    "mmcv": ">=2.0.0",
+    "mmengine": ">=0.7.1",
+    "mmdet": ">=3.0.0",
+    "mmyolo": ">=0.6.0"
+  }
+}

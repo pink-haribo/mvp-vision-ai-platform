@@ -1,183 +1,127 @@
 {
   "framework": "huggingface",
+  "display_name": "HuggingFace Transformers",
   "version": "4.36.0",
   "description": "HuggingFace Transformers - Vision Models",
-  "supported_tasks": ["image_classification", "semantic_segmentation"],
-  "models": {
-    "google/vit-base-patch16-224": {
+  "task_types": [
+    {
+      "name": "image_classification",
+      "display_name": "Image Classification",
+      "description": "Classify images into predefined categories",
+      "supported": true
+    },
+    {
+      "name": "semantic_segmentation",
+      "display_name": "Semantic Segmentation",
+      "description": "Pixel-wise classification of images",
+      "supported": true
+    }
+  ],
+  "dataset_formats": [
+    {
+      "name": "imagefolder",
+      "display_name": "ImageFolder",
+      "description": "HuggingFace ImageFolder format with class subdirectories",
+      "supported": true
+    },
+    {
+      "name": "dice",
+      "display_name": "DICE Format",
+      "description": "Platform's internal DICE format (auto-converted)",
+      "supported": true
+    }
+  ],
+  "models": [
+    {
+      "model_name": "google/vit-base-patch16-224",
       "display_name": "ViT-Base (Google)",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "Vision Transformer Base - 16x16 patches, 224px input",
-      "default_config": {
-        "epochs": 10,
-        "batch_size": 16,
-        "learning_rate": 5e-5
-      }
+      "supported": true
     },
-    "google/vit-large-patch16-224": {
+    {
+      "model_name": "google/vit-large-patch16-224",
       "display_name": "ViT-Large (Google)",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "Vision Transformer Large - 16x16 patches, 224px input",
-      "default_config": {
-        "epochs": 10,
-        "batch_size": 8,
-        "learning_rate": 3e-5
-      }
+      "supported": true
     },
-    "facebook/deit-base-patch16-224": {
+    {
+      "model_name": "facebook/deit-base-patch16-224",
       "display_name": "DeiT-Base (Facebook)",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "Data-efficient Image Transformer Base",
-      "default_config": {
-        "epochs": 10,
-        "batch_size": 16,
-        "learning_rate": 5e-5
-      }
+      "supported": true
     },
-    "facebook/deit-small-patch16-224": {
+    {
+      "model_name": "facebook/deit-small-patch16-224",
       "display_name": "DeiT-Small (Facebook)",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "Data-efficient Image Transformer Small",
-      "default_config": {
-        "epochs": 10,
-        "batch_size": 32,
-        "learning_rate": 5e-5
-      }
+      "supported": true
     },
-    "microsoft/swin-tiny-patch4-window7-224": {
+    {
+      "model_name": "microsoft/swin-tiny-patch4-window7-224",
       "display_name": "Swin-Tiny (Microsoft)",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "Swin Transformer Tiny - shifted windows",
-      "default_config": {
-        "epochs": 10,
-        "batch_size": 32,
-        "learning_rate": 5e-5
-      }
+      "supported": true
     },
-    "microsoft/swin-small-patch4-window7-224": {
+    {
+      "model_name": "microsoft/swin-small-patch4-window7-224",
       "display_name": "Swin-Small (Microsoft)",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "Swin Transformer Small",
-      "default_config": {
-        "epochs": 10,
-        "batch_size": 16,
-        "learning_rate": 5e-5
-      }
+      "supported": true
     },
-    "microsoft/swin-base-patch4-window7-224": {
+    {
+      "model_name": "microsoft/swin-base-patch4-window7-224",
       "display_name": "Swin-Base (Microsoft)",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "Swin Transformer Base",
-      "default_config": {
-        "epochs": 10,
-        "batch_size": 8,
-        "learning_rate": 3e-5
-      }
+      "supported": true
     },
-    "microsoft/beit-base-patch16-224": {
+    {
+      "model_name": "microsoft/beit-base-patch16-224",
       "display_name": "BEiT-Base (Microsoft)",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "BERT Pre-training of Image Transformers Base",
-      "default_config": {
-        "epochs": 10,
-        "batch_size": 16,
-        "learning_rate": 5e-5
-      }
+      "supported": true
     },
-    "facebook/convnext-tiny-224": {
+    {
+      "model_name": "facebook/convnext-tiny-224",
       "display_name": "ConvNeXt-Tiny (Facebook)",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "ConvNeXt Tiny - A ConvNet for the 2020s",
-      "default_config": {
-        "epochs": 10,
-        "batch_size": 32,
-        "learning_rate": 1e-4
-      }
+      "supported": true
     },
-    "facebook/convnext-small-224": {
+    {
+      "model_name": "facebook/convnext-small-224",
       "display_name": "ConvNeXt-Small (Facebook)",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "ConvNeXt Small",
-      "default_config": {
-        "epochs": 10,
-        "batch_size": 16,
-        "learning_rate": 1e-4
-      }
+      "supported": true
     },
-    "facebook/convnext-base-224": {
+    {
+      "model_name": "facebook/convnext-base-224",
       "display_name": "ConvNeXt-Base (Facebook)",
-      "task_type": "image_classification",
+      "task_types": ["image_classification"],
       "description": "ConvNeXt Base",
-      "default_config": {
-        "epochs": 10,
-        "batch_size": 8,
-        "learning_rate": 5e-5
-      }
+      "supported": true
     },
-    "nvidia/segformer-b0-finetuned-ade-512-512": {
+    {
+      "model_name": "nvidia/segformer-b0-finetuned-ade-512-512",
       "display_name": "SegFormer-B0 (ADE20K)",
-      "task_type": "semantic_segmentation",
+      "task_types": ["semantic_segmentation"],
       "description": "SegFormer B0 pretrained on ADE20K dataset",
-      "default_config": {
-        "epochs": 20,
-        "batch_size": 8,
-        "learning_rate": 6e-5
-      }
+      "supported": true
     },
-    "nvidia/segformer-b1-finetuned-ade-512-512": {
+    {
+      "model_name": "nvidia/segformer-b1-finetuned-ade-512-512",
       "display_name": "SegFormer-B1 (ADE20K)",
-      "task_type": "semantic_segmentation",
+      "task_types": ["semantic_segmentation"],
       "description": "SegFormer B1 pretrained on ADE20K dataset",
-      "default_config": {
-        "epochs": 20,
-        "batch_size": 4,
-        "learning_rate": 6e-5
-      }
+      "supported": true
     }
-  },
-  "export_formats": ["onnx", "torchscript"],
-  "config_schema": {
-    "epochs": {
-      "type": "int",
-      "default": 10,
-      "min": 1,
-      "max": 100,
-      "description": "Number of training epochs"
-    },
-    "batch_size": {
-      "type": "int",
-      "default": 16,
-      "min": 1,
-      "max": 128,
-      "description": "Batch size for training"
-    },
-    "learning_rate": {
-      "type": "float",
-      "default": 5e-5,
-      "min": 1e-7,
-      "max": 1e-2,
-      "description": "Initial learning rate"
-    },
-    "weight_decay": {
-      "type": "float",
-      "default": 0.01,
-      "min": 0.0,
-      "max": 0.1,
-      "description": "Weight decay for regularization"
-    },
-    "warmup_ratio": {
-      "type": "float",
-      "default": 0.1,
-      "min": 0.0,
-      "max": 0.5,
-      "description": "Warmup ratio of total training steps"
-    },
-    "gradient_accumulation_steps": {
-      "type": "int",
-      "default": 1,
-      "min": 1,
-      "max": 32,
-      "description": "Number of gradient accumulation steps"
-    }
-  }
+  ]
 }

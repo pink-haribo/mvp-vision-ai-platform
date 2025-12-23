@@ -6,14 +6,42 @@
 
 ```
 trainers/
-├── ultralytics/      # YOLO models
-│   ├── train.py
-│   ├── predict.py
-│   ├── evaluate.py
-│   └── utils.py
-├── timm/            # PyTorch Image Models
-├── huggingface/     # Transformers
-└── base/            # Common utilities (optional)
+├── ultralytics/      # Ultralytics YOLO (YOLOv11, SAM2)
+├── timm/             # PyTorch Image Models (Classification)
+├── huggingface/      # HuggingFace Transformers
+│
+# OpenMMLab Framework
+├── mmdet/            # MMDetection (Object Detection)
+│   └── Faster R-CNN, DETR, DINO, RTMDet, Co-DETR
+├── mmpretrain/       # MMPreTrain (Classification)
+│   └── ResNet, Swin, ConvNeXt, ViT, EfficientNet
+├── mmseg/            # MMSegmentation (Semantic Segmentation)
+│   └── DeepLabV3+, SegFormer, Mask2Former, UperNet
+└── mmyolo/           # MMYOLO (YOLO Series)
+    └── YOLOv5-v8, RTMDet, PPYOLOE
+```
+
+## Framework Comparison
+
+| Framework | Task Types | Key Models | Use Case |
+|-----------|-----------|------------|----------|
+| ultralytics | Detection, Segmentation, Pose | YOLO11, SAM2 | 빠른 배포, 통합 API |
+| timm | Classification | ResNet, EfficientNet, ViT | 단순 분류 |
+| mmdet | Detection | DINO, Co-DETR, Faster R-CNN | SOTA Detection |
+| mmpretrain | Classification, SSL | Swin, MAE, BEiT | 고급 분류, 사전학습 |
+| mmseg | Segmentation | Mask2Former, SegFormer | Semantic Segmentation |
+| mmyolo | Detection | YOLOv5-v8, RTMDet | YOLO 계열 비교 연구 |
+
+## OpenMMLab Shared Dependencies
+
+All OpenMMLab trainers (mmdet, mmpretrain, mmseg, mmyolo) share:
+- **mmengine**: Training engine and config system
+- **mmcv**: Computer vision utilities (>=2.0.0)
+
+Install via mim:
+```bash
+pip install openmim
+mim install mmengine "mmcv>=2.0.0"
 ```
 
 ## API Contract
