@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 
@@ -12,13 +12,33 @@ import { useRouter } from 'next/navigation'
  */
 export default function LogoutSuccessPage() {
   const router = useRouter()
+  const [debugInfo, setDebugInfo] = useState<string[]>([])
 
   useEffect(() => {
+    const log = (message: string) => {
+      console.log(`[Logout Success] ${message}`)
+      setDebugInfo(prev => [...prev, `${new Date().toISOString().split('T')[1]} - ${message}`])
+    }
+
+    log('Page mounted')
+    log('Starting signOut...')
+
     // NextAuth 클라이언트 세션 정리
-    signOut({ redirect: false }).then(() => {
-      // 메인 페이지로 이동 (파라미터 없이)
-      router.push('/')
-    })
+    signOut({ redirect: false })
+      .then(() => {
+        log('signOut completed successfully')
+        log('Navigating to home...')
+        // 메인 페이지로 이동 (파라미터 없이)
+        router.push('/')
+        log('router.push called')
+      })
+      .catch((error) => {
+        log(`signOut failed: ${error.message}`)
+      })
+
+    return () => {
+      log('Component unmounting')
+    }
   }, [router])
 
   return (
@@ -26,6 +46,16 @@ export default function LogoutSuccessPage() {
       <div className="text-center">
         <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-violet-600 mx-auto"></div>
         <p className="mt-6 text-lg text-gray-700">로그아웃 중입니다...</p>
+
+        {/* Debug Info */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mt-8 p-4 bg-gray-100 rounded text-left max-w-md mx-auto">
+            <p className="text-xs font-mono text-gray-600 mb-2">Debug Log:</p>
+            {debugInfo.map((info, idx) => (
+              <p key={idx} className="text-xs font-mono text-gray-800">{info}</p>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
