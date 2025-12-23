@@ -252,6 +252,47 @@ DEFAULT_FRAMEWORKS_CONFIG = {
         "extra_volumes": [],
         "extra_volume_mounts": [],
     },
+    # OpenMMLab Frameworks
+    "mmdet": {
+        "image_suffix": "trainer-mmdet",
+        "memory_request": "16Gi",
+        "memory_limit": "32Gi",
+        "extra_env": [
+            {"name": "MPLCONFIGDIR", "value": "/tmp/matplotlib"},
+        ],
+        "extra_volumes": [],
+        "extra_volume_mounts": [],
+    },
+    "mmpretrain": {
+        "image_suffix": "trainer-mmpretrain",
+        "memory_request": "12Gi",
+        "memory_limit": "24Gi",
+        "extra_env": [
+            {"name": "MPLCONFIGDIR", "value": "/tmp/matplotlib"},
+        ],
+        "extra_volumes": [],
+        "extra_volume_mounts": [],
+    },
+    "mmseg": {
+        "image_suffix": "trainer-mmseg",
+        "memory_request": "16Gi",
+        "memory_limit": "32Gi",
+        "extra_env": [
+            {"name": "MPLCONFIGDIR", "value": "/tmp/matplotlib"},
+        ],
+        "extra_volumes": [],
+        "extra_volume_mounts": [],
+    },
+    "mmyolo": {
+        "image_suffix": "trainer-mmyolo",
+        "memory_request": "12Gi",
+        "memory_limit": "24Gi",
+        "extra_env": [
+            {"name": "MPLCONFIGDIR", "value": "/tmp/matplotlib"},
+        ],
+        "extra_volumes": [],
+        "extra_volume_mounts": [],
+    },
 }
 
 
