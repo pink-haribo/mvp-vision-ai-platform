@@ -481,9 +481,6 @@ def train_model(
 
                     # Upload best checkpoint immediately when updated
                     import glob as glob_module
-                    import time
-                    # Small delay to ensure checkpoint is fully written
-                    time.sleep(0.5)
                     best_files = glob_module.glob(str(self.checkpoint_dir / 'best_*.pth'))
                     if best_files:
                         best_pt = sorted(best_files, key=lambda x: Path(x).stat().st_mtime)[-1]
@@ -511,8 +508,9 @@ def train_model(
                 )
 
         # Register custom hook with runner
+        # Use LOWEST priority to run after CheckpointHook (VERY_LOW=90)
         progress_hook = ProgressHook(sdk, epochs, training_state, work_dir)
-        runner.register_hook(progress_hook, priority='LOW')
+        runner.register_hook(progress_hook, priority='LOWEST')
         logger.info("Progress hook registered")
 
         # Start training
