@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     // Fallback: Host 헤더 또는 X-Forwarded-Host (Kubernetes Ingress)
     const baseUrl = process.env.NEXTAUTH_URL ||
                     `${request.headers.get('x-forwarded-proto') || 'http'}://${request.headers.get('x-forwarded-host') || request.headers.get('host')}`
-    const redirectUri = `${baseUrl}/auth/logout-success`
+    const redirectUri = `${baseUrl}/`  // 홈으로 바로 리다이렉트
 
     const params = new URLSearchParams({
       id_token_hint: token.idToken as string,
@@ -32,12 +32,12 @@ export async function GET(request: NextRequest) {
     const finalUrl = `${logoutUrl}?${params.toString()}`
 
     // Keycloak 로그아웃 페이지로 리다이렉트
-    // NextAuth 세션은 /auth/logout-success에서 정리됨
+    // Keycloak이 로그아웃 후 홈(/)으로 리다이렉트
     return NextResponse.redirect(finalUrl)
   }
 
-  // idToken이 없으면 바로 로그아웃 성공 페이지로
+  // idToken이 없으면 바로 홈으로
   return NextResponse.redirect(
-    new URL('/auth/logout-success', request.nextUrl.origin)
+    new URL('/', request.nextUrl.origin)
   )
 }
