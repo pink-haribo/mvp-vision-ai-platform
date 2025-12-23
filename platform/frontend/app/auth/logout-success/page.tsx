@@ -23,14 +23,14 @@ export default function LogoutSuccessPage() {
     log('Page mounted')
     log('Starting signOut...')
 
-    // NextAuth 클라이언트 세션 정리
-    signOut({ redirect: false })
+    // NextAuth 클라이언트 세션 정리 (callbackUrl 명시로 기본값 강제)
+    signOut({ redirect: false, callbackUrl: '/' })
       .then(() => {
         log('signOut completed successfully')
         log('Navigating to home...')
-        // 메인 페이지로 이동 (파라미터 없이)
-        router.push('/')
-        log('router.push called')
+        // 메인 페이지로 이동 (히스토리에 남기지 않음)
+        window.location.replace('/')
+        log('window.location.replace called')
       })
       .catch((error) => {
         log(`signOut failed: ${error.message}`)
