@@ -1,0 +1,393 @@
+{
+  "framework": "mmpretrain",
+  "display_name": "MMPreTrain",
+  "description": "OpenMMLab Pre-training Toolbox - Image Classification and Self-Supervised Learning",
+  "version": "1.0.0",
+  "openmmlab_version": "1.2.0",
+  "models": [
+    {
+      "model_name": "resnet50",
+      "display_name": "ResNet-50",
+      "task_types": ["classification"],
+      "description": "Classic 50-layer residual network",
+      "parameters": {
+        "params_m": 25.6,
+        "flops_g": 4.1
+      },
+      "config_file": "resnet/resnet50_8xb32_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/resnet/resnet50_8xb32_in1k_20210831-ea4938fc.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "resnet101",
+      "display_name": "ResNet-101",
+      "task_types": ["classification"],
+      "description": "Deeper 101-layer residual network",
+      "parameters": {
+        "params_m": 44.5,
+        "flops_g": 7.8
+      },
+      "config_file": "resnet/resnet101_8xb32_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/resnet/resnet101_8xb32_in1k_20210831-539c63f8.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "swin-tiny",
+      "display_name": "Swin Transformer Tiny",
+      "task_types": ["classification"],
+      "description": "Hierarchical Vision Transformer using shifted windows (tiny)",
+      "parameters": {
+        "params_m": 28.3,
+        "flops_g": 4.5
+      },
+      "config_file": "swin_transformer/swin-tiny_16xb64_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/swin-transformer/swin_tiny_224_b16x64_300e_imagenet_20210616_090925-66df6be6.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "swin-small",
+      "display_name": "Swin Transformer Small",
+      "task_types": ["classification"],
+      "description": "Swin Transformer with small capacity",
+      "parameters": {
+        "params_m": 49.6,
+        "flops_g": 8.7
+      },
+      "config_file": "swin_transformer/swin-small_16xb64_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/swin-transformer/swin_small_224_b16x64_300e_imagenet_20210615_110219-7f9d988b.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "swin-base",
+      "display_name": "Swin Transformer Base",
+      "task_types": ["classification"],
+      "description": "Swin Transformer with base capacity",
+      "parameters": {
+        "params_m": 87.8,
+        "flops_g": 15.4
+      },
+      "config_file": "swin_transformer/swin-base_16xb64_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/swin-transformer/swin_base_224_b16x64_300e_imagenet_20210616_190742-93230b0d.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "convnext-tiny",
+      "display_name": "ConvNeXt Tiny",
+      "task_types": ["classification"],
+      "description": "A ConvNet for the 2020s - modernized ResNet (tiny)",
+      "parameters": {
+        "params_m": 28.6,
+        "flops_g": 4.5
+      },
+      "config_file": "convnext/convnext-tiny_32xb128_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/convnext/convnext-tiny_3rdparty_32xb128_in1k_20220124-18b7f089.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "convnext-small",
+      "display_name": "ConvNeXt Small",
+      "task_types": ["classification"],
+      "description": "ConvNeXt with small capacity",
+      "parameters": {
+        "params_m": 50.2,
+        "flops_g": 8.7
+      },
+      "config_file": "convnext/convnext-small_32xb128_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/convnext/convnext-small_3rdparty_32xb128_in1k_20220124-d39b5192.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "convnext-base",
+      "display_name": "ConvNeXt Base",
+      "task_types": ["classification"],
+      "description": "ConvNeXt with base capacity",
+      "parameters": {
+        "params_m": 88.6,
+        "flops_g": 15.4
+      },
+      "config_file": "convnext/convnext-base_32xb128_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/convnext/convnext-base_3rdparty_32xb128_in1k_20220124-d0915162.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "vit-base-p16",
+      "display_name": "ViT Base (Patch 16)",
+      "task_types": ["classification"],
+      "description": "Vision Transformer with patch size 16",
+      "parameters": {
+        "params_m": 86.6,
+        "flops_g": 17.6
+      },
+      "config_file": "vision_transformer/vit-base-p16_64xb64_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/vit/vit-base-p16_pt-64xb64_in1k-224_20210928-02284250.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "vit-large-p16",
+      "display_name": "ViT Large (Patch 16)",
+      "task_types": ["classification"],
+      "description": "Large Vision Transformer with patch size 16",
+      "parameters": {
+        "params_m": 304.3,
+        "flops_g": 61.6
+      },
+      "config_file": "vision_transformer/vit-large-p16_64xb64_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/vit/vit-large-p16_pt-64xb64_in1k-224_20210928-8a08b986.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "efficientnet-b0",
+      "display_name": "EfficientNet-B0",
+      "task_types": ["classification"],
+      "description": "EfficientNet baseline model - balanced efficiency",
+      "parameters": {
+        "params_m": 5.3,
+        "flops_g": 0.4
+      },
+      "config_file": "efficientnet/efficientnet-b0_8xb32_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/efficientnet/efficientnet-b0_3rdparty_8xb32_in1k_20220119-a7e2a0b1.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "efficientnet-b4",
+      "display_name": "EfficientNet-B4",
+      "task_types": ["classification"],
+      "description": "EfficientNet with higher capacity",
+      "parameters": {
+        "params_m": 19.3,
+        "flops_g": 4.2
+      },
+      "config_file": "efficientnet/efficientnet-b4_8xb32_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/efficientnet/efficientnet-b4_3rdparty_8xb32_in1k_20220119-81fd4077.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "mobilenet-v3-small",
+      "display_name": "MobileNetV3 Small",
+      "task_types": ["classification"],
+      "description": "Lightweight model for mobile deployment",
+      "parameters": {
+        "params_m": 2.5,
+        "flops_g": 0.06
+      },
+      "config_file": "mobilenet_v3/mobilenet-v3-small_8xb32_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/mobilenet_v3/mobilenet-v3-small_8xb128_in1k_20221114-6a3d4f64.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "mobilenet-v3-large",
+      "display_name": "MobileNetV3 Large",
+      "task_types": ["classification"],
+      "description": "Larger MobileNetV3 for better accuracy",
+      "parameters": {
+        "params_m": 5.5,
+        "flops_g": 0.22
+      },
+      "config_file": "mobilenet_v3/mobilenet-v3-large_8xb32_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/mobilenet_v3/mobilenet-v3-large_8xb128_in1k_20221114-0ed9ed9a.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "beit-base-p16",
+      "display_name": "BEiT Base (Patch 16)",
+      "task_types": ["classification"],
+      "description": "BERT Pre-Training of Image Transformers",
+      "parameters": {
+        "params_m": 86.5,
+        "flops_g": 17.6
+      },
+      "config_file": "beit/beit-base-p16_8xb64_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/beit/beit-base_3rdparty_in1k_20221114-c0a4df23.pth",
+      "supported": true,
+      "validated": true
+    },
+    {
+      "model_name": "eva-g-p14",
+      "display_name": "EVA Giant (Patch 14)",
+      "task_types": ["classification"],
+      "description": "EVA: Exploring the Limits of Masked Visual Representation Learning",
+      "parameters": {
+        "params_m": 1011.0,
+        "flops_g": 267.0
+      },
+      "config_file": "eva/eva-g-p14_8xb16_in1k.py",
+      "pretrained": "https://download.openmmlab.com/mmclassification/v0/eva/eva-g-p14_3rdparty-in21k_20221213-a404729c.pth",
+      "supported": true,
+      "validated": false
+    },
+    {
+      "model_name": "intern-image-base",
+      "display_name": "InternImage Base",
+      "task_types": ["classification"],
+      "description": "Large-scale Vision Foundation Model with deformable convolutions",
+      "parameters": {
+        "params_m": 97.5,
+        "flops_g": 16.0
+      },
+      "config_file": "internimage/internimage-base_8xb128_in1k.py",
+      "pretrained": null,
+      "supported": true,
+      "validated": false
+    }
+  ],
+  "task_types": [
+    {
+      "name": "classification",
+      "display_name": "Image Classification",
+      "description": "Classify images into predefined categories",
+      "supported": true
+    }
+  ],
+  "dataset_formats": [
+    {
+      "name": "imagefolder",
+      "display_name": "ImageFolder Format",
+      "description": "Folder structure where each subfolder is a class (PyTorch default)",
+      "supported": true
+    },
+    {
+      "name": "dice",
+      "display_name": "DICE Format",
+      "description": "Platform's internal DICE format (auto-converted to ImageFolder)",
+      "supported": true
+    }
+  ],
+  "metric_candidates_by_task": {
+    "classification": [
+      {
+        "value": "accuracy_top1",
+        "label": "Top-1 Accuracy",
+        "mode": "max",
+        "description": "정확도 (가장 높은 예측이 정답과 일치)"
+      },
+      {
+        "value": "accuracy_top5",
+        "label": "Top-5 Accuracy",
+        "mode": "max",
+        "description": "상위 5개 예측 중 정답 포함 비율"
+      },
+      {
+        "value": "precision",
+        "label": "Precision (정밀도)",
+        "mode": "max",
+        "description": "예측한 양성 중 실제 양성 비율"
+      },
+      {
+        "value": "recall",
+        "label": "Recall (재현율)",
+        "mode": "max",
+        "description": "실제 양성 중 올바르게 예측한 비율"
+      },
+      {
+        "value": "f1_score",
+        "label": "F1 Score",
+        "mode": "max",
+        "description": "Precision과 Recall의 조화 평균"
+      }
+    ]
+  },
+  "config_schema": {
+    "epochs": {
+      "type": "int",
+      "default": 100,
+      "min": 1,
+      "max": 500,
+      "description": "Number of training epochs"
+    },
+    "batch_size": {
+      "type": "int",
+      "default": 32,
+      "min": 1,
+      "max": 256,
+      "description": "Batch size per GPU"
+    },
+    "learning_rate": {
+      "type": "float",
+      "default": 0.1,
+      "min": 0.00001,
+      "max": 1.0,
+      "description": "Base learning rate"
+    },
+    "img_size": {
+      "type": "int",
+      "default": 224,
+      "options": [224, 256, 384, 512],
+      "description": "Input image size"
+    },
+    "optimizer": {
+      "type": "select",
+      "default": "SGD",
+      "options": ["SGD", "AdamW", "Adam", "LAMB"],
+      "description": "Optimizer algorithm"
+    },
+    "lr_scheduler": {
+      "type": "select",
+      "default": "cosine",
+      "options": ["step", "cosine", "linear", "exp"],
+      "description": "Learning rate scheduler"
+    },
+    "weight_decay": {
+      "type": "float",
+      "default": 0.0001,
+      "min": 0.0,
+      "max": 0.1,
+      "description": "Weight decay for regularization"
+    },
+    "warmup_epochs": {
+      "type": "int",
+      "default": 5,
+      "min": 0,
+      "max": 50,
+      "description": "Number of warmup epochs"
+    },
+    "pretrained": {
+      "type": "bool",
+      "default": true,
+      "description": "Use pretrained weights from ImageNet"
+    },
+    "mixup_alpha": {
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "description": "Mixup augmentation alpha (0 = disabled)"
+    },
+    "cutmix_alpha": {
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "description": "CutMix augmentation alpha (0 = disabled)"
+    },
+    "label_smoothing": {
+      "type": "float",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 0.5,
+      "description": "Label smoothing factor"
+    }
+  },
+  "export_formats": ["onnx", "torchscript", "tensorrt", "coreml"],
+  "requirements": {
+    "python": ">=3.8,<3.12",
+    "pytorch": ">=1.8.0",
+    "cuda": ">=11.0",
+    "mmcv": ">=2.0.0",
+    "mmengine": ">=0.7.1",
+    "mmpretrain": ">=1.0.0"
+  }
+}
