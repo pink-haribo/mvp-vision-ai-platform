@@ -60,9 +60,6 @@ export default function Home() {
   // Dataset panel state
   const [showDatasets, setShowDatasets] = useState(false)
 
-  // Logout 파라미터 처리 로직 제거
-  // signOut({ callbackUrl: '/api/auth/logout-keycloak' }) 플로우로 변경됨
-
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault()
     setIsDragging(true)
