@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     // Fallback: Host 헤더 또는 X-Forwarded-Host (Kubernetes Ingress)
     const baseUrl = process.env.NEXTAUTH_URL ||
                     `${request.headers.get('x-forwarded-proto') || 'http'}://${request.headers.get('x-forwarded-host') || request.headers.get('host')}`
-    const redirectUri = `${baseUrl}/`  // 홈으로 바로 리다이렉트
+    const redirectUri = `${baseUrl}/?logout=true`  // logout query parameter 추가
 
     const params = new URLSearchParams({
       id_token_hint: token.idToken as string,
@@ -36,8 +36,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(finalUrl)
   }
 
-  // idToken이 없으면 바로 홈으로
+  // idToken이 없으면 바로 홈으로 (logout parameter 포함)
   return NextResponse.redirect(
-    new URL('/', request.nextUrl.origin)
+    new URL('/?logout=true', request.nextUrl.origin)
   )
 }
