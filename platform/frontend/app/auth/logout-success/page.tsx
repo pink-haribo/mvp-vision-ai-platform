@@ -2,27 +2,25 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { signOut } from 'next-auth/react'
 
 /**
  * Logout Success Page
  *
  * Keycloak 로그아웃 후 리다이렉트되는 페이지
- * NextAuth 세션을 완전히 정리하고 잠시 메시지를 보여준 후 홈으로 이동
+ * 잠시 메시지를 보여준 후 홈으로 이동
  */
 export default function LogoutSuccessPage() {
   const router = useRouter()
 
   useEffect(() => {
-    // NextAuth 세션 완전히 삭제 (클라이언트 측)
-    signOut({ redirect: false }).then(() => {
-      // 2초 후 홈으로 리다이렉트
-      const timer = setTimeout(() => {
-        router.push('/')
-      }, 2000)
+    // Keycloak 로그아웃이 이미 완료됨
+    // NextAuth 세션은 자연스럽게 만료됨
+    // 2초 후 홈으로 리다이렉트
+    const timer = setTimeout(() => {
+      router.push('/')
+    }, 2000)
 
-      return () => clearTimeout(timer)
-    })
+    return () => clearTimeout(timer)
   }, [router])
 
   return (
