@@ -374,6 +374,7 @@ def train_model(
         # Import MMDetection components
         from mmengine.config import Config
         from mmengine.runner import Runner
+        from mmengine.hooks import Hook
 
         # Load config
         cfg = Config.fromfile(config_path)
@@ -381,12 +382,16 @@ def train_model(
         # Build runner
         runner = Runner.from_cfg(cfg)
 
-        # Custom hook for progress reporting
-        class ProgressHook:
-            def __init__(self, sdk, epochs, training_state):
+        # Custom hook for progress reporting (MMEngine Hook)
+        class ProgressHook(Hook):
+            """Custom hook for reporting training progress and uploading best checkpoints."""
+
+            def __init__(self, sdk, total_epochs, training_state, checkpoint_dir):
+                super().__init__()
                 self.sdk = sdk
-                self.epochs = epochs
+                self.total_epochs = total_epochs
                 self.training_state = training_state
+                self.checkpoint_dir = checkpoint_dir
                 self.logged_epochs = set()
 
             def after_train_epoch(self, runner):
@@ -397,7 +402,7 @@ def train_model(
                 self.logged_epochs.add(epoch)
                 self.training_state['current_epoch'] = epoch
 
-                # Get metrics
+                # Get metrics from message hub
                 metrics = {}
                 if hasattr(runner, 'message_hub'):
                     log_scalars = runner.message_hub.log_scalars
@@ -405,13 +410,12 @@ def train_model(
                         if isinstance(value, (int, float)):
                             metrics[key] = float(value)
 
-                # Get loss
                 loss = metrics.get('loss', 0.0)
 
                 # Send progress
                 self.sdk.report_progress(
                     epoch=epoch,
-                    total_epochs=self.epochs,
+                    total_epochs=self.total_epochs,
                     metrics={
                         'loss': loss,
                         'learning_rate': metrics.get('lr', 0.0),
@@ -427,11 +431,27 @@ def train_model(
                 mAP = metrics.get('coco/bbox_mAP', 0.0)
                 mAP_50 = metrics.get('coco/bbox_mAP_50', 0.0)
 
-                if mAP > self.training_state['best_metric']:
+                is_best = mAP > self.training_state['best_metric']
+                if is_best:
                     self.training_state['best_metric'] = mAP
-                    logger.info(f"[BEST] New best mAP: {mAP:.4f}")
+                    logger.info(f"[BEST] New best mAP: {mAP:.4f} at epoch {epoch}")
 
-                # Report validation
+                    # Upload best checkpoint immediately when updated
+                    import glob as glob_module
+                    import time
+                    # Small delay to ensure checkpoint is fully written
+                    time.sleep(0.5)
+                    best_files = glob_module.glob(str(self.checkpoint_dir / 'best_*.pth'))
+                    if best_files:
+                        best_pt = sorted(best_files, key=lambda x: Path(x).stat().st_mtime)[-1]
+                        logger.info(f"[BEST] Uploading best checkpoint: {best_pt}")
+                        try:
+                            self.sdk.upload_checkpoint(best_pt, 'best')
+                            logger.info(f"[BEST] Best checkpoint uploaded successfully (epoch {epoch})")
+                        except Exception as e:
+                            logger.warning(f"[BEST] Failed to upload best checkpoint: {e}")
+
+                # Report validation metrics
                 self.sdk.report_validation(
                     epoch=epoch,
                     task_type='detection',
@@ -443,11 +463,14 @@ def train_model(
                         'bbox_mAP_s': metrics.get('coco/bbox_mAP_s', 0.0),
                         'bbox_mAP_m': metrics.get('coco/bbox_mAP_m', 0.0),
                         'bbox_mAP_l': metrics.get('coco/bbox_mAP_l', 0.0),
-                    }
+                    },
+                    is_best=is_best
                 )
 
-        # Register custom hook (MMEngine style)
-        progress_hook = ProgressHook(sdk, epochs, training_state)
+        # Register custom hook with runner
+        progress_hook = ProgressHook(sdk, epochs, training_state, work_dir)
+        runner.register_hook(progress_hook, priority='LOW')
+        logger.info("Progress hook registered")
 
         # Start training
         logger.info(f"Starting training for {epochs} epochs")
