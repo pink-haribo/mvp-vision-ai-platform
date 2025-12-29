@@ -21,13 +21,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Error 페이지는 통과
-  if (pathname.startsWith("/auth/error") || pathname.startsWith("/auth/logout-success")) {
-    return NextResponse.next()
-  }
-
-  // Logout endpoint는 통과
-  if (pathname === "/api/auth/logout") {
+  // Error 페이지와 Auth 페이지는 통과
+  if (pathname.startsWith("/auth/error") ||
+      pathname.startsWith("/auth/signin") ||
+      pathname.startsWith("/auth/logout-success")) {
     return NextResponse.next()
   }
 
@@ -45,13 +42,12 @@ export async function middleware(request: NextRequest) {
   // 미인증 사용자 → NextAuth signin 페이지로 리다이렉트
   // Custom signin page에서 자동으로 Keycloak으로 리다이렉트되며, state cookie가 생성됩니다
   const nextAuthUrl = process.env.NEXTAUTH_URL || `${request.nextUrl.origin}`
-
-  // NextAuth signin 페이지로 리다이렉트 (원래 경로를 callbackUrl로 전달)
-  const originalPath = pathname + search
   const signInUrl = new URL(`${nextAuthUrl}/api/auth/signin`)
+
+  // 원래 경로를 callbackUrl로 전달
+  const originalPath = pathname + search
   signInUrl.searchParams.set("callbackUrl", originalPath)
 
-  console.log("[Middleware] Redirecting to signin page:", signInUrl.toString())
   return NextResponse.redirect(signInUrl.toString())
 }
 
@@ -62,11 +58,12 @@ export const config = {
      * 제외:
      * - api/auth (NextAuth 엔드포인트)
      * - auth/error (에러 페이지)
-     * - auth/logout-success (로그아웃 성공 페이지)
+     * - auth/signin (로그인 페이지)
+     * - auth/logout-success (로그아웃 중간 페이지)
      * - _next/static (정적 파일)
      * - _next/image (이미지 최적화)
      * - favicon.ico
      */
-    "/((?!api/auth|auth/error|auth/logout-success|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api/auth|auth/error|auth/signin|auth/logout-success|_next/static|_next/image|favicon.ico).*)",
   ],
 }

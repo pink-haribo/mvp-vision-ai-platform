@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { signOut } from 'next-auth/react'
 import Sidebar from '@/components/Sidebar'
 import ChatPanel from '@/components/ChatPanel'
 import TrainingPanel from '@/components/TrainingPanel'
@@ -27,6 +29,9 @@ interface TrainingConfig {
 }
 
 export default function Home() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
   const [sessionId, setSessionId] = useState<number | null>(null)
   const [trainingJobId, setTrainingJobId] = useState<number | null>(null)
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
