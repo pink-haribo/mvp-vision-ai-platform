@@ -256,6 +256,123 @@ services:
     profiles:
       - dev-tools  # Only start with: docker-compose --profile dev-tools up
 
+  # ================================
+  # Keycloak - Identity & Access Management
+  # ================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: vision-keycloak
+    restart: unless-stopped
+    command: start-dev
+    ports:
+      - "8080:8080"
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/vision_platform
+      KC_DB_USERNAME: admin
+      KC_DB_PASSWORD: devpass
+      KC_HEALTH_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3;if [ $? -eq 0 ]; then echo 'Healthcheck Successful';exit 0;else echo 'Healthcheck Failed';exit 1;fi;"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - vision-network
+
+  # ================================
+  # Platform Backend - FastAPI
+  # ================================
+  platform-backend:
+    build:
+      context: ./platform/backend
+      dockerfile: Dockerfile
+    container_name: vision-platform-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # App
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+      API_BASE_URL: http://platform-backend:8000
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:3010"
+      FRONTEND_URL: http://localhost:3000
+      # Database
+      DATABASE_URL: postgresql://admin:devpass@postgres:5432/vision_platform
+      # Redis
+      REDIS_URL: redis://redis:6379/0
+      # S3/MinIO
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: vision-platform-dev
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      # Keycloak
+      KEYCLOAK_SERVER_URL: http://keycloak:8080
+      KEYCLOAK_REALM: vision-ai
+      KEYCLOAK_CLIENT_ID: platform-backend
+      KEYCLOAK_VERIFY_SSL: "false"
+      # JWT
+      JWT_SECRET: dev-jwt-secret-change-in-production
+      SERVICE_JWT_SECRET: dev-service-jwt-secret
+      # MLflow
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      # LLM (optional - set your API key)
+      LLM_PROVIDER: openai
+      OPENAI_API_KEY: ""
+      # Training
+      TRAINING_MODE: subprocess
+      # Labeler Service
+      LABELER_API_URL: http://labeler-backend:8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - vision-network
+    profiles:
+      - app  # Start with: docker-compose --profile app up
+
+  # ================================
+  # Platform Frontend - Next.js
+  # ================================
+  platform-frontend:
+    build:
+      context: ./platform/frontend
+      dockerfile: Dockerfile
+    container_name: vision-platform-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # API
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000/ws
+      NEXT_PUBLIC_STORAGE_ENDPOINT: http://localhost:9000
+      NEXT_PUBLIC_LABELER_URL: http://localhost:8001
+      # NextAuth
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: dev-secret-change-in-production
+      # Keycloak
+      KEYCLOAK_CLIENT_ID: platform-frontend
+      KEYCLOAK_CLIENT_SECRET: ""
+      KEYCLOAK_ISSUER: http://localhost:8080/realms/vision-ai
+    depends_on:
+      - platform-backend
+    networks:
+      - vision-network
+    profiles:
+      - app  # Start with: docker-compose --profile app up
+
 # ================================
 # Volumes
 # ================================
