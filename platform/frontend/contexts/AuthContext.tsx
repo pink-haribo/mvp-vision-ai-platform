@@ -93,7 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function logout() {
     setError(null)
     setUser(null)
-    // Custom logout endpoint로 리다이렉트 (NextAuth + Keycloak 세션 모두 삭제)
+    // Custom logout endpoint로 리다이렉트 (Keycloak 로그아웃)
     window.location.href = '/api/auth/logout'
   }
 

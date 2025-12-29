@@ -4,37 +4,36 @@ import { getToken } from 'next-auth/jwt'
 /**
  * Custom Logout Endpoint
  *
- * NextAuth 세션 삭제 + Keycloak 세션 삭제 + 로그아웃 페이지로 리다이렉트
+ * Keycloak 세션 로그아웃 (브라우저 리다이렉트)
+ * NextAuth 세션은 logout-success 페이지에서 정리
  */
 export async function GET(request: NextRequest) {
-  // 1. 현재 토큰 가져오기 (id_token 필요)
+  // NEXTAUTH_URL 사용 (0.0.0.0 문제 방지)
+  const baseUrl = process.env.NEXTAUTH_URL ||
+                  `${request.headers.get('x-forwarded-proto') || 'http'}://${request.headers.get('x-forwarded-host') || request.headers.get('host')}`
+
+  // 토큰 가져오기 (세션 쿠키가 아직 살아있음)
   const token = await getToken({
     req: request,
     secret: process.env.NEXTAUTH_SECRET,
   })
 
-  // 2. NextAuth 세션 쿠키 삭제
-  const response = NextResponse.redirect(
-    new URL('/auth/logout-success', request.nextUrl.origin)
-  )
-
-  // NextAuth 세션 쿠키 삭제
-  response.cookies.delete('next-auth.session-token')
-  response.cookies.delete('__Secure-next-auth.session-token')
-
-  // 3. Keycloak 로그아웃 URL로 리다이렉트
+  // Keycloak 로그아웃 URL로 리다이렉트
   if (token?.idToken) {
     const keycloakIssuer = process.env.KEYCLOAK_ISSUER
     const logoutUrl = `${keycloakIssuer}/protocol/openid-connect/logout`
 
+    // 중간 페이지로 리다이렉트 (logout 파라미터 없이)
+    const redirectUri = `${baseUrl}/auth/logout-success`
+
     const params = new URLSearchParams({
       id_token_hint: token.idToken as string,
-      post_logout_redirect_uri: `${request.nextUrl.origin}/auth/logout-success`,
+      post_logout_redirect_uri: redirectUri,
     })
 
-    // Keycloak 로그아웃 페이지로 리다이렉트
     return NextResponse.redirect(`${logoutUrl}?${params.toString()}`)
   }
 
-  return response
+  // id_token이 없으면 바로 logout-success로 (baseUrl 사용)
+  return NextResponse.redirect(new URL('/auth/logout-success', baseUrl))
 }
