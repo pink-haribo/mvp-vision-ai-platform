@@ -165,7 +165,6 @@ class Settings(BaseSettings):
     # Labeler Backend is the Single Source of Truth for dataset metadata
     # Platform queries Labeler API for dataset information
     LABELER_API_URL: str = "http://localhost:8011"
-    LABELER_SERVICE_KEY: str = "dev-labeler-service-key-change-in-production"
 
     # Training Defaults
     DEFAULT_BATCH_SIZE: int = 32
