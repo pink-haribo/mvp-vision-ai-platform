@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Dataset } from '@/types/dataset';
+import { useAuth } from '@/contexts/AuthContext';
 import DatasetCard from './DatasetCard';
 import CreateDatasetModal from './CreateDatasetModal';
 
@@ -14,6 +15,7 @@ export default function DatasetList({
   selectedDatasetId,
   labeledFilter,
 }: DatasetListProps) {
+  const { accessToken } = useAuth();
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -28,8 +30,7 @@ export default function DatasetList({
         setLoading(true);
         setError(null);
 
-        const token = localStorage.getItem('access_token');
-        if (!token) {
+        if (!accessToken) {
           throw new Error('Authentication required');
         }
 
@@ -42,7 +43,7 @@ export default function DatasetList({
         const url = `${baseUrl}/datasets/available${params.toString() ? `?${params}` : ''}`;
         const response = await fetch(url, {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${accessToken}`
           }
         });
 
@@ -61,7 +62,7 @@ export default function DatasetList({
     };
 
     fetchDatasets();
-  }, [selectedLabeledFilter]);
+  }, [selectedLabeledFilter, accessToken]);
 
   // Update selected labeled filter from prop
   useEffect(() => {
@@ -113,8 +114,7 @@ export default function DatasetList({
     // Refresh dataset list
     setLoading(true);
     try {
-      const token = localStorage.getItem('access_token');
-      if (!token) {
+      if (!accessToken) {
         console.error('No access token found');
         return;
       }
@@ -122,7 +122,7 @@ export default function DatasetList({
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
       const response = await fetch(`${baseUrl}/datasets/available`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         }
       });
       if (response.ok) {

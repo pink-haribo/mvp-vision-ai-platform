@@ -17,7 +17,7 @@ export default function ProfileModal({
   isOpen,
   onClose,
 }: ProfileModalProps) {
-  const { user } = useAuth()
+  const { user, accessToken } = useAuth()
 
   const [fullName, setFullName] = useState('')
   const [company, setCompany] = useState('')
@@ -78,8 +78,7 @@ export default function ProfileModal({
     setIsLoading(true)
 
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
+      if (!accessToken) {
         throw new Error('인증 토큰이 없습니다')
       }
 
@@ -100,7 +99,7 @@ export default function ProfileModal({
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         },
         body: JSON.stringify(updateData)
       })

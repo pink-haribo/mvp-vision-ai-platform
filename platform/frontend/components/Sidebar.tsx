@@ -45,7 +45,7 @@ export default function Sidebar({
   onLogout: onLogoutCallback,
 }: SidebarProps) {
   const router = useRouter()
-  const { user: authUser, isAuthenticated, logout } = useAuth()
+  const { user: authUser, isAuthenticated, logout, accessToken } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [loadingProjects, setLoadingProjects] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
@@ -77,8 +77,7 @@ export default function Sidebar({
   const fetchRecentProjects = async () => {
     setLoadingProjects(true)
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
+      if (!accessToken) {
         setProjects([])
         setLoadingProjects(false)
         return
@@ -86,7 +85,7 @@ export default function Sidebar({
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         }
       })
 

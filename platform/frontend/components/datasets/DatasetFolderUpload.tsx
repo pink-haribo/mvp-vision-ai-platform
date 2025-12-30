@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react'
 import { FolderOpen, Upload, X, Loader2, CheckCircle, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface DatasetFolderUploadProps {
   datasetId: string
@@ -10,6 +11,7 @@ interface DatasetFolderUploadProps {
 }
 
 export default function DatasetFolderUpload({ datasetId, onSuccess }: DatasetFolderUploadProps) {
+  const { accessToken } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle')
@@ -39,9 +41,8 @@ export default function DatasetFolderUpload({ datasetId, onSuccess }: DatasetFol
 
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
-      const token = localStorage.getItem('access_token')
 
-      if (!token) {
+      if (!accessToken) {
         throw new Error('No authentication token found. Please login.')
       }
 
@@ -57,7 +58,7 @@ export default function DatasetFolderUpload({ datasetId, onSuccess }: DatasetFol
       const response = await fetch(`${baseUrl}/datasets/${datasetId}/upload-images`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         },
         body: formData,
       })

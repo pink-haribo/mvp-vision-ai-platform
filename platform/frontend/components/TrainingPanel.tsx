@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { useAuth } from '@/contexts/AuthContext'
 import { getModelDisplayNameSync, getTaskDisplayName, formatTrainingJobTitle } from '@/lib/utils/modelUtils'
 import DatabaseMetricsCharts from './training/DatabaseMetricsCharts'
 import DatabaseMetricsTable from './training/DatabaseMetricsTable'
@@ -74,6 +75,7 @@ interface TrainingPanelProps {
 }
 
 export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }: TrainingPanelProps) {
+  const { accessToken } = useAuth()
   const [job, setJob] = useState<TrainingJob | null>(null)
   const [metrics, setMetrics] = useState<TrainingMetric[]>([])
   const [logs, setLogs] = useState<TrainingLog[]>([])
@@ -85,13 +87,12 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
   // Helper: Get auth headers (Phase 12: JWT required for all API calls)
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('access_token')
+  const getAuthHeaders = useCallback(() => {
     return {
       'Content-Type': 'application/json',
-      ...(token && { 'Authorization': `Bearer ${token}` })
+      ...(accessToken && { 'Authorization': `Bearer ${accessToken}` })
     }
-  }
+  }, [accessToken])
 
   // Export & Deploy modals
   const [showCreateExportModal, setShowCreateExportModal] = useState(false)
@@ -1237,7 +1238,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                       onTestInference={(deploymentId) => {
                         // Fetch deployment details to get API key and endpoint
                         fetch(`${process.env.NEXT_PUBLIC_API_URL}/deployments/${deploymentId}`, {
-                          headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+                          headers: { 'Authorization': `Bearer ${accessToken}` }
                         })
                           .then(res => res.json())
                           .then(deployment => {
