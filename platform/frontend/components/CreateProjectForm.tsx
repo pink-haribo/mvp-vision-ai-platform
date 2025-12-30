@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { ArrowLeftIcon } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface CreateProjectFormProps {
   onCancel: () => void
@@ -13,6 +14,7 @@ export default function CreateProjectForm({
   onCancel,
   onProjectCreated,
 }: CreateProjectFormProps) {
+  const { accessToken } = useAuth()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -30,8 +32,7 @@ export default function CreateProjectForm({
     setError(null)
 
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
+      if (!accessToken) {
         throw new Error('로그인이 필요합니다. 다시 로그인해주세요.')
       }
 
@@ -39,7 +40,7 @@ export default function CreateProjectForm({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           name: name.trim(),

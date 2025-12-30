@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Send, Download, ChevronLeft } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface Message {
   id: number
@@ -68,6 +69,7 @@ export default function ChatPanel({
   onProjectSelected,
   onCollapse,
 }: ChatPanelProps) {
+  const { accessToken } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -122,8 +124,7 @@ export default function ChatPanel({
 
     try {
       // Get authentication token
-      const token = localStorage.getItem('access_token')
-      if (!token) {
+      if (!accessToken) {
         alert('로그인이 필요합니다.')
         setIsLoading(false)
         return
@@ -133,7 +134,7 @@ export default function ChatPanel({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           session_id: sessionId,
@@ -196,8 +197,7 @@ export default function ChatPanel({
   const createTrainingJob = async (sessionId: number, config: any, metadata?: any) => {
     try {
       // Get authentication token
-      const token = localStorage.getItem('access_token')
-      if (!token) {
+      if (!accessToken) {
         alert('로그인이 필요합니다.')
         return
       }
@@ -219,7 +219,7 @@ export default function ChatPanel({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${accessToken}`,
         },
         body: JSON.stringify(requestBody),
       })

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { X, Loader2, CheckCircle, XCircle, FolderPlus } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface CreateDatasetModalProps {
   isOpen: boolean
@@ -11,6 +12,7 @@ interface CreateDatasetModalProps {
 }
 
 export default function CreateDatasetModal({ isOpen, onClose, onSuccess }: CreateDatasetModalProps) {
+  const { accessToken } = useAuth()
   const [creating, setCreating] = useState(false)
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [message, setMessage] = useState('')
@@ -31,9 +33,8 @@ export default function CreateDatasetModal({ isOpen, onClose, onSuccess }: Creat
 
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
-      const token = localStorage.getItem('access_token')
 
-      if (!token) {
+      if (!accessToken) {
         setStatus('error')
         setMessage('로그인이 필요합니다.')
         setCreating(false)
@@ -44,7 +45,7 @@ export default function CreateDatasetModal({ isOpen, onClose, onSuccess }: Creat
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         },
         body: JSON.stringify({
           name: datasetName.trim(),

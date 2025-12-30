@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { FolderPlus, Loader2, CheckCircle, XCircle } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface DatasetImageUploadProps {
   datasetId: string
@@ -7,6 +8,7 @@ interface DatasetImageUploadProps {
 }
 
 export default function DatasetImageUpload({ datasetId, onUploadSuccess }: DatasetImageUploadProps) {
+  const { accessToken } = useAuth()
   const [uploading, setUploading] = useState(false)
   const [uploadMessage, setUploadMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [uploadProgress, setUploadProgress] = useState<string>('')
@@ -34,9 +36,8 @@ export default function DatasetImageUpload({ datasetId, onUploadSuccess }: Datas
 
       // Upload to backend
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
-      const token = localStorage.getItem('access_token')
 
-      if (!token) {
+      if (!accessToken) {
         setUploadMessage({ type: 'error', text: '로그인이 필요합니다.' })
         setUploading(false)
         setUploadProgress('')
@@ -46,7 +47,7 @@ export default function DatasetImageUpload({ datasetId, onUploadSuccess }: Datas
       const response = await fetch(`${baseUrl}/datasets/${datasetId}/upload-images`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         },
         body: formData,
       })

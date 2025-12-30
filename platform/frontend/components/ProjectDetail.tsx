@@ -62,7 +62,7 @@ export default function ProjectDetail({
   onCloneExperiment,
   onViewExperiment
 }: ProjectDetailProps) {
-  const { user } = useAuth()
+  const { user, accessToken } = useAuth()
   const [project, setProject] = useState<Project | null>(null)
   const [experiments, setExperiments] = useState<Experiment[]>([])
   const [loading, setLoading] = useState(true)
@@ -95,15 +95,14 @@ export default function ProjectDetail({
   const fetchProjectDetails = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
+      if (!accessToken) {
         console.error('No access token found')
         setLoading(false)
         return
       }
 
       const headers = {
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${accessToken}`
       }
 
       // Fetch project info
@@ -205,9 +204,7 @@ export default function ProjectDetail({
     setError(null)
 
     try {
-      const token = localStorage.getItem('access_token')
-
-      if (!token) {
+      if (!accessToken) {
         setError('로그인이 필요합니다.')
         setIsSaving(false)
         return
@@ -217,7 +214,7 @@ export default function ProjectDetail({
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         },
         body: JSON.stringify({
           name: editName.trim(),
@@ -256,11 +253,10 @@ export default function ProjectDetail({
 
     setIsInviting(true)
     try {
-      const token = localStorage.getItem('access_token')
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}/members`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -290,11 +286,10 @@ export default function ProjectDetail({
     if (!confirm('정말 이 멤버를 삭제하시겠습니까?')) return
 
     try {
-      const token = localStorage.getItem('access_token')
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${projectId}/members/${userId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${accessToken}`,
         },
       })
 

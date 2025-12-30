@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface ImageInfo {
   filename: string
@@ -13,6 +14,7 @@ interface DatasetImageGalleryProps {
 }
 
 export default function DatasetImageGallery({ datasetId }: DatasetImageGalleryProps) {
+  const { accessToken } = useAuth()
   const [images, setImages] = useState<ImageInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -23,14 +25,13 @@ export default function DatasetImageGallery({ datasetId }: DatasetImageGalleryPr
     const fetchAnnotations = async () => {
       try {
         const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
-        const token = localStorage.getItem('access_token')
 
-        if (!token) return
+        if (!accessToken) return
 
         // Fetch annotations.json to check which images have labels
         const response = await fetch(`${baseUrl}/datasets/${datasetId}/file/annotations.json`, {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${accessToken}`
           }
         })
 
@@ -75,9 +76,8 @@ export default function DatasetImageGallery({ datasetId }: DatasetImageGalleryPr
         setError(null)
 
         const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
-        const token = localStorage.getItem('access_token')
 
-        if (!token) {
+        if (!accessToken) {
           setError('로그인이 필요합니다.')
           setLoading(false)
           return
@@ -85,7 +85,7 @@ export default function DatasetImageGallery({ datasetId }: DatasetImageGalleryPr
 
         const response = await fetch(`${baseUrl}/datasets/${datasetId}/images`, {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${accessToken}`
           }
         })
 
@@ -110,7 +110,7 @@ export default function DatasetImageGallery({ datasetId }: DatasetImageGalleryPr
       fetchAnnotations()
       fetchImages()
     }
-  }, [datasetId])
+  }, [datasetId, accessToken])
 
   if (loading) {
     return (

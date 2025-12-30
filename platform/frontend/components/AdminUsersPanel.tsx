@@ -26,7 +26,7 @@ type SortField = 'email' | 'full_name' | 'company' | 'division' | 'department' |
 type SortDirection = 'asc' | 'desc' | null
 
 export default function AdminUsersPanel() {
-  const { user: currentUser } = useAuth()
+  const { user: currentUser, accessToken } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [filteredUsers, setFilteredUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
@@ -55,12 +55,11 @@ export default function AdminUsersPanel() {
   const fetchUsers = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) return
+      if (!accessToken) return
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/users`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         }
       })
 
@@ -156,13 +155,12 @@ export default function AdminUsersPanel() {
 
   const handleRoleChange = async (userId: number, newRole: string) => {
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) return
+      if (!accessToken) return
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/users/${userId}/role`, {
         method: 'PATCH',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ system_role: newRole })
@@ -184,13 +182,12 @@ export default function AdminUsersPanel() {
 
   const handleUpdateUser = async (userId: number, updates: Partial<User>) => {
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) return
+      if (!accessToken) return
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/users/${userId}`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(updates)
@@ -212,13 +209,12 @@ export default function AdminUsersPanel() {
 
   const handleDeleteUser = async (userId: number) => {
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) return
+      if (!accessToken) return
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/users/${userId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         }
       })
 

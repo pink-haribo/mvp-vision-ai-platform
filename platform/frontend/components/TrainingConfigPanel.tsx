@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { useAuth } from '@/contexts/AuthContext'
 import AdvancedConfigPanel from './training/AdvancedConfigPanel'
 import ModelSelector from './training/ModelSelector'
 import CustomPromptsModal from './training/CustomPromptsModal'
@@ -45,6 +46,7 @@ export default function TrainingConfigPanel({
   onCancel,
   onTrainingStarted,
 }: TrainingConfigPanelProps) {
+  const { accessToken } = useAuth()
   const [step, setStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -108,13 +110,12 @@ export default function TrainingConfigPanel({
     try {
       setIsLoadingDatasets(true)
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
-      const token = localStorage.getItem('access_token')
 
       console.log('[DATASETS] baseUrl:', baseUrl)
-      console.log('[DATASETS] token exists:', !!token)
+      console.log('[DATASETS] token exists:', !!accessToken)
       console.log('[DATASETS] Platform task_type:', taskType || 'not specified')
 
-      if (!token) {
+      if (!accessToken) {
         console.error('[DATASETS] No access token found')
         alert('로그인 토큰이 없습니다. 다시 로그인해주세요.')
         setAvailableDatasets([])
@@ -136,7 +137,7 @@ export default function TrainingConfigPanel({
 
       const response = await fetch(apiUrl, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         }
       })
 
@@ -522,8 +523,7 @@ export default function TrainingConfigPanel({
       console.log('[DEBUG] Request body:', JSON.stringify(requestBody, null, 2))
 
       // Get JWT token for authentication (Phase 12: Required for all training job creation)
-      const token = localStorage.getItem('access_token')
-      if (!token) {
+      if (!accessToken) {
         throw new Error('인증이 필요합니다. 다시 로그인해주세요.')
       }
 
@@ -531,7 +531,7 @@ export default function TrainingConfigPanel({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,  // Phase 12: JWT authentication
+          'Authorization': `Bearer ${accessToken}`,  // Phase 12: JWT authentication
         },
         body: JSON.stringify(requestBody),
       })

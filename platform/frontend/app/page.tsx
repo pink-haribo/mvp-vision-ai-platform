@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { signOut } from 'next-auth/react'
+import { useAuth } from '@/contexts/AuthContext'
 import Sidebar from '@/components/Sidebar'
 import ChatPanel from '@/components/ChatPanel'
 import TrainingPanel from '@/components/TrainingPanel'
@@ -31,6 +32,7 @@ interface TrainingConfig {
 export default function Home() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const { accessToken } = useAuth()
 
   const [sessionId, setSessionId] = useState<number | null>(null)
   const [trainingJobId, setTrainingJobId] = useState<number | null>(null)
@@ -257,8 +259,7 @@ export default function Home() {
   const handleOpenDatasets = async () => {
     // Platform → Labeler SSO flow (Phase 11.5.6)
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) {
+      if (!accessToken) {
         console.error('No access token found')
         return
       }
@@ -267,7 +268,7 @@ export default function Home() {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/labeler-token`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         }
       })
 

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { X, ChevronRight, ChevronLeft, CheckCircle, AlertCircle, Loader2, Rocket, Package, Container, Download } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface CreateDeploymentModalProps {
   isOpen: boolean
@@ -84,6 +85,7 @@ const colorClasses: Record<string, { bg: string; border: string; text: string; h
 }
 
 export default function CreateDeploymentModal({ isOpen, onClose, trainingJobId, onSuccess, selectedExportJobId }: CreateDeploymentModalProps) {
+  const { accessToken } = useAuth()
   const [step, setStep] = useState(selectedExportJobId ? 2 : 1)
   const [exportJobs, setExportJobs] = useState<ExportJob[]>([])
   const [loadingExports, setLoadingExports] = useState(false)
@@ -131,12 +133,11 @@ export default function CreateDeploymentModal({ isOpen, onClose, trainingJobId, 
   const fetchExportJobs = async () => {
     try {
       setLoadingExports(true)
-      const token = localStorage.getItem('access_token')
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/export/training/${trainingJobId}/exports`,
         {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${accessToken}`
           }
         }
       )
@@ -169,8 +170,6 @@ export default function CreateDeploymentModal({ isOpen, onClose, trainingJobId, 
       setIsSubmitting(true)
       setError(null)
 
-      const token = localStorage.getItem('access_token')
-
       // Build deployment config based on type
       const config: Record<string, any> = {}
 
@@ -197,7 +196,7 @@ export default function CreateDeploymentModal({ isOpen, onClose, trainingJobId, 
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${accessToken}`
           },
           body: JSON.stringify(requestBody)
         }

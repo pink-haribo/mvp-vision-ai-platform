@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { ArrowUpDown, ArrowUp, ArrowDown, Search, Database, Tag, Globe, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { useAuth } from '@/contexts/AuthContext'
 import { Dataset } from '@/types/dataset'
 import { getAvatarColorStyle } from '@/lib/utils/avatarColors'
 
@@ -38,6 +39,7 @@ const getAvatarInitials = (owner_name: string | null | undefined, owner_email: s
 }
 
 export default function AdminDatasetsPanel() {
+  const { accessToken } = useAuth()
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [filteredDatasets, setFilteredDatasets] = useState<Dataset[]>([])
   const [loading, setLoading] = useState(true)
@@ -62,9 +64,8 @@ export default function AdminDatasetsPanel() {
     setLoading(true)
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
-      const token = localStorage.getItem('access_token')
 
-      if (!token) {
+      if (!accessToken) {
         console.error('No access token found')
         setLoading(false)
         return
@@ -72,7 +73,7 @@ export default function AdminDatasetsPanel() {
 
       const response = await fetch(`${baseUrl}/datasets/available`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         }
       })
 

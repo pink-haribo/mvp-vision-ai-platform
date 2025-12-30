@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import DeploymentCard, { Deployment } from './DeploymentCard'
 import { Loader2, AlertCircle, Filter } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface DeploymentListProps {
   trainingJobId: number
@@ -15,6 +16,7 @@ type DeploymentTypeFilter = 'all' | 'platform_endpoint' | 'edge_package' | 'cont
 type DeploymentStatusFilter = 'all' | 'active' | 'inactive' | 'failed'
 
 export default function DeploymentList({ trainingJobId, onCreateDeployment, onTestInference }: DeploymentListProps) {
+  const { accessToken } = useAuth()
   const [deployments, setDeployments] = useState<Deployment[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -26,12 +28,11 @@ export default function DeploymentList({ trainingJobId, onCreateDeployment, onTe
       setIsLoading(true)
       setError(null)
 
-      const token = localStorage.getItem('access_token')
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/export/deployments?training_job_id=${trainingJobId}`,
         {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${accessToken}`
           }
         }
       )
@@ -56,13 +57,12 @@ export default function DeploymentList({ trainingJobId, onCreateDeployment, onTe
 
   const handleActivate = async (deploymentId: number) => {
     try {
-      const token = localStorage.getItem('access_token')
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/export/deployments/${deploymentId}/activate`,
         {
           method: 'PATCH',
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${accessToken}`
           }
         }
       )
@@ -85,13 +85,12 @@ export default function DeploymentList({ trainingJobId, onCreateDeployment, onTe
     }
 
     try {
-      const token = localStorage.getItem('access_token')
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/export/deployments/${deploymentId}/deactivate`,
         {
           method: 'PATCH',
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${accessToken}`
           }
         }
       )
@@ -114,13 +113,12 @@ export default function DeploymentList({ trainingJobId, onCreateDeployment, onTe
     }
 
     try {
-      const token = localStorage.getItem('access_token')
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/export/deployments/${deploymentId}`,
         {
           method: 'DELETE',
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${accessToken}`
           }
         }
       )

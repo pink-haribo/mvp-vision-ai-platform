@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import ExportJobCard, { ExportJob } from './ExportJobCard'
 import { Loader2, AlertCircle } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface ExportJobListProps {
   trainingJobId: number
@@ -12,6 +13,7 @@ interface ExportJobListProps {
 }
 
 export default function ExportJobList({ trainingJobId, onCreateExport, onDeploy, refreshKey }: ExportJobListProps) {
+  const { accessToken } = useAuth()
   const [exportJobs, setExportJobs] = useState<ExportJob[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -21,12 +23,11 @@ export default function ExportJobList({ trainingJobId, onCreateExport, onDeploy,
       setIsLoading(true)
       setError(null)
 
-      const token = localStorage.getItem('access_token')
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/export/training/${trainingJobId}/exports`,
         {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${accessToken}`
           }
         }
       )
@@ -52,12 +53,11 @@ export default function ExportJobList({ trainingJobId, onCreateExport, onDeploy,
 
   const handleDownload = async (exportJobId: number) => {
     try {
-      const token = localStorage.getItem('access_token')
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/export/${exportJobId}/download`,
         {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${accessToken}`
           }
         }
       )
@@ -82,13 +82,12 @@ export default function ExportJobList({ trainingJobId, onCreateExport, onDeploy,
     }
 
     try {
-      const token = localStorage.getItem('access_token')
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/export/jobs/${exportJobId}`,
         {
           method: 'DELETE',
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${accessToken}`
           }
         }
       )

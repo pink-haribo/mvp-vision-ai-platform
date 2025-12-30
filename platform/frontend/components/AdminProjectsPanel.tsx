@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { ArrowUpDown, ArrowUp, ArrowDown, Search, X, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface Project {
   id: number
@@ -21,6 +22,7 @@ type SortField = 'name' | 'owner_name' | 'task_type' | 'experiment_count' | 'cre
 type SortDirection = 'asc' | 'desc' | null
 
 export default function AdminProjectsPanel() {
+  const { accessToken } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [filteredProjects, setFilteredProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,12 +48,11 @@ export default function AdminProjectsPanel() {
   const fetchProjects = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) return
+      if (!accessToken) return
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/projects`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         }
       })
 
@@ -135,13 +136,12 @@ export default function AdminProjectsPanel() {
 
   const handleDeleteProject = async (projectId: number) => {
     try {
-      const token = localStorage.getItem('access_token')
-      if (!token) return
+      if (!accessToken) return
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/projects/${projectId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${accessToken}`
         }
       })
 
