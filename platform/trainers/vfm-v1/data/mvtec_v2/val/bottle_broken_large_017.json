@@ -1,0 +1,29 @@
+{
+  "version": "0.9.7",
+  "task_type": "det",
+  "shapes": [
+    {
+      "label": "defect",
+      "points": [
+        [
+          62.88679245283018,
+          89.62264150943396
+        ],
+        [
+          753.4528301886792,
+          710.377358490566
+        ]
+      ],
+      "shape_type": "rectangle",
+      "flags": {},
+      "group_id": null,
+      "other_data": {}
+    }
+  ],
+  "split": "none",
+  "imageHeight": 900,
+  "imageWidth": 900,
+  "imageDepth": 4,
+  "imageData": null,
+  "imagePath": "bottle_broken_large_017.png"
+}
