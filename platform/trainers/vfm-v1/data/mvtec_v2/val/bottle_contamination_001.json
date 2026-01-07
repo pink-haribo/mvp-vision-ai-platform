@@ -1,0 +1,28 @@
+{
+  "version": "0.9.7",
+  "task_type": "det",
+  "shapes": [
+    {
+      "label": "discoloration",
+      "points": [
+        [
+          371.377358490566,
+          308.49056603773585
+        ],
+        [
+          659.1132075471697,
+          664.1509433962264
+        ]
+      ],
+      "group_id": null,
+      "shape_type": "rectangle",
+      "flags": {}
+    }
+  ],
+  "split": "none",
+  "imageHeight": 900,
+  "imageWidth": 900,
+  "imageDepth": 4,
+  "imageData": null,
+  "imagePath": "bottle_contamination_001.png"
+}

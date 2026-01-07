@@ -1,0 +1,5 @@
+__ignore__
+defect
+dust
+discoloration
+coil

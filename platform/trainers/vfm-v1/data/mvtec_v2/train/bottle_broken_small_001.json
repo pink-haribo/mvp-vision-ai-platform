@@ -1,0 +1,46 @@
+{
+  "version": "0.9.7",
+  "task_type": "det",
+  "shapes": [
+    {
+      "label": "defect",
+      "points": [
+        [
+          163.83018867924528,
+          233.96226415094338
+        ],
+        [
+          339.3018867924528,
+          423.58490566037733
+        ]
+      ],
+      "shape_type": "rectangle",
+      "flags": {},
+      "group_id": null,
+      "other_data": {}
+    },
+    {
+      "label": "defect",
+      "points": [
+        [
+          171.377358490566,
+          534.9056603773585
+        ],
+        [
+          311.9433962264151,
+          675.4716981132075
+        ]
+      ],
+      "shape_type": "rectangle",
+      "flags": {},
+      "group_id": null,
+      "other_data": {}
+    }
+  ],
+  "split": "none",
+  "imageHeight": 900,
+  "imageWidth": 900,
+  "imageDepth": 4,
+  "imageData": null,
+  "imagePath": "bottle_broken_small_001.png"
+}

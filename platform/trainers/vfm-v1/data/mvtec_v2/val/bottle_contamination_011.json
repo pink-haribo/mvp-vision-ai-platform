@@ -1,0 +1,44 @@
+{
+  "version": "0.9.7",
+  "task_type": "det",
+  "shapes": [
+    {
+      "label": "discoloration",
+      "points": [
+        [
+          253.45283018867923,
+          250.94339622641508
+        ],
+        [
+          694.9622641509434,
+          655.6603773584906
+        ]
+      ],
+      "group_id": null,
+      "shape_type": "rectangle",
+      "flags": {}
+    },
+    {
+      "label": "dust",
+      "points": [
+        [
+          316.3333333333333,
+          308.3333333333333
+        ],
+        [
+          571.0,
+          555.0
+        ]
+      ],
+      "group_id": null,
+      "shape_type": "rectangle",
+      "flags": {}
+    }
+  ],
+  "split": "none",
+  "imageHeight": 900,
+  "imageWidth": 900,
+  "imageDepth": 4,
+  "imageData": null,
+  "imagePath": "bottle_contamination_011.png"
+}
