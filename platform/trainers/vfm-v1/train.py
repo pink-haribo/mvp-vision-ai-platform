@@ -293,6 +293,7 @@ def train_model(
         epochs = config.get('epochs', 100)
 
         # Import MMEngine components
+        from mmengine.config import Config
         from mmengine.runner import Runner
         from mmengine.hooks import Hook
 
@@ -300,7 +301,7 @@ def train_model(
         vfm_root = Path(__file__).parent
         sys.path.insert(0, str(vfm_root))
 
-        # Create VFM config (returns Config object directly, no lazy import issues)
+        # Create VFM config (returns Config object directly)
         cfg = create_vfm_config(
             model_name=model_name,
             dataset_dir=dataset_dir,
@@ -308,7 +309,15 @@ def train_model(
             config=config,
             model_info=model_info
         )
-        logger.info(f"Config created for model: {model_name}")
+
+        # Dump config to file and reload with Config.fromfile()
+        # This triggers custom_imports which registers yolo_world modules
+        config_dump_path = work_dir / 'train_config.py'
+        cfg.dump(str(config_dump_path))
+        logger.info(f"Config dumped to: {config_dump_path}")
+
+        cfg = Config.fromfile(str(config_dump_path))
+        logger.info(f"Config reloaded for model: {model_name}")
 
         # Build runner
         runner = Runner.from_cfg(cfg)

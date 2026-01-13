@@ -16,6 +16,7 @@ Usage:
     # cfg is a ready-to-use MMEngine Config object
 """
 
+import sys
 from pathlib import Path
 from typing import List, Tuple
 
@@ -130,6 +131,8 @@ def get_vfm_config(
         ),
         neck=dict(
             type='YOLOWorldPAFPN',
+            in_channels=[256, 512, last_stage_out_channels],
+            out_channels=[256, 512, last_stage_out_channels],
             guide_channels=text_channels,
             embed_channels=neck_embed_channels,
             num_heads=neck_num_heads,
@@ -141,7 +144,8 @@ def get_vfm_config(
                 type='YOLOWorldHeadModule',
                 use_bn_head=True,
                 embed_dims=text_channels,
-                num_classes=num_classes
+                num_classes=num_classes,
+                in_channels=[256, 512, last_stage_out_channels]
             )
         ),
         train_cfg=dict(assigner=dict(num_classes=num_classes))
