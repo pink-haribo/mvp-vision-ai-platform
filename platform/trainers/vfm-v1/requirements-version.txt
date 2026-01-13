@@ -1,0 +1,110 @@
+# VFM-v1 Trainer Requirements (Pinned Versions)
+# Based on working environment from requirements.md
+#
+# ============================================================
+# INSTALLATION ORDER MATTERS! Follow this sequence:
+# ============================================================
+#
+# Step 1: Create venv
+#   python3.11 -m venv .venv
+#   source .venv/bin/activate
+#   pip install --upgrade pip setuptools wheel
+#
+# Step 2: Install PyTorch (CUDA 11.8)
+#   pip install torch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 \
+#       --index-url https://download.pytorch.org/whl/cu118
+#
+# Step 3: Install mmcv (MUST use wheel URL, not pip install mmcv)
+#   pip install mmcv==2.1.0 \
+#       -f https://download.openmmlab.com/mmcv/dist/cu118/torch2.1/index.html
+#
+# Step 4: Install remaining packages
+#   pip install -r requirements-version.txt
+#
+# Step 5: Install mmyolo (editable)
+#   pip install --no-build-isolation -e third_party/mmyolo
+#
+# Step 6: Set environment variable before running
+#   export MMENGINE_REGISTRY_SKIP_EXISTING=1
+#
+# ============================================================
+
+# ----------------------------------------
+# Core Framework (DO NOT install via this file)
+# These are installed in Steps 2-3 above
+# ----------------------------------------
+# torch==2.1.2+cu118  # Step 2
+# torchvision==0.16.2+cu118  # Step 2
+# torchaudio==2.1.2+cu118  # Step 2
+# mmcv==2.1.0  # Step 3 (wheel URL)
+
+# ----------------------------------------
+# MMEngine Ecosystem
+# ----------------------------------------
+mmengine==0.10.2
+mmdet==3.3.0
+# mmyolo==0.6.0  # Step 5 (editable install)
+
+# ----------------------------------------
+# VFM-specific (CLIP/Text Embeddings)
+# ----------------------------------------
+transformers==4.28.0
+tokenizers==0.13.3
+open-clip-torch==2.32.0
+
+# ----------------------------------------
+# Storage & Callbacks (TrainerSDK)
+# ----------------------------------------
+boto3==1.37.28
+botocore==1.37.28
+httpx==0.26.0
+tenacity==8.2.2
+
+# ----------------------------------------
+# Data Processing
+# ----------------------------------------
+numpy==1.26.4
+opencv-python-headless==4.9.0.80
+Pillow==9.5.0
+PyYAML==6.0
+albumentations==1.4.4
+pycocotools==2.0.7
+shapely==2.0.2
+
+# ----------------------------------------
+# Utilities
+# ----------------------------------------
+python-dotenv==1.1.0
+tqdm==4.65.2
+prettytable==3.10.0
+tabulate==0.9.0
+addict==2.4.0
+rich==13.4.2
+
+# ----------------------------------------
+# Model Tools
+# ----------------------------------------
+timm==1.0.17
+einops==0.7.0
+safetensors==0.4.1
+scipy==1.12.0
+scikit-learn==1.4.1.post1
+
+# ----------------------------------------
+# Networking & HTTP
+# ----------------------------------------
+requests==2.28.2
+urllib3==1.26.18
+aiohttp==3.8.4
+
+# ----------------------------------------
+# Optional: ONNX Export
+# ----------------------------------------
+onnx==1.15.0
+onnxruntime-gpu==1.15.1
+# onnxsim==0.4.36  # optional
+
+# ----------------------------------------
+# Optional: ClearML Integration
+# ----------------------------------------
+# clearml>=1.14.0
