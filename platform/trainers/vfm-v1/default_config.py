@@ -26,14 +26,6 @@ from mmengine.config import Config
 # VFM-v1 root directory (where this file is located)
 VFM_ROOT = Path(__file__).parent.resolve()
 
-# Add VFM_ROOT to sys.path so yolo_world can be imported
-if str(VFM_ROOT) not in sys.path:
-    sys.path.insert(0, str(VFM_ROOT))
-
-# Import yolo_world to register modules in MMEngine registry
-# This replaces custom_imports which only works with Config.fromfile()
-import yolo_world  # noqa: E402, F401
-
 # Base config path (absolute)
 BASE_CONFIG_PATH = VFM_ROOT / 'third_party/mmyolo/configs/yolov8/yolov8_l_mask-refine_syncbn_fast_8xb16-500e_coco.py'
 
