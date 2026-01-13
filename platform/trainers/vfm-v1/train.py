@@ -139,9 +139,9 @@ def create_vfm_config(
     work_dir: Path,
     config: Dict[str, Any],
     model_info: Dict[str, Any]
-) -> str:
+):
     """
-    Create VFM/MMDetection config file dynamically.
+    Create VFM/MMDetection config object dynamically.
 
     Args:
         model_name: Model name
@@ -151,9 +151,9 @@ def create_vfm_config(
         model_info: Model info from capabilities.json
 
     Returns:
-        Path to created config file
+        MMEngine Config object ready for Runner.from_cfg()
     """
-    from default_config import get_config_template
+    from default_config import get_vfm_config
 
     # Training parameters
     epochs = config.get('epochs', 100)
@@ -194,8 +194,8 @@ def create_vfm_config(
     # Pretrained weights path
     pretrained_path = model_info.get('pretrained', '')
 
-    # Generate config content from template
-    config_content = get_config_template(
+    # Generate Config object directly (no file writing, no lazy import issues)
+    cfg = get_vfm_config(
         model_name=model_name,
         dataset_dir=str(dataset_dir),
         work_dir=str(work_dir),
@@ -217,13 +217,7 @@ def create_vfm_config(
         text_model_name=text_model_name,
     )
 
-    # Write config file
-    config_path = work_dir / 'train_config.py'
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, 'w') as f:
-        f.write(config_content)
-
-    return str(config_path)
+    return cfg
 
 
 def train_model(
@@ -298,18 +292,7 @@ def train_model(
         # Training parameters
         epochs = config.get('epochs', 100)
 
-        # Create VFM config
-        config_path = create_vfm_config(
-            model_name=model_name,
-            dataset_dir=dataset_dir,
-            work_dir=work_dir,
-            config=config,
-            model_info=model_info
-        )
-        logger.info(f"Config file created: {config_path}")
-
         # Import MMEngine components
-        from mmengine.config import Config
         from mmengine.runner import Runner
         from mmengine.hooks import Hook
 
@@ -317,8 +300,15 @@ def train_model(
         vfm_root = Path(__file__).parent
         sys.path.insert(0, str(vfm_root))
 
-        # Load config
-        cfg = Config.fromfile(config_path)
+        # Create VFM config (returns Config object directly, no lazy import issues)
+        cfg = create_vfm_config(
+            model_name=model_name,
+            dataset_dir=dataset_dir,
+            work_dir=work_dir,
+            config=config,
+            model_info=model_info
+        )
+        logger.info(f"Config created for model: {model_name}")
 
         # Build runner
         runner = Runner.from_cfg(cfg)
