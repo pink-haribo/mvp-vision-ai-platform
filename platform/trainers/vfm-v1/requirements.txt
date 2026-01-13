@@ -1,0 +1,33 @@
+# VFM-v1 Trainer Requirements
+# Vision Foundation Model based on YOLO World
+
+# Core Framework (MMDetection/MMYOLO ecosystem)
+torch>=2.1.0
+torchvision>=0.16.0
+mmengine>=0.10.0
+mmcv>=2.1.0
+mmdet>=3.0.0
+mmyolo>=0.6.0
+
+# VFM-specific (CLIP for text embeddings)
+transformers>=4.28.0
+tokenizers>=0.13.0
+open-clip-torch>=2.20.0
+
+# Storage & Callbacks (TrainerSDK)
+boto3>=1.34.0
+httpx>=0.26.0
+tenacity>=8.2.0
+
+# Data Processing
+pyyaml>=6.0
+opencv-python-headless>=4.9.0
+numpy>=1.24.0
+pillow>=10.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+tqdm>=4.65.0
+
+# Optional: ClearML integration
+# clearml>=1.14.0

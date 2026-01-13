@@ -1,0 +1,137 @@
+{
+  "framework": "vfm-v1",
+  "framework_version": "0.1.0",
+  "display_name": "VFM v1 (Vision Foundation Model)",
+  "description": "YOLO World based Vision Foundation Model for open-vocabulary object detection",
+  "supported_task_types": ["detection", "open_vocabulary_detection"],
+  "models": [
+    {
+      "model_name": "vfm_v1_l",
+      "display_name": "VFM v1 Large",
+      "description": "Large Vision Foundation Model based on YOLO World v2",
+      "task_types": ["detection", "open_vocabulary_detection"],
+      "pretrained": "pretrained_models/yolo_world_v2_l_vlpan_bn_2e-4_80e_8gpus_mask-refine_finetune_coco_ep80-81c701ee.pth",
+      "config_file": "configs/finetune_coco/vfm_v1_l_mvtec.py",
+      "default_config": {
+        "epochs": 100,
+        "batch_size": 4,
+        "learning_rate": 0.0002,
+        "weight_decay": 0.05,
+        "optimizer": "AdamW",
+        "img_scale": [640, 640],
+        "val_interval": 10,
+        "save_epoch_intervals": 20
+      },
+      "hardware_requirements": {
+        "min_gpu_memory_gb": 12,
+        "recommended_gpu_memory_gb": 24
+      }
+    },
+    {
+      "model_name": "vfm_v1_m",
+      "display_name": "VFM v1 Medium",
+      "description": "Medium Vision Foundation Model based on YOLO World v2",
+      "task_types": ["detection", "open_vocabulary_detection"],
+      "pretrained": "pretrained_models/yolo_world_v2_m_vlpan_bn_2e-4_80e_8gpus_mask-refine_finetune_coco.pth",
+      "config_file": "configs/finetune_coco/vfm_v1_m.py",
+      "default_config": {
+        "epochs": 100,
+        "batch_size": 8,
+        "learning_rate": 0.0002,
+        "weight_decay": 0.05,
+        "optimizer": "AdamW",
+        "img_scale": [640, 640],
+        "val_interval": 10,
+        "save_epoch_intervals": 20
+      },
+      "hardware_requirements": {
+        "min_gpu_memory_gb": 8,
+        "recommended_gpu_memory_gb": 16
+      }
+    },
+    {
+      "model_name": "vfm_v1_s",
+      "display_name": "VFM v1 Small",
+      "description": "Small Vision Foundation Model based on YOLO World v2",
+      "task_types": ["detection", "open_vocabulary_detection"],
+      "pretrained": "pretrained_models/yolo_world_v2_s_vlpan_bn_2e-4_80e_8gpus_mask-refine_finetune_coco.pth",
+      "config_file": "configs/finetune_coco/vfm_v1_s.py",
+      "default_config": {
+        "epochs": 100,
+        "batch_size": 16,
+        "learning_rate": 0.0002,
+        "weight_decay": 0.05,
+        "optimizer": "AdamW",
+        "img_scale": [640, 640],
+        "val_interval": 10,
+        "save_epoch_intervals": 20
+      },
+      "hardware_requirements": {
+        "min_gpu_memory_gb": 6,
+        "recommended_gpu_memory_gb": 12
+      }
+    }
+  ],
+  "config_schema": {
+    "basic": {
+      "epochs": {
+        "type": "integer",
+        "default": 100,
+        "min": 1,
+        "max": 1000,
+        "description": "Number of training epochs"
+      },
+      "batch_size": {
+        "type": "integer",
+        "default": 4,
+        "min": 1,
+        "max": 64,
+        "description": "Batch size per GPU"
+      },
+      "learning_rate": {
+        "type": "float",
+        "default": 0.0002,
+        "min": 0.000001,
+        "max": 0.1,
+        "description": "Base learning rate"
+      },
+      "weight_decay": {
+        "type": "float",
+        "default": 0.05,
+        "min": 0.0,
+        "max": 1.0,
+        "description": "Weight decay for optimizer"
+      },
+      "val_interval": {
+        "type": "integer",
+        "default": 10,
+        "min": 1,
+        "max": 100,
+        "description": "Validation interval (epochs)"
+      }
+    },
+    "advanced": {
+      "close_mosaic_epochs": {
+        "type": "integer",
+        "default": 2,
+        "description": "Epochs before end to close mosaic augmentation"
+      },
+      "text_model_name": {
+        "type": "string",
+        "default": "openai/clip-vit-base-patch32",
+        "description": "CLIP text encoder model name"
+      },
+      "amp": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable Automatic Mixed Precision training"
+      }
+    }
+  },
+  "export_formats": ["onnx", "tensorrt"],
+  "metadata": {
+    "author": "Vision AI Platform",
+    "license": "Apache-2.0",
+    "repository": "https://github.com/AILab-CVC/YOLO-World"
+  }
+}
