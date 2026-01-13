@@ -16,7 +16,6 @@ Usage:
     # cfg is a ready-to-use MMEngine Config object
 """
 
-import sys
 from pathlib import Path
 from typing import List, Tuple
 
@@ -85,19 +84,36 @@ def get_vfm_config(
     # Load base config directly (no lazy import)
     cfg = Config.fromfile(str(BASE_CONFIG_PATH))
 
-    # Get values from base config
-    last_stage_out_channels = cfg.last_stage_out_channels
-    pre_transform = cfg.pre_transform
-    copypaste_prob = cfg.copypaste_prob
-    affine_scale = cfg.affine_scale
-    min_area_ratio = cfg.min_area_ratio
-    use_mask2refine = cfg.use_mask2refine
-    mixup_prob = cfg.mixup_prob
-    last_transform = cfg.last_transform
-    train_pipeline_stage2_base = cfg.train_pipeline_stage2
-    test_pipeline_base = cfg.test_pipeline
-    val_interval_stage2 = cfg.val_interval_stage2
-    base_model_backbone = cfg.model.backbone
+    # Model architecture parameters (for L model)
+    deepen_factor = 1.0
+    widen_factor = 1.0
+    last_stage_out_channels = 512
+    text_channels = 512
+    neck_embed_channels = [128, 256, 256]
+    neck_num_heads = [4, 8, 8]
+    strides = [8, 16, 32]
+
+    # Common configs
+    norm_cfg = dict(type='BN', eps=0.001, momentum=0.03)
+    act_cfg = dict(type='SiLU', inplace=True)
+
+    # Loss weights
+    loss_cls_weight = 0.5
+    loss_bbox_weight = 7.5
+    loss_dfl_weight = 0.375
+
+    # Task-aligned assigner
+    tal_topk = 10
+    tal_alpha = 0.5
+    tal_beta = 6.0
+
+    # Augmentation parameters
+    affine_scale = 0.9
+    mixup_prob = 0.15
+    copypaste_prob = 0.3
+    min_area_ratio = 0.01
+    max_aspect_ratio = 100.0
+    use_mask2refine = True
 
     # Custom imports for YOLO World
     cfg.custom_imports = dict(
@@ -105,53 +121,24 @@ def get_vfm_config(
         allow_failed_imports=False
     )
 
-    # Hyper-parameters
-    text_channels = 512
-    neck_embed_channels = [128, 256, last_stage_out_channels // 2]
-    neck_num_heads = [4, 8, last_stage_out_channels // 2 // 32]
-
     # Dataset metadata
     metainfo_classes = dict(classes=tuple(class_names))
 
-    # Model settings
-    cfg.model = dict(
-        type='YOLOWorldDetector',
-        mm_neck=True,
-        num_train_classes=num_classes,
-        num_test_classes=num_classes,
-        data_preprocessor=dict(type='YOLOWDetDataPreprocessor'),
-        backbone=dict(
-            type='MultiModalYOLOBackbone',
-            image_model=base_model_backbone,
-            text_model=dict(
-                type='HuggingCLIPLanguageBackbone',
-                model_name=text_model_name,
-                frozen_modules=['all']
-            )
-        ),
-        neck=dict(
-            type='YOLOWorldPAFPN',
-            in_channels=[256, 512, last_stage_out_channels],
-            out_channels=[256, 512, last_stage_out_channels],
-            guide_channels=text_channels,
-            embed_channels=neck_embed_channels,
-            num_heads=neck_num_heads,
-            block_cfg=dict(type='MaxSigmoidCSPLayerWithTwoConv')
-        ),
-        bbox_head=dict(
-            type='YOLOWorldHead',
-            head_module=dict(
-                type='YOLOWorldHeadModule',
-                use_bn_head=True,
-                embed_dims=text_channels,
-                num_classes=num_classes,
-                in_channels=[256, 512, last_stage_out_channels]
-            )
-        ),
-        train_cfg=dict(assigner=dict(num_classes=num_classes))
-    )
+    # Pre-transform pipeline
+    pre_transform = [
+        dict(type='LoadImageFromFile', backend_args=None),
+        dict(type='LoadAnnotations', with_bbox=True, with_mask=True, mask2bbox=True)
+    ]
 
-    # Dataset transforms
+    # Albu augmentations
+    albu_train_transforms = [
+        dict(type='Blur', p=0.01),
+        dict(type='MedianBlur', p=0.01),
+        dict(type='ToGray', p=0.01),
+        dict(type='CLAHE', p=0.01),
+    ]
+
+    # Text transform for multimodal
     text_transform = [
         dict(
             type='RandomLoadText',
@@ -167,6 +154,24 @@ def get_vfm_config(
         )
     ]
 
+    # Last transform (before text_transform)
+    last_transform = [
+        dict(type='RemoveDataElement', keys=['gt_masks']),
+        dict(
+            type='mmdet.Albu',
+            transforms=albu_train_transforms,
+            bbox_params=dict(
+                type='BboxParams',
+                format='pascal_voc',
+                label_fields=['gt_bboxes_labels', 'gt_ignore_flags']
+            ),
+            keymap=dict(img='image', gt_bboxes='bboxes')
+        ),
+        dict(type='YOLOv5HSVRandomAug'),
+        dict(type='mmdet.RandomFlip', prob=0.5),
+    ]
+
+    # Mosaic + Affine transform
     mosaic_affine_transform = [
         dict(
             type='MultiModalMosaic',
@@ -179,7 +184,7 @@ def get_vfm_config(
             type='YOLOv5RandomAffine',
             max_rotate_degree=0.0,
             max_shear_degree=0.0,
-            max_aspect_ratio=100.,
+            max_aspect_ratio=max_aspect_ratio,
             scaling_ratio_range=(1 - affine_scale, 1 + affine_scale),
             border=(-img_scale[0] // 2, -img_scale[1] // 2),
             border_val=(114, 114, 114),
@@ -188,6 +193,7 @@ def get_vfm_config(
         )
     ]
 
+    # Full train pipeline
     train_pipeline = [
         *pre_transform,
         *mosaic_affine_transform,
@@ -196,17 +202,45 @@ def get_vfm_config(
             prob=mixup_prob,
             pre_transform=[*pre_transform, *mosaic_affine_transform]
         ),
-        *last_transform[:-1],
+        *last_transform,
         *text_transform
     ]
 
+    # Stage 2 train pipeline (no mosaic/mixup)
     train_pipeline_stage2 = [
-        *train_pipeline_stage2_base[:-1],
+        *pre_transform,
+        dict(type='YOLOv5KeepRatioResize', scale=img_scale),
+        dict(
+            type='LetterResize',
+            scale=img_scale,
+            allow_scale_up=True,
+            pad_val=dict(img=114.0)
+        ),
+        dict(
+            type='YOLOv5RandomAffine',
+            max_rotate_degree=0.0,
+            max_shear_degree=0.0,
+            max_aspect_ratio=max_aspect_ratio,
+            scaling_ratio_range=(1 - affine_scale, 1 + affine_scale),
+            border_val=(114, 114, 114),
+            min_area_ratio=min_area_ratio,
+            use_mask_refine=use_mask2refine
+        ),
+        *last_transform,
         *text_transform
     ]
 
+    # Test/Val pipeline
     test_pipeline = [
-        *test_pipeline_base[:-1],
+        dict(type='LoadImageFromFile', backend_args=None),
+        dict(type='YOLOv5KeepRatioResize', scale=img_scale),
+        dict(
+            type='LetterResize',
+            scale=img_scale,
+            allow_scale_up=False,
+            pad_val=dict(img=114)
+        ),
+        dict(type='LoadAnnotations', with_bbox=True, _scope_='mmdet'),
         dict(type='LoadText'),
         dict(
             type='mmdet.PackDetInputs',
@@ -215,12 +249,123 @@ def get_vfm_config(
         )
     ]
 
-    # Train dataset
+    # ============================================================
+    # Model Configuration (YOLO World)
+    # ============================================================
+    cfg.model = dict(
+        type='YOLOWorldDetector',
+        mm_neck=True,
+        num_train_classes=num_classes,
+        num_test_classes=num_classes,
+        data_preprocessor=dict(
+            type='YOLOWDetDataPreprocessor',
+            mean=[0.0, 0.0, 0.0],
+            std=[255.0, 255.0, 255.0],
+            bgr_to_rgb=True
+        ),
+        backbone=dict(
+            type='MultiModalYOLOBackbone',
+            image_model=dict(
+                type='YOLOv8CSPDarknet',
+                arch='P5',
+                last_stage_out_channels=last_stage_out_channels,
+                deepen_factor=deepen_factor,
+                widen_factor=widen_factor,
+                norm_cfg=norm_cfg,
+                act_cfg=act_cfg
+            ),
+            text_model=dict(
+                type='HuggingCLIPLanguageBackbone',
+                model_name=text_model_name,
+                frozen_modules=['all']
+            )
+        ),
+        neck=dict(
+            type='YOLOWorldPAFPN',
+            in_channels=[256, 512, last_stage_out_channels],
+            out_channels=[256, 512, last_stage_out_channels],
+            guide_channels=text_channels,
+            embed_channels=neck_embed_channels,
+            num_heads=neck_num_heads,
+            num_csp_blocks=3,
+            block_cfg=dict(type='MaxSigmoidCSPLayerWithTwoConv'),
+            deepen_factor=deepen_factor,
+            widen_factor=widen_factor,
+            norm_cfg=norm_cfg,
+            act_cfg=act_cfg
+        ),
+        bbox_head=dict(
+            type='YOLOWorldHead',
+            head_module=dict(
+                type='YOLOWorldHeadModule',
+                num_classes=num_classes,
+                in_channels=[256, 512, last_stage_out_channels],
+                embed_dims=text_channels,
+                featmap_strides=strides,
+                reg_max=16,
+                use_bn_head=True,
+                widen_factor=widen_factor,
+                norm_cfg=norm_cfg,
+                act_cfg=act_cfg
+            ),
+            bbox_coder=dict(type='DistancePointBBoxCoder'),
+            loss_cls=dict(
+                type='mmdet.CrossEntropyLoss',
+                use_sigmoid=True,
+                reduction='none',
+                loss_weight=loss_cls_weight
+            ),
+            loss_bbox=dict(
+                type='IoULoss',
+                iou_mode='ciou',
+                bbox_format='xyxy',
+                reduction='sum',
+                loss_weight=loss_bbox_weight,
+                return_iou=False
+            ),
+            loss_dfl=dict(
+                type='mmdet.DistributionFocalLoss',
+                reduction='mean',
+                loss_weight=loss_dfl_weight
+            ),
+            prior_generator=dict(
+                type='mmdet.MlvlPointGenerator',
+                offset=0.5,
+                strides=strides
+            )
+        ),
+        train_cfg=dict(
+            assigner=dict(
+                type='BatchTaskAlignedAssigner',
+                num_classes=num_classes,
+                topk=tal_topk,
+                alpha=tal_alpha,
+                beta=tal_beta,
+                eps=1e-9,
+                use_ciou=True
+            )
+        ),
+        test_cfg=dict(
+            multi_label=True,
+            nms_pre=30000,
+            score_thr=0.001,
+            nms=dict(type='nms', iou_threshold=0.7),
+            max_per_img=300
+        )
+    )
+
+    # ============================================================
+    # Dataset Configuration
+    # ============================================================
     cfg.train_dataloader = dict(
-        persistent_workers=True,
         batch_size=batch_size,
+        num_workers=8,
+        persistent_workers=True,
+        pin_memory=True,
+        sampler=dict(type='DefaultSampler', shuffle=True),
         collate_fn=dict(type='yolow_collate'),
         dataset=dict(
+            _delete_=True,
             type='MultiModalDataset',
             dataset=dict(
                 type='YOLOv5CocoDataset',
@@ -235,9 +380,15 @@ def get_vfm_config(
         )
     )
 
-    # Val dataset
     cfg.val_dataloader = dict(
+        batch_size=1,
+        num_workers=2,
+        persistent_workers=True,
+        pin_memory=True,
+        drop_last=False,
+        sampler=dict(type='DefaultSampler', shuffle=False),
         dataset=dict(
+            _delete_=True,
             type='MultiModalDataset',
             dataset=dict(
                 type='YOLOv5CocoDataset',
@@ -253,19 +404,28 @@ def get_vfm_config(
     )
     cfg.test_dataloader = cfg.val_dataloader
 
-    # Training settings
+    # ============================================================
+    # Training Configuration
+    # ============================================================
+    cfg.default_scope = 'mmyolo'
+
     cfg.default_hooks = dict(
+        timer=dict(type='IterTimerHook'),
+        logger=dict(type='LoggerHook', interval=50),
         param_scheduler=dict(
+            type='YOLOv5ParamSchedulerHook',
             scheduler_type='linear',
             lr_factor=0.01,
             max_epochs=epochs
         ),
         checkpoint=dict(
+            type='CheckpointHook',
+            interval=save_epoch_intervals,
             max_keep_ckpts=-1,
-            save_best='coco/bbox_mAP',
-            rule='greater',
-            interval=save_epoch_intervals
-        )
+            save_best=None
+        ),
+        sampler_seed=dict(type='DistSamplerSeedHook'),
+        visualization=dict(type='mmdet.DetVisualizationHook')
     )
 
     cfg.custom_hooks = [
@@ -285,12 +445,18 @@ def get_vfm_config(
     ]
 
     cfg.train_cfg = dict(
+        type='EpochBasedTrainLoop',
         max_epochs=epochs,
         val_interval=val_interval,
-        dynamic_intervals=[((epochs - close_mosaic_epochs), val_interval_stage2)]
+        dynamic_intervals=[(epochs - close_mosaic_epochs, 1)]
     )
+    cfg.val_cfg = dict(type='ValLoop')
+    cfg.test_cfg = dict(type='TestLoop')
 
     cfg.optim_wrapper = dict(
+        type='AmpOptimWrapper',
+        loss_scale='dynamic',
+        clip_grad=dict(max_norm=10.0),
         optimizer=dict(
             type='AdamW',
             lr=learning_rate,
@@ -306,18 +472,45 @@ def get_vfm_config(
         constructor='YOLOWv5OptimizerConstructor'
     )
 
-    # Evaluation settings
+    cfg.param_scheduler = None
+
+    # ============================================================
+    # Evaluation Configuration
+    # ============================================================
     cfg.val_evaluator = dict(
         type='mmdet.CocoMetric',
-        proposal_nums=(100, 1, 10),
-        ann_file=ann_file_val,
+        ann_file=f'{dataset_dir}/{ann_file_val}',
         metric='bbox',
-        classwise=True
+        classwise=True,
+        proposal_nums=(100, 1, 10)
     )
     cfg.test_evaluator = cfg.val_evaluator
 
-    # Pretrained model and work directory
+    # ============================================================
+    # Environment Configuration
+    # ============================================================
+    cfg.env_cfg = dict(
+        cudnn_benchmark=True,
+        mp_cfg=dict(mp_start_method='fork', opencv_num_threads=0),
+        dist_cfg=dict(backend='nccl')
+    )
+
+    cfg.log_level = 'INFO'
+    cfg.log_processor = dict(type='LogProcessor', window_size=50, by_epoch=True)
+
+    cfg.visualizer = dict(
+        type='mmdet.DetLocalVisualizer',
+        name='visualizer',
+        vis_backends=[dict(type='LocalVisBackend')]
+    )
+
+    cfg.vis_backends = [dict(type='LocalVisBackend')]
+
+    # ============================================================
+    # Load & Save Configuration
+    # ============================================================
     cfg.load_from = pretrained_path
     cfg.work_dir = work_dir
+    cfg.resume = False
 
     return cfg
