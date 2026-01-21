@@ -1,5 +1,6 @@
 # VFM-v1 Trainer (Vision Foundation Model based on YOLO World)
-# Build: docker build -t trainer-vfm-v1:latest .
+# Build from platform/ directory:
+#   docker build -f trainers/vfm-v1/Dockerfile -t trainer-vfm-v1:latest .
 # Run: docker run --gpus all --env-file .env trainer-vfm-v1:latest python train.py --job-id 123 ...
 
 # ============================================
@@ -58,7 +59,7 @@ RUN pip3 install --no-cache-dir \
     pyyaml>=6.0
 
 # Copy VFM source code and install
-COPY . /app/vfm-v1
+COPY trainers/vfm-v1 /app/vfm-v1
 WORKDIR /app/vfm-v1
 RUN pip3 install -e .
 
@@ -95,10 +96,12 @@ COPY --from=builder /app/vfm-v1 /app/vfm-v1
 WORKDIR /app/vfm-v1
 
 # Copy trainer scripts (overwrite with latest)
-COPY train.py .
-COPY trainer_sdk.py .
-COPY capabilities.json .
-COPY requirements.txt .
+COPY trainers/vfm-v1/train.py .
+COPY trainers/vfm-v1/capabilities.json .
+COPY trainers/vfm-v1/requirements.txt .
+
+# Copy unified SDK from shared location
+COPY trainer-sdk/trainer_sdk.py .
 
 # Create directories for data and outputs
 RUN mkdir -p /app/data /app/outputs /app/checkpoints /tmp/training

@@ -1,9 +1,10 @@
 # MMDetection Trainer
-# Build: docker build -t trainer-mmdet:latest .
+# Build from platform/ directory:
+#   docker build -f trainers/mmdet/Dockerfile -t trainer-mmdet:latest .
 # Run: docker run --env-file .env trainer-mmdet:latest python train.py --job-id 123 ...
 #
 # For GPU support (recommended):
-# docker run --gpus all --env-file .env trainer-mmdet:latest python train.py ...
+#   docker run --gpus all --env-file .env trainer-mmdet:latest python train.py ...
 
 ARG REGISTRY_MIRROR=
 ARG PYTORCH_VERSION=2.1.0
@@ -35,7 +36,7 @@ RUN pip install --no-cache-dir openmim && \
     mim install "mmdet>=3.3.0"
 
 # Copy dependency files
-COPY pyproject.toml .
+COPY trainers/mmdet/pyproject.toml .
 
 # Install remaining dependencies
 RUN uv pip install --system --no-cache ".[export]"
@@ -62,9 +63,11 @@ COPY --from=builder /opt/conda/lib/python3.10/site-packages /opt/conda/lib/pytho
 COPY --from=builder /opt/conda/bin /opt/conda/bin
 
 # Copy trainer code
-COPY train.py .
-COPY trainer_sdk.py .
-COPY capabilities.json .
+COPY trainers/mmdet/train.py .
+COPY trainers/mmdet/capabilities.json .
+
+# Copy unified SDK from shared location
+COPY trainer-sdk/trainer_sdk.py .
 
 # Create directories
 RUN mkdir -p /app/data /app/outputs /app/checkpoints /app/configs
