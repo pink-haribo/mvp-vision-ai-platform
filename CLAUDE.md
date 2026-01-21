@@ -274,9 +274,10 @@ pnpm dev
 cd platform/backend
 poetry run python -m app.workflows.worker
 
-# Build Trainer Images
-cd platform/trainers/ultralytics
-docker build -t trainer-ultralytics:latest .
+# Build Trainer Images (from platform/ directory)
+cd platform
+docker build -f trainers/ultralytics/Dockerfile -t trainer-ultralytics:latest .
+docker build -f trainers/vfm-v1/Dockerfile -t trainer-vfm-v1:latest .
 ```
 
 ### Infrastructure (Docker Compose)
@@ -441,6 +442,51 @@ Data Service can convert between formats using `convert_format()` method.
 - Custom Docker Images
 
 Each framework has its own adapter implementing the `ModelAdapter` interface.
+
+### Trainer SDK (Unified)
+
+All trainers share a single SDK located at `platform/trainer-sdk/trainer_sdk.py`. This eliminates code duplication (~15,000 lines) and ensures consistent behavior across all frameworks.
+
+**Key Features:**
+- Lifecycle management: `report_started()`, `report_progress()`, `report_completed()`, `report_failed()`
+- Storage operations: Upload/download checkpoints, datasets with caching
+- Dataset conversion: DICE → YOLO (Ultralytics, mmyolo) and DICE → COCO (MMDet, VFM)
+- ClearML integration for metrics logging
+
+**Build Context Change (Important):**
+
+All trainer Docker images must be built from the `platform/` directory:
+
+```bash
+# Correct (from platform/ directory)
+cd platform
+docker build -f trainers/ultralytics/Dockerfile -t trainer-ultralytics:latest .
+docker build -f trainers/vfm-v1/Dockerfile -t trainer-vfm-v1:latest .
+docker build -f trainers/mmdet/Dockerfile -t trainer-mmdet:latest .
+
+# Wrong (old method - no longer works)
+# cd platform/trainers/ultralytics && docker build -t trainer-ultralytics .
+```
+
+**Usage in train.py:**
+```python
+from trainer_sdk import TrainerSDK, ErrorType
+
+sdk = TrainerSDK()
+sdk.report_started()
+
+# Download and convert dataset
+dataset_dir = sdk.download_dataset_with_cache(...)
+sdk.convert_dataset(dataset_dir, 'dice', 'yolo')  # or 'coco' for MMDet/VFM
+
+# Training loop
+for epoch in range(epochs):
+    sdk.report_progress(epoch, epochs, metrics)
+
+sdk.report_completed(final_metrics, checkpoints={'best': best_uri})
+```
+
+See `platform/trainer-sdk/README.md` for full documentation.
 
 ### Model Export & Deployment
 

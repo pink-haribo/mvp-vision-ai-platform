@@ -1,5 +1,6 @@
 # MMSegmentation Trainer (Semantic Segmentation)
-# Build: docker build -t trainer-mmseg:latest .
+# Build from platform/ directory:
+#   docker build -f trainers/mmseg/Dockerfile -t trainer-mmseg:latest .
 # Run: docker run --gpus all --env-file .env trainer-mmseg:latest python train.py ...
 
 ARG REGISTRY_MIRROR=
@@ -32,7 +33,7 @@ RUN pip install --no-cache-dir openmim && \
     mim install "mmsegmentation>=1.2.0"
 
 # Copy dependency files
-COPY pyproject.toml .
+COPY trainers/mmseg/pyproject.toml .
 
 # Install remaining dependencies
 RUN uv pip install --system --no-cache ".[export]"
@@ -59,9 +60,11 @@ COPY --from=builder /opt/conda/lib/python3.10/site-packages /opt/conda/lib/pytho
 COPY --from=builder /opt/conda/bin /opt/conda/bin
 
 # Copy trainer code
-COPY train.py .
-COPY trainer_sdk.py .
-COPY capabilities.json .
+COPY trainers/mmseg/train.py .
+COPY trainers/mmseg/capabilities.json .
+
+# Copy unified SDK from shared location
+COPY trainer-sdk/trainer_sdk.py .
 
 # Create directories
 RUN mkdir -p /app/data /app/outputs /app/checkpoints /app/configs

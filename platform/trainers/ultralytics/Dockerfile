@@ -1,9 +1,10 @@
 # Ultralytics YOLO Trainer
-# Build: docker build -t trainer-ultralytics:latest .
+# Build from platform/ directory:
+#   docker build -f trainers/ultralytics/Dockerfile -t trainer-ultralytics:latest .
 # Run: docker run --env-file .env trainer-ultralytics:latest python train.py --job-id 123 ...
 #
 # For GPU support, use NVIDIA base image:
-# docker build -f Dockerfile.gpu -t trainer-ultralytics:gpu .
+#   docker build -f trainers/ultralytics/Dockerfile.gpu -t trainer-ultralytics:gpu .
 
 ARG REGISTRY_MIRROR=
 
@@ -25,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Copy dependency files first (for better caching)
-COPY pyproject.toml .
+COPY trainers/ultralytics/pyproject.toml .
 
 # Install all dependencies including export extras using uv
 RUN uv pip install --system --no-cache ".[export]"
@@ -52,18 +53,20 @@ COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy all trainer code
-COPY train.py .
-COPY export.py .
-COPY predict.py .
-COPY evaluate.py .
-COPY utils.py .
-COPY config_schema.py .
-COPY trainer_sdk.py .
-COPY validate_capabilities.py .
+COPY trainers/ultralytics/train.py .
+COPY trainers/ultralytics/export.py .
+COPY trainers/ultralytics/predict.py .
+COPY trainers/ultralytics/evaluate.py .
+COPY trainers/ultralytics/utils.py .
+COPY trainers/ultralytics/config_schema.py .
+COPY trainers/ultralytics/validate_capabilities.py .
+
+# Copy unified SDK from shared location
+COPY trainer-sdk/trainer_sdk.py .
 
 # Copy configuration and runtime files
-COPY capabilities.json .
-COPY runtimes/ ./runtimes/
+COPY trainers/ultralytics/capabilities.json .
+COPY trainers/ultralytics/runtimes/ ./runtimes/
 
 # Create directories for data and outputs
 RUN mkdir -p /app/data /app/outputs /app/checkpoints

@@ -1,9 +1,10 @@
 # Timm (PyTorch Image Models) Trainer
-# Build: docker build -t trainer-timm:latest .
+# Build from platform/ directory:
+#   docker build -f trainers/timm/Dockerfile -t trainer-timm:latest .
 # Run: docker run --env-file .env trainer-timm:latest python train.py --job-id 123 ...
 #
 # For GPU support, use NVIDIA base image:
-# docker build -f Dockerfile.gpu -t trainer-timm:gpu .
+#   docker build -f trainers/timm/Dockerfile.gpu -t trainer-timm:gpu .
 
 ARG REGISTRY_MIRROR=
 
@@ -25,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Copy dependency files first (for better caching)
-COPY pyproject.toml .
+COPY trainers/timm/pyproject.toml .
 
 # Install all dependencies including export extras using uv
 RUN uv pip install --system --no-cache ".[export]"
@@ -52,8 +53,11 @@ COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy all trainer code
-COPY *.py ./
-COPY capabilities.json .
+COPY trainers/timm/train.py .
+COPY trainers/timm/capabilities.json .
+
+# Copy unified SDK from shared location
+COPY trainer-sdk/trainer_sdk.py .
 
 # Create directories for data and outputs
 RUN mkdir -p /app/data /app/outputs /app/checkpoints
