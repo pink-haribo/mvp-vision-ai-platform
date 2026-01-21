@@ -840,6 +840,175 @@ class TrainerSDK:
         """Download single file from S3"""
         self.external_storage.download_file(s3_key, local_path)
 
+    def download_dataset_from_annotation(
+        self,
+        annotation_data: Dict[str, Any],
+        dest_dir: str,
+        format_type: str = 'labelme'
+    ) -> str:
+        """
+        Download dataset based on annotation data content.
+
+        This function downloads images and labels based on the paths specified
+        in the annotation data, rather than from a predefined dataset structure.
+
+        Args:
+            annotation_data: Annotation data dict (parsed from annotation.json)
+            dest_dir: Destination directory for downloaded files
+            format_type: Annotation format type ('labelme', 'coco')
+
+        Returns:
+            Path to the downloaded dataset directory
+
+        Raises:
+            ValueError: If format_type is not supported
+        """
+        if format_type == 'labelme':
+            return self._download_labelme_format(annotation_data, dest_dir)
+        elif format_type == 'coco':
+            return self._download_coco_format(annotation_data, dest_dir)
+        else:
+            raise ValueError(f"Unsupported annotation format: {format_type}")
+
+    def _parse_s3_uri(self, s3_uri: str) -> Tuple[str, str]:
+        """
+        Parse S3 URI to extract bucket and key.
+
+        Args:
+            s3_uri: Full S3 URI (e.g., 's3://bucket-name/path/to/file')
+
+        Returns:
+            Tuple of (bucket, key)
+
+        Raises:
+            ValueError: If URI format is invalid
+        """
+        if not s3_uri.startswith('s3://'):
+            raise ValueError(f"Invalid S3 URI format: {s3_uri}")
+
+        path = s3_uri[5:]  # Remove 's3://'
+        parts = path.split('/', 1)
+
+        if len(parts) != 2:
+            raise ValueError(f"Invalid S3 URI format (missing key): {s3_uri}")
+
+        bucket, key = parts
+        return bucket, key
+
+    def _download_labelme_format(
+        self,
+        annotation_data: Dict[str, Any],
+        dest_dir: str
+    ) -> str:
+        """
+        Download dataset from LabelMe format annotation data.
+
+        LabelMe format:
+        {
+            "data_summary": [
+                {"img_path": "s3://bucket/path/image.jpg", "label_path": "s3://bucket/path/label.json"},
+                ...
+            ]
+        }
+
+        Args:
+            annotation_data: LabelMe annotation data dict
+            dest_dir: Destination directory
+
+        Returns:
+            Path to the downloaded dataset directory
+        """
+        dest_path = Path(dest_dir)
+        images_dir = dest_path / "images"
+        labels_dir = dest_path / "labels"
+
+        images_dir.mkdir(parents=True, exist_ok=True)
+        labels_dir.mkdir(parents=True, exist_ok=True)
+
+        data_summary = annotation_data.get('data_summary', [])
+
+        if not data_summary:
+            raise ValueError("No data_summary found in annotation data")
+
+        logger.info(f"Downloading LabelMe dataset: {len(data_summary)} items")
+
+        download_tasks = []
+        for item in data_summary:
+            img_path = item.get('img_path')
+            label_path = item.get('label_path')
+
+            if img_path:
+                _, img_key = self._parse_s3_uri(img_path)
+                img_filename = Path(img_key).name
+                local_img_path = images_dir / img_filename
+                download_tasks.append(('image', img_key, str(local_img_path)))
+
+            if label_path:
+                _, label_key = self._parse_s3_uri(label_path)
+                label_filename = Path(label_key).name
+                local_label_path = labels_dir / label_filename
+                download_tasks.append(('label', label_key, str(local_label_path)))
+
+        completed = 0
+        failed = 0
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {}
+            for task_type, s3_key, local_path in download_tasks:
+                future = executor.submit(self._download_single_file, s3_key, local_path)
+                futures[future] = (task_type, s3_key, local_path)
+
+            for future in as_completed(futures):
+                task_type, s3_key, local_path = futures[future]
+                try:
+                    future.result()
+                    completed += 1
+                    if completed % 20 == 0:
+                        logger.info(f"Downloaded {completed}/{len(download_tasks)} files")
+                except Exception as e:
+                    failed += 1
+                    logger.error(f"Failed to download {task_type} {s3_key}: {e}")
+
+        if failed > 0:
+            raise RuntimeError(f"Failed to download {failed} files")
+
+        logger.info(
+            f"LabelMe dataset download completed: "
+            f"{len(data_summary)} items ({completed} files)"
+        )
+
+        return str(dest_path)
+
+    def _download_coco_format(
+        self,
+        annotation_data: Dict[str, Any],
+        dest_dir: str
+    ) -> str:
+        """
+        Download dataset from COCO format annotation data.
+
+        COCO format:
+        {
+            "images": [{"id": 1, "file_name": "s3://bucket/path/image.jpg", ...}, ...],
+            "annotations": [...],
+            "categories": [...]
+        }
+
+        Args:
+            annotation_data: COCO annotation data dict
+            dest_dir: Destination directory
+
+        Returns:
+            Path to the downloaded dataset directory
+
+        Note:
+            This is a placeholder for future implementation.
+        """
+        raise NotImplementedError(
+            "COCO format download is not yet implemented. "
+            "Use 'labelme' format_type for now."
+        )
+
     # =========================================================================
     # Dataset Caching Methods (Phase 12.9)
     # =========================================================================

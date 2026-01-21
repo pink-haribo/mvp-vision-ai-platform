@@ -21,6 +21,13 @@ This SDK provides a single, consistent interface for all trainers to communicate
 | dice | yolo | Ultralytics YOLO, mmyolo |
 | dice | coco | MMDetection, VFM, mmpretrain, mmseg |
 
+## Supported Annotation Formats (for `download_dataset_from_annotation`)
+
+| Format | Description |
+|--------|-------------|
+| labelme | LabelMe format with `data_summary` containing S3 URIs |
+| coco | COCO format (planned) |
+
 ## Usage
 
 ```python
@@ -37,6 +44,19 @@ dataset_dir = sdk.download_dataset_with_cache(
     dest_dir='/tmp/training/123'
 )
 sdk.convert_dataset(dataset_dir, 'dice', 'yolo')  # or 'coco'
+
+# OR: Download from annotation data (LabelMe format)
+annotation_data = {
+    "data_summary": [
+        {"img_path": "s3://bucket/images/001.jpg", "label_path": "s3://bucket/labels/001.json"},
+        {"img_path": "s3://bucket/images/002.jpg", "label_path": "s3://bucket/labels/002.json"},
+    ]
+}
+dataset_dir = sdk.download_dataset_from_annotation(
+    annotation_data=annotation_data,
+    dest_dir='/tmp/training/123',
+    format_type='labelme'
+)
 
 # Training loop
 for epoch in range(1, epochs + 1):
