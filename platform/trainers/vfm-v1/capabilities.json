@@ -1,6 +1,6 @@
 {
   "framework": "vfm-v1",
-  "framework_version": "0.1.0",
+  "version": "1.0.0",
   "display_name": "VFM v1 (Vision Foundation Model)",
   "description": "YOLO World based Vision Foundation Model for open-vocabulary object detection",
   "supported_task_types": ["detection", "open_vocabulary_detection"],
