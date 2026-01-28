@@ -63,6 +63,7 @@ const FRAMEWORK_LABELS: Record<string, string> = {
   'mmpretrain': 'MMPreTrain',
   'mmseg': 'MMSegmentation',
   'mmyolo': 'MMYOLO',
+  'vfm-v1': 'VFM v1',
 }
 
 export default function ModelCard({

@@ -85,7 +85,7 @@ def get_all_models() -> List[Dict[str, Any]]:
     Returns:
         List of all model dictionaries
     """
-    known_frameworks = ["ultralytics", "timm", "huggingface", "mmdet", "mmpretrain", "mmseg", "mmyolo"]
+    known_frameworks = ["ultralytics", "timm", "huggingface", "mmdet", "mmpretrain", "mmseg", "mmyolo", "vfm-v1"]
     all_models = []
 
     for framework in known_frameworks:

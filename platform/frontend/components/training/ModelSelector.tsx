@@ -21,6 +21,7 @@ const FILTER_OPTIONS = {
     { value: 'mmpretrain', label: 'MMPreTrain' },
     { value: 'mmseg', label: 'MMSegmentation' },
     { value: 'mmyolo', label: 'MMYOLO' },
+    { value: 'vfm-v1', label: 'VFM v1' },
   ],
   taskType: [
     { value: 'detection', label: '객체 탐지' },
